@@ -115,7 +115,7 @@ Operation types: `bind`, `unbind`, `add`, `delete`, `modify`, `modrdn`, `compare
 
 ```yaml
 openldap-exporter:
-  image: openldap-exporter:latest
+  image: ghcr.io/MaximeWewer/OpenLDAP_prometheus_exporter:latest
   ports:
     - "9330:9330"
   environment:
@@ -138,14 +138,13 @@ openldap-exporter:
 ### Docker
 
 ```bash
-docker build -t openldap-exporter:latest .
 docker run -p 9330:9330 \
   -e LDAP_URL=ldap://myldap.domain.com:389 \
   -e LDAP_USERNAME=cn=adminconfig,cn=config \
   -e LDAP_PASSWORD=secret \
   -e LDAP_SERVER_NAME=ldap-prod-01 \
   -e LOG_LEVEL=INFO \
-  openldap-exporter:latest
+  ghcr.io/MaximeWewer/OpenLDAP_prometheus_exporter:latest
 ```
 
 ## Endpoints
