@@ -13,11 +13,12 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  generate-version:
+  prepare-build:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
       year_month: ${{ steps.version.outputs.year_month }}
+      name_lower: ${{ steps.repo.outputs.name_lower }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -53,8 +54,15 @@ jobs:
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "year_month=$(echo $VERSION | cut -d'.' -f1,2)" >> $GITHUB_OUTPUT
 
+    - name: Convert repository name to lowercase
+      id: repo
+      run: |
+        REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+        echo "Repository name converted to lowercase: $REPO_LOWER"
+        echo "name_lower=$REPO_LOWER" >> $GITHUB_OUTPUT
+
   build-and-push-docker:
-    needs: generate-version
+    needs: prepare-build
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -77,14 +85,14 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        images: ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}
         tags: |
-          type=raw,value=${{ needs.generate-version.outputs.version }}
+          type=raw,value=${{ needs.prepare-build.outputs.version }}
           type=raw,value=latest
         labels: |
           org.opencontainers.image.title=OpenLDAP Exporter
           org.opencontainers.image.description=Prometheus exporter for OpenLDAP
-          org.opencontainers.image.version=${{ needs.generate-version.outputs.version }}
+          org.opencontainers.image.version=${{ needs.prepare-build.outputs.version }}
           org.opencontainers.image.vendor=Maxime Wewer
           org.opencontainers.image.licenses=MIT
           org.opencontainers.image.source=https://github.com/${{ github.repository }}
@@ -100,14 +108,14 @@ jobs:
         platforms: linux/amd64,linux/arm64
         push: true
         build-args: |
-          VERSION=${{ needs.generate-version.outputs.version }}
+          VERSION=${{ needs.prepare-build.outputs.version }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
   create-release:
-    needs: [ generate-version, build-and-push-docker ]
+    needs: [ prepare-build, build-and-push-docker ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -197,23 +205,23 @@ jobs:
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-        git tag -a "v${{ needs.generate-version.outputs.version }}" -m "Release version ${{ needs.generate-version.outputs.version }}"
-        git push origin "v${{ needs.generate-version.outputs.version }}"
+        git tag -a "v${{ needs.prepare-build.outputs.version }}" -m "Release version ${{ needs.prepare-build.outputs.version }}"
+        git push origin "v${{ needs.prepare-build.outputs.version }}"
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: v${{ needs.generate-version.outputs.version }}
-        name: Release ${{ needs.generate-version.outputs.version }}
+        tag_name: v${{ needs.prepare-build.outputs.version }}
+        name: Release ${{ needs.prepare-build.outputs.version }}
         body: |
-          ## OpenLDAP Prometheus Exporter v${{ needs.generate-version.outputs.version }}
+          ## OpenLDAP Prometheus Exporter v${{ needs.prepare-build.outputs.version }}
 
           ### Docker Images
 
           ```bash
           # Pull the latest version
-          docker pull ${{ env.REGISTRY }}/${{ github.repository | lower }}:${{ needs.generate-version.outputs.version }}
-          docker pull ${{ env.REGISTRY }}/${{ github.repository | lower }}:latest
+          docker pull ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}
+          docker pull ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:latest
           ```
 
           ### Changes
@@ -222,6 +230,6 @@ jobs:
 
           ---
 
-          **Full Changelog**: https://github.com/${{ github.repository }}/commits/v${{ needs.generate-version.outputs.version }}
+          **Full Changelog**: https://github.com/${{ github.repository }}/commits/v${{ needs.prepare-build.outputs.version }}
         draft: false
         prerelease: false
