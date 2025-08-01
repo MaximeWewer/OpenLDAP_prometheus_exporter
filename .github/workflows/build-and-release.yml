@@ -108,7 +108,17 @@ jobs:
           org.opencontainers.image.source=https://github.com/${{ github.repository }}
           org.opencontainers.image.url=https://github.com/${{ github.repository }}
           org.opencontainers.image.documentation=https://github.com/${{ github.repository }}
-          org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss' tz='Europe/Paris'}}
+          org.opencontainers.image.created={{ commit_date 'YYYY-MM-DDTHH:mm:ss' tz='Europe/Paris' }}
+          org.opencontainers.image.revision=${{ github.sha }}
+        annotations: |
+          org.opencontainers.image.title=OpenLDAP Exporter
+          org.opencontainers.image.version=${{ needs.prepare-build.outputs.version }}
+          org.opencontainers.image.vendor=Maxime Wewer
+          org.opencontainers.image.licenses=MIT
+          org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          org.opencontainers.image.url=https://github.com/${{ github.repository }}
+          org.opencontainers.image.documentation=https://github.com/${{ github.repository }}
+          org.opencontainers.image.created={{ commit_date 'YYYY-MM-DDTHH:mm:ss' tz='Europe/Paris' }}
           org.opencontainers.image.revision=${{ github.sha }}
 
     - name: Build and push Docker image
@@ -117,10 +127,15 @@ jobs:
         context: .
         platforms: linux/amd64,linux/arm64
         push: true
+        provenance: false
+        sbom: false
         build-args: |
           VERSION=${{ needs.prepare-build.outputs.version }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        annotations: |
+          ${{ steps.meta.outputs.annotations }}
+          manifest-descriptor:org.opencontainers.image.description=Prometheus exporter for OpenLDAP for {{ARCH}}
         # cache-from: type=gha
         # cache-to: type=gha,mode=max
 
@@ -179,13 +194,13 @@ jobs:
             # Combine PRs and commits
             CHANGELOG_CONTENT=""
             if [ -n "$PR_LIST" ]; then
-              CHANGELOG_CONTENT="### Pull Requests"$'\n'"$PR_LIST"
+              CHANGELOG_CONTENT="#### Pull Requests"$'\n'"$PR_LIST"
             fi
             if [ -n "$COMMITS_LIST" ]; then
               if [ -n "$CHANGELOG_CONTENT" ]; then
-                CHANGELOG_CONTENT="$CHANGELOG_CONTENT"$'\n\n'"### Commits"$'\n'"$COMMITS_LIST"
+                CHANGELOG_CONTENT="$CHANGELOG_CONTENT"$'\n\n'"#### Commits"$'\n'"$COMMITS_LIST"
               else
-                CHANGELOG_CONTENT="### Commits"$'\n'"$COMMITS_LIST"
+                CHANGELOG_CONTENT="#### Commits"$'\n'"$COMMITS_LIST"
               fi
             fi
             
@@ -197,11 +212,11 @@ jobs:
 
         # For first release case, combine PRs and commits
         if [ -z "$LATEST_TAG" ] && [ -n "$PR_LIST" ] && [ -n "$COMMITS_LIST" ]; then
-          CHANGELOG_CONTENT="### Pull Requests"$'\n'"$PR_LIST"$'\n\n'"### Commits"$'\n'"$COMMITS_LIST"
+          CHANGELOG_CONTENT="#### Pull Requests"$'\n'"$PR_LIST"$'\n\n'"#### Commits"$'\n'"$COMMITS_LIST"
         elif [ -z "$LATEST_TAG" ] && [ -n "$PR_LIST" ]; then
-          CHANGELOG_CONTENT="### Pull Requests"$'\n'"$PR_LIST"
+          CHANGELOG_CONTENT="#### Pull Requests"$'\n'"$PR_LIST"
         elif [ -z "$LATEST_TAG" ] && [ -n "$COMMITS_LIST" ]; then
-          CHANGELOG_CONTENT="### Commits"$'\n'"$COMMITS_LIST"
+          CHANGELOG_CONTENT="#### Commits"$'\n'"$COMMITS_LIST"
         elif [ -z "$LATEST_TAG" ]; then
           CHANGELOG_CONTENT="Initial release"
         fi
@@ -210,13 +225,14 @@ jobs:
         echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
         echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
-
-    - name: Create Git tag
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git tag -a "v${{ needs.prepare-build.outputs.version }}" -m "Release version ${{ needs.prepare-build.outputs.version }}"
-        git push origin "v${{ needs.prepare-build.outputs.version }}"
+        
+        # Save comparison URL for Full Changelog link
+        if [ -n "$LATEST_TAG" ]; then
+          COMPARISON_URL="https://github.com/${{ github.repository }}/compare/${LATEST_TAG}...v${{ needs.prepare-build.outputs.version }}"
+        else
+          COMPARISON_URL="https://github.com/${{ github.repository }}/commits/v${{ needs.prepare-build.outputs.version }}"
+        fi
+        echo "COMPARISON_URL=$COMPARISON_URL" >> $GITHUB_OUTPUT
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
@@ -240,6 +256,6 @@ jobs:
 
           ---
 
-          **Full Changelog**: https://github.com/${{ github.repository }}/commits/v${{ needs.prepare-build.outputs.version }}
+          **Full Changelog**: ${{ steps.changelog.outputs.COMPARISON_URL }}
         draft: false
         prerelease: false
