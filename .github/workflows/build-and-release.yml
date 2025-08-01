@@ -123,8 +123,11 @@ jobs:
           VERSION=${{ needs.prepare-build.outputs.version }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        annotations: |
-          org.opencontainers.image.description=Prometheus exporter for OpenLDAP
+        outputs: |
+          type=image,name=target,
+          annotation-index.org.opencontainers.image.description=Prometheus exporter for OpenLDAP,
+          annotation-index.org.opencontainers.image.source=https://github.com/${{ github.repository }},
+          annotation-index.org.opencontainers.image.licenses=MIT
         # cache-from: type=gha
         # cache-to: type=gha,mode=max
 
