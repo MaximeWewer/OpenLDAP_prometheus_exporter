@@ -81,6 +81,17 @@ jobs:
         tags: |
           type=raw,value=${{ needs.generate-version.outputs.version }}
           type=raw,value=latest
+        labels: |
+          org.opencontainers.image.title=OpenLDAP Exporter
+          org.opencontainers.image.description=Prometheus exporter for OpenLDAP
+          org.opencontainers.image.version=${{ needs.generate-version.outputs.version }}
+          org.opencontainers.image.vendor=Maxime Wewer
+          org.opencontainers.image.licenses=MIT
+          org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          org.opencontainers.image.url=https://github.com/${{ github.repository }}
+          org.opencontainers.image.documentation=https://github.com/${{ github.repository }}
+          org.opencontainers.image.created={{date 'rfc3339'}}
+          org.opencontainers.image.revision=${{ github.sha }}
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
@@ -106,7 +117,7 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Generate changelog from PRs
+    - name: Generate changelog from PRs and commits
       id: changelog
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -115,37 +126,71 @@ jobs:
         LATEST_TAG=$(git tag -l --sort=-version:refname | head -n 1)
 
         if [ -z "$LATEST_TAG" ]; then
-          # No previous tag, get all PRs
-          echo "No previous tag found, generating changelog from all merged PRs"
-          PR_LIST=$(gh pr list --state merged --limit 25 --json number,title,url --jq '.[] | "- [#\(.number)] \(.title) (\(.url))"')
+          # No previous tag, get recent PRs and commits
+          echo "No previous tag found, generating changelog from recent merged PRs and commits"
+          PR_LIST=$(gh pr list --state merged --limit 10 --json number,title,url --jq '.[] | "- **PR [#\(.number)](\(.url))**: \(.title)"')
+          COMMITS_LIST=$(git log --oneline --grep="Merge pull request" --invert-grep --max-count=10 | sed 's/^[a-f0-9]\+ /- **Commit**: /')
         else
-          echo "Getting PRs since tag: $LATEST_TAG"
+          echo "Getting changes since tag: $LATEST_TAG"
           # Get commit range since last tag
           COMMITS_SINCE_TAG=$(git rev-list ${LATEST_TAG}..HEAD --oneline)
           
           if [ -z "$COMMITS_SINCE_TAG" ]; then
-            PR_LIST="No new changes since last release."
+            CHANGELOG_CONTENT="No new changes since last release."
           else
             # Extract PR numbers from commit messages and get PR details
             PR_NUMBERS=$(git log ${LATEST_TAG}..HEAD --oneline --grep="Merge pull request" | grep -o "#[0-9]\+" | sed 's/#//' | sort -u)
             
-            if [ -z "$PR_NUMBERS" ]; then
-              # If no PR merge commits found, list commits instead
-              PR_LIST=$(echo "$COMMITS_SINCE_TAG" | sed 's/^/- /')
-            else
-              # Get PR details for each PR number
-              PR_LIST=""
+            # Get PR details (limit to 10 most recent)
+            PR_LIST=""
+            if [ -n "$PR_NUMBERS" ]; then
+              PR_COUNT=0
               for pr_num in $PR_NUMBERS; do
-                pr_info=$(gh pr view $pr_num --json number,title,url --jq '"- [#" + (.number|tostring) + "] " + .title + " (" + .url + ")"' 2>/dev/null || echo "- [#$pr_num] PR details not available")
+                if [ $PR_COUNT -ge 10 ]; then
+                  break
+                fi
+                pr_info=$(gh pr view $pr_num --json number,title,url --jq '"- **PR [#" + (.number|tostring) + "](" + .url + ")**: " + .title' 2>/dev/null || echo "- **PR [#$pr_num]**: PR details not available")
                 PR_LIST="$PR_LIST$pr_info"$'\n'
+                PR_COUNT=$((PR_COUNT + 1))
               done
+            fi
+            
+            # Get commits (not PR merges, limit to 10 most recent)
+            COMMITS_LIST=$(git log ${LATEST_TAG}..HEAD --oneline --grep="Merge pull request" --invert-grep --max-count=10 | sed 's/^[a-f0-9]\+ /- **Commit**: /')
+            
+            # Combine PRs and commits
+            CHANGELOG_CONTENT=""
+            if [ -n "$PR_LIST" ]; then
+              CHANGELOG_CONTENT="### Pull Requests"$'\n'"$PR_LIST"
+            fi
+            if [ -n "$COMMITS_LIST" ]; then
+              if [ -n "$CHANGELOG_CONTENT" ]; then
+                CHANGELOG_CONTENT="$CHANGELOG_CONTENT"$'\n\n'"### Commits"$'\n'"$COMMITS_LIST"
+              else
+                CHANGELOG_CONTENT="### Commits"$'\n'"$COMMITS_LIST"
+              fi
+            fi
+            
+            if [ -z "$CHANGELOG_CONTENT" ]; then
+              CHANGELOG_CONTENT="No changes found."
             fi
           fi
         fi
 
+        # For first release case, combine PRs and commits
+        if [ -z "$LATEST_TAG" ] && [ -n "$PR_LIST" ] && [ -n "$COMMITS_LIST" ]; then
+          CHANGELOG_CONTENT="### Pull Requests"$'\n'"$PR_LIST"$'\n\n'"### Commits"$'\n'"$COMMITS_LIST"
+        elif [ -z "$LATEST_TAG" ] && [ -n "$PR_LIST" ]; then
+          CHANGELOG_CONTENT="### Pull Requests"$'\n'"$PR_LIST"
+        elif [ -z "$LATEST_TAG" ] && [ -n "$COMMITS_LIST" ]; then
+          CHANGELOG_CONTENT="### Commits"$'\n'"$COMMITS_LIST"
+        elif [ -z "$LATEST_TAG" ]; then
+          CHANGELOG_CONTENT="Initial release"
+        fi
+
         # Save changelog to output
         echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-        echo "$PR_LIST" >> $GITHUB_OUTPUT
+        echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Create Git tag
@@ -167,8 +212,8 @@ jobs:
 
           ```bash
           # Pull the latest version
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.generate-version.outputs.version }}
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker pull ${{ env.REGISTRY }}/${{ github.repository | lower }}:${{ needs.generate-version.outputs.version }}
+          docker pull ${{ env.REGISTRY }}/${{ github.repository | lower }}:latest
           ```
 
           ### Changes

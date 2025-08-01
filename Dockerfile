@@ -5,7 +5,11 @@
 ARG VERSION="dev"
 
 # Build stage with Go 1.24
-FROM golang:1.24-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
+
+# Declare build arguments for cross-compilation
+ARG TARGETOS
+ARG TARGETARCH
 
 # Install security updates and build dependencies
 RUN apk update && \
@@ -34,13 +38,13 @@ ARG VERSION
 
 # Build the binary with security-focused flags
 # - CGO_ENABLED=0: Disable CGO for static binary
-# - GOOS=linux GOARCH=amd64: Target platform
+# - GOOS/GOARCH: Use Docker Buildx automatic platform detection
 # - -a: Force rebuilding of packages
 # - -installsuffix cgo: Use different install suffix
 # - -ldflags: Linker flags for smaller binary and version info
 # - -trimpath: Remove file system paths from binary
 # - -tags netgo: Use pure Go networking stack  
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -a \
     -installsuffix cgo \
     -ldflags="-w -s -extldflags '-static' -X main.Version=${VERSION}" \
@@ -58,14 +62,7 @@ FROM gcr.io/distroless/base-debian12:nonroot
 # Pass build arguments to runtime stage
 ARG VERSION
 
-# Add metadata labels
-LABEL \
-    org.opencontainers.image.title="OpenLDAP Exporter" \
-    org.opencontainers.image.description="Prometheus exporter for OpenLDAP" \
-    org.opencontainers.image.version="${VERSION}" \
-    org.opencontainers.image.vendor="Maxime Wewer" \
-    org.opencontainers.image.licenses="MIT" \
-    org.opencontainers.image.source="https://github.com/MaximeWewer/OpenLDAP_prometheus_exporter"
+# Metadata labels are now managed by the CI/CD workflow
 
 # Copy timezone data and CA certificates from builder
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
