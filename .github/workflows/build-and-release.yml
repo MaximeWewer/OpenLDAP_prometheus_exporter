@@ -99,6 +99,10 @@ jobs:
         tags: |
           type=raw,value=${{ needs.prepare-build.outputs.version }}
           type=raw,value=latest
+        annotations: |
+          org.opencontainers.image.description=Prometheus exporter for OpenLDAP
+          org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          org.opencontainers.image.licenses=MIT
         labels: |
           org.opencontainers.image.title=OpenLDAP Exporter
           org.opencontainers.image.description=Prometheus exporter for OpenLDAP
@@ -123,18 +127,12 @@ jobs:
           VERSION=${{ needs.prepare-build.outputs.version }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        annotations: |
+          ${{ steps.meta.outputs.annotations }}
+          org.opencontainers.image.description=Per-arch image description for each variant
+        outputs: type=image,name=target,annotations.index:org.opencontainers.image.description=Multi-arch Prometheus exporter for OpenLDAP
         # cache-from: type=gha
         # cache-to: type=gha,mode=max
-
-    - name: Annotate multi-arch manifest
-      run: |
-        docker buildx imagetools create \
-          --tag ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:latest \
-          --tag ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }} \
-          --annotation index.org.opencontainers.image.description="Prometheus exporter for OpenLDAP" \
-          --annotation index.org.opencontainers.image.source="https://github.com/${{ github.repository }}" \
-          --annotation index.org.opencontainers.image.licenses="MIT" \
-          ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:latest
 
   create-release:
     needs: [ prepare-build, build-and-push-docker ]
@@ -159,7 +157,7 @@ jobs:
           # No previous tag, get recent PRs and commits
           echo "No previous tag found, generating changelog from recent merged PRs and commits"
           PR_LIST=$(gh pr list --state merged --limit 10 --json number,title,url --jq '.[] | "- **PR [#\(.number)](\(.url))**: \(.title)"')
-          COMMITS_LIST=$(git log --oneline --grep="Merge pull request" --invert-grep --max-count=10 | sed 's/^[a-f0-9]\+ /- **Commit**: /')
+          COMMITS_LIST=$(git log --oneline --grep="Merge pull req/')
         else
           echo "Getting changes since tag: $LATEST_TAG"
           # Get commit range since last tag
