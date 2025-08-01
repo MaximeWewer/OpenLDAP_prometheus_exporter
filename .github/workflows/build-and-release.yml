@@ -35,8 +35,8 @@ jobs:
           # Get current year and month
           YEAR_MONTH=$(date +'%Y.%m')
           
-          # Get existing tags for current year.month
-          EXISTING_TAGS=$(git tag -l "${YEAR_MONTH}.*" | sort -V)
+          # Get existing tags for current year.month (with 'v' prefix)
+          EXISTING_TAGS=$(git tag -l "v${YEAR_MONTH}.*" | sort -V)
           
           if [ -z "$EXISTING_TAGS" ]; then
             # No tags for this year.month, start with .1
@@ -44,10 +44,20 @@ jobs:
           else
             # Get the highest version number for this year.month
             LATEST_TAG=$(echo "$EXISTING_TAGS" | tail -n 1)
-            PATCH_VERSION=$(echo "$LATEST_TAG" | cut -d'.' -f3)
+            # Remove 'v' prefix to extract version numbers
+            LATEST_VERSION=$(echo "$LATEST_TAG" | sed 's/^v//')
+            PATCH_VERSION=$(echo "$LATEST_VERSION" | cut -d'.' -f3)
             NEW_PATCH=$((PATCH_VERSION + 1))
             VERSION="${YEAR_MONTH}.${NEW_PATCH}"
           fi
+          
+          # Ensure the generated version doesn't already exist as a tag
+          while git tag -l "v${VERSION}" | grep -q "v${VERSION}"; do
+            echo "Tag v${VERSION} already exists, incrementing..."
+            PATCH_VERSION=$(echo "$VERSION" | cut -d'.' -f3)
+            NEW_PATCH=$((PATCH_VERSION + 1))
+            VERSION="${YEAR_MONTH}.${NEW_PATCH}"
+          done
         fi
 
         echo "Generated version: $VERSION"
@@ -98,11 +108,11 @@ jobs:
           org.opencontainers.image.source=https://github.com/${{ github.repository }}
           org.opencontainers.image.url=https://github.com/${{ github.repository }}
           org.opencontainers.image.documentation=https://github.com/${{ github.repository }}
-          org.opencontainers.image.created={{date 'rfc3339'}}
+          org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss' tz='Europe/Paris'}}
           org.opencontainers.image.revision=${{ github.sha }}
 
     - name: Build and push Docker image
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         platforms: linux/amd64,linux/arm64
@@ -111,8 +121,8 @@ jobs:
           VERSION=${{ needs.prepare-build.outputs.version }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        # cache-from: type=gha
+        # cache-to: type=gha,mode=max
 
   create-release:
     needs: [ prepare-build, build-and-push-docker ]
