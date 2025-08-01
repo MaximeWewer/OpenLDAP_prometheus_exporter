@@ -110,16 +110,6 @@ jobs:
           org.opencontainers.image.documentation=https://github.com/${{ github.repository }}
           org.opencontainers.image.created={{ commit_date 'YYYY-MM-DDTHH:mm:ss' tz='Europe/Paris' }}
           org.opencontainers.image.revision=${{ github.sha }}
-        annotations: |
-          org.opencontainers.image.title=OpenLDAP Exporter
-          org.opencontainers.image.version=${{ needs.prepare-build.outputs.version }}
-          org.opencontainers.image.vendor=Maxime Wewer
-          org.opencontainers.image.licenses=MIT
-          org.opencontainers.image.source=https://github.com/${{ github.repository }}
-          org.opencontainers.image.url=https://github.com/${{ github.repository }}
-          org.opencontainers.image.documentation=https://github.com/${{ github.repository }}
-          org.opencontainers.image.created={{ commit_date 'YYYY-MM-DDTHH:mm:ss' tz='Europe/Paris' }}
-          org.opencontainers.image.revision=${{ github.sha }}
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v6
@@ -134,8 +124,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         annotations: |
-          ${{ steps.meta.outputs.annotations }}
-          manifest-descriptor:org.opencontainers.image.description=Prometheus exporter for OpenLDAP for {{ARCH}}
+          org.opencontainers.image.description=Prometheus exporter for OpenLDAP
         # cache-from: type=gha
         # cache-to: type=gha,mode=max
 
@@ -225,7 +214,7 @@ jobs:
         echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
         echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
-        
+
         # Save comparison URL for Full Changelog link
         if [ -n "$LATEST_TAG" ]; then
           COMPARISON_URL="https://github.com/${{ github.repository }}/compare/${LATEST_TAG}...v${{ needs.prepare-build.outputs.version }}"
