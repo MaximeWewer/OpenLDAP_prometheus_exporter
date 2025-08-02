@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       force_version:
+        # Versioning pattern (number only): YEAR.MONTH.INDEX_OF_TAG (+1 at eatch tag)
         description: 'Force a specific version (optional, format: YYYY.MM.X)'
         required: false
         type: string
@@ -99,12 +100,8 @@ jobs:
         tags: |
           type=raw,value=${{ needs.prepare-build.outputs.version }}
           type=raw,value=latest
-        annotations: |
-          org.opencontainers.image.description=Prometheus exporter for OpenLDAP
-          org.opencontainers.image.source=https://github.com/${{ github.repository }}
-          org.opencontainers.image.licenses=MIT
         labels: |
-          org.opencontainers.image.title=OpenLDAP Exporter
+          org.opencontainers.image.title=OpenLDAP Prometheus exporter
           org.opencontainers.image.description=Prometheus exporter for OpenLDAP
           org.opencontainers.image.version=${{ needs.prepare-build.outputs.version }}
           org.opencontainers.image.vendor=Maxime Wewer
@@ -121,16 +118,13 @@ jobs:
         context: .
         platforms: linux/amd64,linux/arm64
         push: true
-        provenance: false
-        sbom: false
+        provenance: false # Disable provenance to avoid unknown/unknown
+        sbom: false # Disable sbom to avoid unknown/unknown
         build-args: |
           VERSION=${{ needs.prepare-build.outputs.version }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        annotations: |
-          ${{ steps.meta.outputs.annotations }}
-          org.opencontainers.image.description=Per-arch image description for each variant
-        outputs: type=image,name=target,annotations.index:org.opencontainers.image.description=Multi-arch Prometheus exporter for OpenLDAP
+        outputs: type=image,name=target,annotation-index.org.opencontainers.image.description=Prometheus exporter for OpenLDAP
         # cache-from: type=gha
         # cache-to: type=gha,mode=max
 
