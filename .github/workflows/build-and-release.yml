@@ -114,6 +114,8 @@ jobs:
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v6
+      env:
+        DOCKER_BUILD_SUMMARY: false
       with:
         context: .
         platforms: linux/amd64,linux/arm64
@@ -151,7 +153,7 @@ jobs:
           # No previous tag, get recent PRs and commits
           echo "No previous tag found, generating changelog from recent merged PRs and commits"
           PR_LIST=$(gh pr list --state merged --limit 10 --json number,title,url --jq '.[] | "- **PR [#\(.number)](\(.url))**: \(.title)"')
-          COMMITS_LIST=$(git log --oneline --grep="Merge pull req/')
+          COMMITS_LIST=$(git log --oneline --grep="Merge pull request" --invert-grep --max-count=10 | sed 's/^[a-f0-9]\+ /- **Commit**: /')
         else
           echo "Getting changes since tag: $LATEST_TAG"
           # Get commit range since last tag
