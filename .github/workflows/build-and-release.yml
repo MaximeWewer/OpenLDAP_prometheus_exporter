@@ -111,11 +111,10 @@ jobs:
       with:
         images: ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}
         tags: |
-          type=raw,value=${{ needs.prepare-build.outputs.version }}
-          type=raw,value=${{ env.PLATFORM_ARCH }}
+          type=raw,value=${{ needs.prepare-build.outputs.version }}-${{ env.PLATFORM_ARCH }}
         labels: |
           org.opencontainers.image.title=OpenLDAP Prometheus exporter
-          org.opencontainers.image.description=Prometheus exporter for OpenLDAP
+          org.opencontainers.image.description=Prometheus exporter for OpenLDAP (${{ env.PLATFORM_ARCH }})
           org.opencontainers.image.version=${{ needs.prepare-build.outputs.version }}
           org.opencontainers.image.vendor=Maxime Wewer
           org.opencontainers.image.licenses=MIT
@@ -140,8 +139,9 @@ jobs:
           VERSION=${{ needs.prepare-build.outputs.version }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        annotations: |
-          org.opencontainers.image.description=Prometheus exporter for OpenLDAP (${{ env.PLATFORM_ARCH }})
+        # annotations: |
+        #   org.opencontainers.image.description=Prometheus exporter for OpenLDAP (${{ env.PLATFORM_ARCH }})
+        outputs: type=image,name=target,annotation-index.org.opencontainers.image.description=Prometheus exporter for OpenLDAP
         # cache-from: type=gha
         # cache-to: type=gha,mode=max
 
