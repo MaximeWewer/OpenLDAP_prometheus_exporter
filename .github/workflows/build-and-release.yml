@@ -111,10 +111,11 @@ jobs:
       with:
         images: ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}
         tags: |
-          type=raw,value=${{ needs.prepare-build.outputs.version }}-${{ env.PLATFORM_ARCH }}
+          type=raw,value=${{ needs.prepare-build.outputs.version }}
+          type=raw,value=${{ env.PLATFORM_ARCH }}
         labels: |
           org.opencontainers.image.title=OpenLDAP Prometheus exporter
-          org.opencontainers.image.description=Prometheus exporter for OpenLDAP (${{ env.PLATFORM_ARCH }})
+          org.opencontainers.image.description=Prometheus exporter for OpenLDAP
           org.opencontainers.image.version=${{ needs.prepare-build.outputs.version }}
           org.opencontainers.image.vendor=Maxime Wewer
           org.opencontainers.image.licenses=MIT
@@ -139,7 +140,8 @@ jobs:
           VERSION=${{ needs.prepare-build.outputs.version }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        outputs: type=image,name=target,annotation-index.org.opencontainers.image.description=Prometheus exporter for OpenLDAP
+        annotations: |
+          org.opencontainers.image.description=Prometheus exporter for OpenLDAP (${{ env.PLATFORM_ARCH }})
         # cache-from: type=gha
         # cache-to: type=gha,mode=max
 
@@ -160,8 +162,8 @@ jobs:
     - name: Create and push manifest for version tag
       run: |
         docker manifest create ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }} \
-          --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}-amd64 \
-          --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}-arm64
+          --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:amd64 \
+          --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:arm64
         docker manifest push ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}
 
     - name: Create and push manifest for latest tag
