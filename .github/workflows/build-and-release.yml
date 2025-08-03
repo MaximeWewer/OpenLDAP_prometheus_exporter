@@ -78,6 +78,13 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+        - linux/amd64
+        - linux/arm64
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -92,6 +99,12 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Prepare platform variables
+      run: |
+        echo "PLATFORM_ARCH=${platform##*/}" >> $GITHUB_ENV
+      env:
+        platform: ${{ matrix.platform }}
+
     - name: Extract metadata
       id: meta
       uses: docker/metadata-action@v5
@@ -99,9 +112,7 @@ jobs:
         images: ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}
         tags: |
           type=raw,value=${{ needs.prepare-build.outputs.version }}
-          type=raw,value=${{ needs.prepare-build.outputs.version }}-{{arch}}
-          type=raw,value=latest
-          type=raw,value=latest-{{arch}}
+          type=raw,value=${{ env.PLATFORM_ARCH }}
         labels: |
           org.opencontainers.image.title=OpenLDAP Prometheus exporter
           org.opencontainers.image.description=Prometheus exporter for OpenLDAP
@@ -115,12 +126,13 @@ jobs:
           org.opencontainers.image.revision=${{ github.sha }}
 
     - name: Build and push Docker image
+      id: build
       uses: docker/build-push-action@v6
       env:
         DOCKER_BUILD_SUMMARY: false
       with:
         context: .
-        platforms: linux/amd64,linux/arm64
+        platforms: ${{ matrix.platform }}
         push: true
         provenance: false # Disable provenance to avoid unknown/unknown
         sbom: false # Disable sbom to avoid unknown/unknown
@@ -129,13 +141,40 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         annotations: |
-          org.opencontainers.image.description=Prometheus exporter for OpenLDAP ({{arch}})
-        outputs: type=image,name=target,annotation-index.org.opencontainers.image.description=Prometheus exporter for OpenLDAP
+          org.opencontainers.image.description=Prometheus exporter for OpenLDAP (${{ env.PLATFORM_ARCH }})
         # cache-from: type=gha
         # cache-to: type=gha,mode=max
 
-  create-release:
+  create-manifest:
     needs: [ prepare-build, build-and-push-docker ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create and push manifest for version tag
+      run: |
+        docker manifest create ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }} \
+          --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:amd64 \
+          --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:arm64
+        docker manifest push ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}
+
+    - name: Create and push manifest for latest tag
+      run: |
+        docker manifest create ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:latest \
+          --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:amd64 \
+          --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:arm64
+        docker manifest push ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:latest
+
+  create-release:
+    needs: [ prepare-build, create-manifest ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
