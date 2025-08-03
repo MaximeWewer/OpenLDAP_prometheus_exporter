@@ -141,7 +141,6 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         # annotations: |
         #   org.opencontainers.image.description=Prometheus exporter for OpenLDAP (${{ env.PLATFORM_ARCH }})
-        outputs: type=image,name=target,annotation-index.org.opencontainers.image.description=Prometheus exporter for OpenLDAP
         # cache-from: type=gha
         # cache-to: type=gha,mode=max
 
@@ -164,6 +163,12 @@ jobs:
         docker manifest create ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }} \
           --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:amd64 \
           --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:arm64
+        docker manifest annotate ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }} \
+          ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:amd64 \
+          --annotation "org.opencontainers.image.description=Prometheus exporter for OpenLDAP"
+        docker manifest annotate ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }} \
+          ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:arm64 \
+          --annotation "org.opencontainers.image.description=Prometheus exporter for OpenLDAP"
         docker manifest push ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}
 
     - name: Create and push manifest for latest tag
@@ -171,6 +176,12 @@ jobs:
         docker manifest create ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:latest \
           --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:amd64 \
           --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:arm64
+        docker manifest annotate ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:latest \
+          ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:amd64 \
+          --annotation "org.opencontainers.image.description=Prometheus exporter for OpenLDAP"
+        docker manifest annotate ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:latest \
+          ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:arm64 \
+          --annotation "org.opencontainers.image.description=Prometheus exporter for OpenLDAP"
         docker manifest push ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:latest
 
   create-release:
