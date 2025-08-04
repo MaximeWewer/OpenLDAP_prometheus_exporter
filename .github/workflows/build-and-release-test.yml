@@ -165,7 +165,7 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ env.GHCR_IMAGE }}
+        images: ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}
         annotations: |
           type=org.opencontainers.image.description,value=Prometheus exporter for OpenLDAP
         tags: |
