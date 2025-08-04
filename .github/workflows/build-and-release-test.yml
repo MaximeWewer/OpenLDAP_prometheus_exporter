@@ -1,0 +1,224 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_version:
+        # Versioning pattern (number only): YEAR.MONTH.INDEX_OF_TAG (+1 at eatch tag)
+        description: 'Force a specific version (optional, format: YYYY.MM.X)'
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  prepare-build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      year_month: ${{ steps.version.outputs.year_month }}
+      name_lower: ${{ steps.repo.outputs.name_lower }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Generate version
+      id: version
+      run: |
+        if [ -n "${{ github.event.inputs.force_version }}" ]; then
+          VERSION="${{ github.event.inputs.force_version }}"
+          echo "Using forced version: $VERSION"
+        else
+          # Get current year and month
+          YEAR_MONTH=$(date +'%Y.%m')
+          
+          # Get existing tags for current year.month (with 'v' prefix)
+          EXISTING_TAGS=$(git tag -l "v${YEAR_MONTH}.*" | sort -V)
+          
+          if [ -z "$EXISTING_TAGS" ]; then
+            # No tags for this year.month, start with .1
+            VERSION="${YEAR_MONTH}.1"
+          else
+            # Get the highest version number for this year.month
+            LATEST_TAG=$(echo "$EXISTING_TAGS" | tail -n 1)
+            # Remove 'v' prefix to extract version numbers
+            LATEST_VERSION=$(echo "$LATEST_TAG" | sed 's/^v//')
+            PATCH_VERSION=$(echo "$LATEST_VERSION" | cut -d'.' -f3)
+            NEW_PATCH=$((PATCH_VERSION + 1))
+            VERSION="${YEAR_MONTH}.${NEW_PATCH}"
+          fi
+          
+          # Ensure the generated version doesn't already exist as a tag
+          while git tag -l "v${VERSION}" | grep -q "v${VERSION}"; do
+            echo "Tag v${VERSION} already exists, incrementing..."
+            PATCH_VERSION=$(echo "$VERSION" | cut -d'.' -f3)
+            NEW_PATCH=$((PATCH_VERSION + 1))
+            VERSION="${YEAR_MONTH}.${NEW_PATCH}"
+          done
+        fi
+
+        echo "Generated version: $VERSION"
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "year_month=$(echo $VERSION | cut -d'.' -f1,2)" >> $GITHUB_OUTPUT
+
+    - name: Convert repository name to lowercase
+      id: repo
+      run: |
+        REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+        echo "Repository name converted to lowercase: $REPO_LOWER"
+        echo "name_lower=$REPO_LOWER" >> $GITHUB_OUTPUT
+
+  build:
+    needs: prepare-build
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+        - linux/amd64
+        - linux/arm64
+
+    runs-on: ${{ matrix.platform == 'linux/amd64' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Prepare platform variables
+      run: |
+        echo "PLATFORM_ARCH=${platform##*/}" >> $GITHUB_ENV
+      env:
+        platform: ${{ matrix.platform }}
+
+    - name: Setup buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        platforms: ${{ matrix.platform }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}
+        tags: |
+          type=raw,value=${{ needs.prepare-build.outputs.version }}-${{ env.PLATFORM_ARCH }}
+        # annotations: |
+        labels: |
+          org.opencontainers.image.title=OpenLDAP Prometheus exporter
+          org.opencontainers.image.description=Prometheus exporter for OpenLDAP (${{ env.PLATFORM_ARCH }})
+          org.opencontainers.image.version=${{ needs.prepare-build.outputs.version }}
+          org.opencontainers.image.vendor=Maxime Wewer
+          org.opencontainers.image.licenses=MIT
+          org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          org.opencontainers.image.url=https://github.com/${{ github.repository }}
+          org.opencontainers.image.documentation=https://github.com/${{ github.repository }}/blob/main/README.md
+          org.opencontainers.image.created={{ date 'YYYY-MM-DDTHH:mm:ss' tz='Europe/Paris' }}
+          org.opencontainers.image.revision=${{ github.sha }}
+
+    - name: Build & push for ${{ matrix.platform }}
+      id: build
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        platforms: ${{ matrix.platform }}
+        push: true
+        provenance: false # Disable provenance to avoid unknown/unknown
+        sbom: false # Disable sbom to avoid unknown/unknown
+        tags: ${{ steps.meta.outputs.tags }}
+        annotations: ${{ steps.meta.outputs.annotations }}
+        labels: ${{ steps.meta.outputs.labels }}
+        outputs: type=image,name=${{ env.REGISTRY }}/${{ needs.prepare.outputs.name_lower }}:${{ needs.prepare.outputs.version }}-${{ matrix.platform##*/ }},push-by-digest=true
+
+    - name: Export digest
+      run: |
+        mkdir -p /tmp/digests
+        digest="${{ steps.build.outputs.digest }}"
+        touch "/tmp/digests/${digest#sha256:}"
+
+    - name: Upload digest artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: digests-${{ env.PLATFORM_ARCH }}
+        path: digests/*
+        if-no-files-found: error
+        retention-days: 1
+
+  merge:
+    needs: build
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - name: Download digests
+      uses: actions/download-artifact@v4
+      with:
+        path: /tmp/digests
+        pattern: digests-*
+        merge-multiple: true
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Docker meta
+      id: meta
+      uses: docker/metadata-action@5
+      with:
+        images: ${{ env.GHCR_IMAGE }}
+        annotations: |
+          type=org.opencontainers.image.description,value=Prometheus exporter for OpenLDAP
+        tags: |
+          type=raw,value=${{ needs.prepare-build.outputs.version }}
+          type=raw,value=latest
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@3
+
+    - name: Create manifest list and pushs
+      # This step creates a manifest list for the Docker images built for different platforms.
+      # It uses the docker buildx imagetools create command to create the manifest list.
+      # The manifest list is annotated with metadata such as description, creation timestamp, and source URL.
+      # The annotations are obtained from the metadata generated in the previous steps.
+      # The manifest list is pushed to the GitHub Container Registry (GHCR) with the specified tags
+      working-directory: /tmp/digests
+      id: manifest-annotate
+      continue-on-error: true
+      run: |
+        docker buildx imagetools create \
+          $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+          --annotation='index:org.opencontainers.image.description=Prometheus exporter for OpenLDAP' \
+          --annotation='index:org.opencontainers.image.created={{ date 'YYYY-MM-DDTHH:mm:ss' tz='Europe/Paris' }}' \
+          --annotation='index:org.opencontainers.image.url=${{ github.event.repository.url }}' \
+          --annotation='index:org.opencontainers.image.source=${{ github.event.repository.url }}' \
+          $(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
+
+    - name: Create manifest list and push without annotations
+      if: steps.manifest-annotate.outcome == 'failure'
+      working-directory: /tmp/digests
+      run: |
+        docker buildx imagetools create  $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+        $(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
+
+    - name: Inspect image
+      id: inspect
+      run: |
+        docker buildx imagetools inspect '${{ env.GHCR_IMAGE }}:${{ steps.meta.outputs.version }}'
