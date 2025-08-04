@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build and Release Test
 
 on:
   workflow_dispatch:
@@ -142,7 +142,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         annotations: ${{ steps.meta.outputs.annotations }}
         labels: ${{ steps.meta.outputs.labels }}
-        outputs: type=image,name=${{ env.REGISTRY }}/${{ needs.prepare.outputs.name_lower }}:${{ needs.prepare.outputs.version }}-${{ matrix.platform##*/ }},push-by-digest=true
+        outputs: type=image,push-by-digest=true
 
     - name: Export digest
       run: |
