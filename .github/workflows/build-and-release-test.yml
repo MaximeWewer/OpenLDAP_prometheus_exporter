@@ -146,6 +146,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         annotations: ${{ steps.meta.outputs.annotations }}
         labels: ${{ steps.meta.outputs.labels }}
+        outputs: type=image,oci-mediatypes=true
 
   merge:
     needs:
@@ -185,7 +186,6 @@ jobs:
       # This step creates a manifest list for the Docker images built for different platforms.
       # It uses the docker buildx imagetools create command to create the manifest list.
       # The manifest list is annotated with metadata.
-      # The annotations are obtained from the metadata generated in the previous steps.
       # The manifest list is pushed to the GitHub Container Registry (GHCR) with the specified tags
       id: manifest-annotate
       run: |
