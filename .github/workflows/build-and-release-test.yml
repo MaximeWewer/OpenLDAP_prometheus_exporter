@@ -133,6 +133,8 @@ jobs:
     - name: Build & push for ${{ matrix.platform }}
       id: build
       uses: docker/build-push-action@v6
+      env:
+        DOCKER_BUILD_SUMMARY: false
       with:
         context: .
         platforms: ${{ matrix.platform }}
@@ -142,21 +144,6 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         annotations: ${{ steps.meta.outputs.annotations }}
         labels: ${{ steps.meta.outputs.labels }}
-        outputs: type=image,push-by-digest=true
-
-    - name: Export digest
-      run: |
-        mkdir -p /tmp/digests
-        digest="${{ steps.build.outputs.digest }}"
-        touch "/tmp/digests/${digest#sha256:}"
-
-    - name: Upload digest artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: digests-${{ env.PLATFORM_ARCH }}
-        path: digests/*
-        if-no-files-found: error
-        retention-days: 1
 
   merge:
     needs: build
@@ -164,13 +151,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-    - name: Download digests
-      uses: actions/download-artifact@v4
-      with:
-        path: /tmp/digests
-        pattern: digests-*
-        merge-multiple: true
 
     - name: Login to GitHub Container Registry
       uses: docker/login-action@3
@@ -196,7 +176,7 @@ jobs:
     - name: Create manifest list and pushs
       # This step creates a manifest list for the Docker images built for different platforms.
       # It uses the docker buildx imagetools create command to create the manifest list.
-      # The manifest list is annotated with metadata such as description, creation timestamp, and source URL.
+      # The manifest list is annotated with metadata.
       # The annotations are obtained from the metadata generated in the previous steps.
       # The manifest list is pushed to the GitHub Container Registry (GHCR) with the specified tags
       working-directory: /tmp/digests
@@ -206,17 +186,8 @@ jobs:
         docker buildx imagetools create \
           $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
           --annotation='index:org.opencontainers.image.description=Prometheus exporter for OpenLDAP' \
-          --annotation='index:org.opencontainers.image.created={{ date 'YYYY-MM-DDTHH:mm:ss' tz='Europe/Paris' }}' \
-          --annotation='index:org.opencontainers.image.url=${{ github.event.repository.url }}' \
-          --annotation='index:org.opencontainers.image.source=${{ github.event.repository.url }}' \
-          $(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
-
-    - name: Create manifest list and push without annotations
-      if: steps.manifest-annotate.outcome == 'failure'
-      working-directory: /tmp/digests
-      run: |
-        docker buildx imagetools create  $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-        $(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
+          ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}-amd64 \
+          ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}-arm64
 
     - name: Inspect image
       id: inspect
