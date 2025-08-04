@@ -134,6 +134,12 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         annotations: ${{ steps.meta.outputs.annotations }}
         labels: ${{ steps.meta.outputs.labels }}
+        # https://docs.github.com/fr/packages/working-with-a-github-packages-registry/working-with-the-container-registry#adding-a-description-to-multi-arch-images
+        # GitHub Container Registry (GHCR) supports both OCI and Docker v2 Schema 2 formats.
+        # However, to ensure that annotations (such as description) are preserved at
+        # the multi-architecture manifest level, images must be pushed in OCI format.
+        # Setting `oci-mediatypes=true` ensures that the images are built and pushed using OCI-compliant media types.
+        # This allows proper annotation of the manifest index later using `docker buildx imagetools create`.
         outputs: type=image,oci-mediatypes=true
 
   create-multiarch-manifest:
@@ -172,9 +178,7 @@ jobs:
 
     - name: Create multiarch manifest and push
       # This step creates a manifest list for the Docker images built for different platforms.
-      # It uses the docker buildx imagetools create command to create the manifest list.
-      # The manifest list is annotated with metadata.
-      # The manifest list is pushed to the GitHub Container Registry (GHCR) with the specified tags
+      # It uses the `docker buildx imagetools create` command to create the manifest list.
       id: manifest-annotate
       run: |
         docker buildx imagetools create \
@@ -191,7 +195,9 @@ jobs:
         docker buildx imagetools inspect '${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}'
 
   publish-github-release:
-    needs: [ prepare-build, create-multiarch-manifest ]
+    needs:
+    - prepare-build
+    - create-multiarch-manifest
 
     runs-on: ubuntu-latest
 
