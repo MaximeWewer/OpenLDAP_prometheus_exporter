@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build and release
 
 on:
   workflow_dispatch:
@@ -12,19 +12,19 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  IMAGE_DESCRIPTION: Prometheus exporter for OpenLDAP
 
 jobs:
   prepare-build:
     runs-on: ubuntu-latest
+
     outputs:
       version: ${{ steps.version.outputs.version }}
-      year_month: ${{ steps.version.outputs.year_month }}
       name_lower: ${{ steps.repo.outputs.name_lower }}
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
     - name: Generate version
       id: version
@@ -36,34 +36,22 @@ jobs:
           # Get current year and month
           YEAR_MONTH=$(date +'%Y.%m')
           
-          # Get existing tags for current year.month (with 'v' prefix)
-          EXISTING_TAGS=$(git tag -l "v${YEAR_MONTH}.*" | sort -V)
+          # Get the highest existing tag for current year.month and increment
+          LATEST_TAG=$(git tag -l "v${YEAR_MONTH}.*" | sort -V | tail -n 1)
           
-          if [ -z "$EXISTING_TAGS" ]; then
+          if [ -z "$LATEST_TAG" ]; then
             # No tags for this year.month, start with .1
             VERSION="${YEAR_MONTH}.1"
           else
-            # Get the highest version number for this year.month
-            LATEST_TAG=$(echo "$EXISTING_TAGS" | tail -n 1)
-            # Remove 'v' prefix to extract version numbers
-            LATEST_VERSION=$(echo "$LATEST_TAG" | sed 's/^v//')
-            PATCH_VERSION=$(echo "$LATEST_VERSION" | cut -d'.' -f3)
+            # Extract patch version and increment
+            PATCH_VERSION=$(echo "$LATEST_TAG" | sed 's/^v.*\.//' )
             NEW_PATCH=$((PATCH_VERSION + 1))
             VERSION="${YEAR_MONTH}.${NEW_PATCH}"
           fi
-          
-          # Ensure the generated version doesn't already exist as a tag
-          while git tag -l "v${VERSION}" | grep -q "v${VERSION}"; do
-            echo "Tag v${VERSION} already exists, incrementing..."
-            PATCH_VERSION=$(echo "$VERSION" | cut -d'.' -f3)
-            NEW_PATCH=$((PATCH_VERSION + 1))
-            VERSION="${YEAR_MONTH}.${NEW_PATCH}"
-          done
         fi
 
         echo "Generated version: $VERSION"
         echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "year_month=$(echo $VERSION | cut -d'.' -f1,2)" >> $GITHUB_OUTPUT
 
     - name: Convert repository name to lowercase
       id: repo
@@ -72,12 +60,13 @@ jobs:
         echo "Repository name converted to lowercase: $REPO_LOWER"
         echo "name_lower=$REPO_LOWER" >> $GITHUB_OUTPUT
 
-  build-and-push-docker:
+  build-multiarch-images:
     needs: prepare-build
-    runs-on: ubuntu-latest
+
     permissions:
       contents: read
       packages: write
+
     strategy:
       fail-fast: false
       matrix:
@@ -85,46 +74,51 @@ jobs:
         - linux/amd64
         - linux/arm64
 
+    runs-on: ${{ matrix.platform == 'linux/amd64' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
+
     steps:
-    - name: Checkout code
+    - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Log in to Container Registry
+    - name: Login to GitHub Container Registry
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Prepare platform variables
+    - name: Extract platform architecture
       run: |
         echo "PLATFORM_ARCH=${platform##*/}" >> $GITHUB_ENV
       env:
         platform: ${{ matrix.platform }}
 
-    - name: Extract metadata
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        platforms: ${{ matrix.platform }}
+
+    - name: Generate Docker metadata and labels
       id: meta
       uses: docker/metadata-action@v5
       with:
         images: ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}
         tags: |
           type=raw,value=${{ needs.prepare-build.outputs.version }}-${{ env.PLATFORM_ARCH }}
+        # annotations: |
         labels: |
           org.opencontainers.image.title=OpenLDAP Prometheus exporter
-          org.opencontainers.image.description=Prometheus exporter for OpenLDAP (${{ env.PLATFORM_ARCH }})
+          org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }} (${{ env.PLATFORM_ARCH }})
           org.opencontainers.image.version=${{ needs.prepare-build.outputs.version }}
           org.opencontainers.image.vendor=Maxime Wewer
           org.opencontainers.image.licenses=MIT
           org.opencontainers.image.source=https://github.com/${{ github.repository }}
           org.opencontainers.image.url=https://github.com/${{ github.repository }}
-          org.opencontainers.image.documentation=https://github.com/${{ github.repository }}
-          org.opencontainers.image.created={{ commit_date 'YYYY-MM-DDTHH:mm:ss' tz='Europe/Paris' }}
+          org.opencontainers.image.documentation=https://github.com/${{ github.repository }}/blob/main/README.md
+          org.opencontainers.image.created={{ date 'YYYY-MM-DDTHH:mm:ss' tz='Europe/Paris' }}
           org.opencontainers.image.revision=${{ github.sha }}
 
-    - name: Build and push Docker image
+    - name: Build and push platform-specific image
       id: build
       uses: docker/build-push-action@v6
       env:
@@ -138,64 +132,77 @@ jobs:
         build-args: |
           VERSION=${{ needs.prepare-build.outputs.version }}
         tags: ${{ steps.meta.outputs.tags }}
+        annotations: ${{ steps.meta.outputs.annotations }}
         labels: ${{ steps.meta.outputs.labels }}
-        # annotations: |
-        #   org.opencontainers.image.description=Prometheus exporter for OpenLDAP (${{ env.PLATFORM_ARCH }})
-        # cache-from: type=gha
-        # cache-to: type=gha,mode=max
+        outputs: type=image,oci-mediatypes=true
 
-  create-manifest:
-    needs: [ prepare-build, build-and-push-docker ]
-    runs-on: ubuntu-latest
+  create-multiarch-manifest:
+    needs:
+    - prepare-build
+    - build-multiarch-images
+
     permissions:
       contents: read
       packages: write
+
+    runs-on: ubuntu-latest
+
     steps:
-    - name: Log in to Container Registry
+
+    - name: Login to GitHub Container Registry
       uses: docker/login-action@v3
       with:
-        registry: ${{ env.REGISTRY }}
+        registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Create and push manifest for version tag
-      run: |
-        docker manifest create ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }} \
-          --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:amd64 \
-          --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:arm64
-        docker manifest annotate ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }} \
-          ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:amd64 \
-          --annotation "org.opencontainers.image.description=Prometheus exporter for OpenLDAP"
-        docker manifest annotate ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }} \
-          ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:arm64 \
-          --annotation "org.opencontainers.image.description=Prometheus exporter for OpenLDAP"
-        docker manifest push ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-    - name: Create and push manifest for latest tag
-      run: |
-        docker manifest create ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:latest \
-          --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:amd64 \
-          --amend ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:arm64
-        docker manifest annotate ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:latest \
-          ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:amd64 \
-          --annotation "org.opencontainers.image.description=Prometheus exporter for OpenLDAP"
-        docker manifest annotate ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:latest \
-          ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:arm64 \
-          --annotation "org.opencontainers.image.description=Prometheus exporter for OpenLDAP"
-        docker manifest push ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:latest
+    - name: Generate multiarch manifest metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}
+        annotations: |
+          type=org.opencontainers.image.description,value=${{ env.IMAGE_DESCRIPTION }}
+        tags: |
+          type=raw,value=${{ needs.prepare-build.outputs.version }}
+          type=raw,value=latest
 
-  create-release:
-    needs: [ prepare-build, create-manifest ]
+    - name: Create multiarch manifest and push
+      # This step creates a manifest list for the Docker images built for different platforms.
+      # It uses the docker buildx imagetools create command to create the manifest list.
+      # The manifest list is annotated with metadata.
+      # The manifest list is pushed to the GitHub Container Registry (GHCR) with the specified tags
+      id: manifest-annotate
+      run: |
+        docker buildx imagetools create \
+          $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+          --annotation='index:org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }}' \
+          --annotation='index:org.opencontainers.image.source=https://github.com/${{ github.repository }}' \
+          --annotation='index:org.opencontainers.image.licenses=MIT' \
+          ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}-amd64 \
+          ${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}-arm64
+
+    - name: Inspect multiarch manifest
+      id: inspect
+      run: |
+        docker buildx imagetools inspect '${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}'
+
+  publish-github-release:
+    needs: [ prepare-build, create-multiarch-manifest ]
+
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
-    - name: Generate changelog from PRs and commits
+    steps:
+    - name: Checkout repository with full history
+      uses: actions/checkout@v4
+
+    - name: Generate release changelog from PRs and commits
       id: changelog
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -203,81 +210,57 @@ jobs:
         # Get the latest tag (previous version)
         LATEST_TAG=$(git tag -l --sort=-version:refname | head -n 1)
 
+        # Determine commit range
         if [ -z "$LATEST_TAG" ]; then
-          # No previous tag, get recent PRs and commits
-          echo "No previous tag found, generating changelog from recent merged PRs and commits"
-          PR_LIST=$(gh pr list --state merged --limit 10 --json number,title,url --jq '.[] | "- **PR [#\(.number)](\(.url))**: \(.title)"')
-          COMMITS_LIST=$(git log --oneline --grep="Merge pull request" --invert-grep --max-count=10 | sed 's/^[a-f0-9]\+ /- **Commit**: /')
+          echo "No previous tag found, generating changelog from recent activity"
+          COMMIT_RANGE=""
         else
           echo "Getting changes since tag: $LATEST_TAG"
-          # Get commit range since last tag
-          COMMITS_SINCE_TAG=$(git rev-list ${LATEST_TAG}..HEAD --oneline)
+          COMMIT_RANGE="${LATEST_TAG}..HEAD"
           
-          if [ -z "$COMMITS_SINCE_TAG" ]; then
-            CHANGELOG_CONTENT="No new changes since last release."
-          else
-            # Extract PR numbers from commit messages and get PR details
-            PR_NUMBERS=$(git log ${LATEST_TAG}..HEAD --oneline --grep="Merge pull request" | grep -o "#[0-9]\+" | sed 's/#//' | sort -u)
-            
-            # Get PR details (limit to 10 most recent)
-            PR_LIST=""
-            if [ -n "$PR_NUMBERS" ]; then
-              PR_COUNT=0
-              for pr_num in $PR_NUMBERS; do
-                if [ $PR_COUNT -ge 10 ]; then
-                  break
-                fi
-                pr_info=$(gh pr view $pr_num --json number,title,url --jq '"- **PR [#" + (.number|tostring) + "](" + .url + ")**: " + .title' 2>/dev/null || echo "- **PR [#$pr_num]**: PR details not available")
-                PR_LIST="$PR_LIST$pr_info"$'\n'
-                PR_COUNT=$((PR_COUNT + 1))
-              done
-            fi
-            
-            # Get commits (not PR merges, limit to 10 most recent)
-            COMMITS_LIST=$(git log ${LATEST_TAG}..HEAD --oneline --grep="Merge pull request" --invert-grep --max-count=10 | sed 's/^[a-f0-9]\+ /- **Commit**: /')
-            
-            # Combine PRs and commits
-            CHANGELOG_CONTENT=""
-            if [ -n "$PR_LIST" ]; then
-              CHANGELOG_CONTENT="#### Pull Requests"$'\n'"$PR_LIST"
-            fi
-            if [ -n "$COMMITS_LIST" ]; then
-              if [ -n "$CHANGELOG_CONTENT" ]; then
-                CHANGELOG_CONTENT="$CHANGELOG_CONTENT"$'\n\n'"#### Commits"$'\n'"$COMMITS_LIST"
-              else
-                CHANGELOG_CONTENT="#### Commits"$'\n'"$COMMITS_LIST"
-              fi
-            fi
-            
-            if [ -z "$CHANGELOG_CONTENT" ]; then
-              CHANGELOG_CONTENT="No changes found."
-            fi
+          # Check if there are any changes
+          if [ -z "$(git rev-list $COMMIT_RANGE)" ]; then
+            echo "CHANGELOG=No new changes since last release." >> $GITHUB_OUTPUT
+            echo "COMPARISON_URL=https://github.com/${{ github.repository }}/compare/${LATEST_TAG}...v${{ needs.prepare-build.outputs.version }}" >> $GITHUB_OUTPUT
+            exit 0
           fi
         fi
 
-        # For first release case, combine PRs and commits
-        if [ -z "$LATEST_TAG" ] && [ -n "$PR_LIST" ] && [ -n "$COMMITS_LIST" ]; then
-          CHANGELOG_CONTENT="#### Pull Requests"$'\n'"$PR_LIST"$'\n\n'"#### Commits"$'\n'"$COMMITS_LIST"
-        elif [ -z "$LATEST_TAG" ] && [ -n "$PR_LIST" ]; then
-          CHANGELOG_CONTENT="#### Pull Requests"$'\n'"$PR_LIST"
-        elif [ -z "$LATEST_TAG" ] && [ -n "$COMMITS_LIST" ]; then
-          CHANGELOG_CONTENT="#### Commits"$'\n'"$COMMITS_LIST"
-        elif [ -z "$LATEST_TAG" ]; then
-          CHANGELOG_CONTENT="Initial release"
+        # Get PRs (last 10 merged PRs or PRs since last tag)
+        if [ -z "$COMMIT_RANGE" ]; then
+          PR_LIST=$(gh pr list --state merged --limit 10 --json number,title,url --jq '.[] | "- **PR [#\(.number)](\(.url))**: \(.title)"')
+        else
+          PR_NUMBERS=$(git log $COMMIT_RANGE --oneline --grep="Merge pull request" | grep -o "#[0-9]\+" | sed 's/#//' | sort -u | head -10)
+          PR_LIST=""
+          for pr_num in $PR_NUMBERS; do
+            pr_info=$(gh pr view $pr_num --json number,title,url --jq '"- **PR [#" + (.number|tostring) + "](" + .url + ")**: " + .title' 2>/dev/null || echo "- **PR [#$pr_num]**: PR details not available")
+            PR_LIST="$PR_LIST$pr_info"$'\n'
+          done
         fi
 
-        # Save changelog to output
+        # Get commits (exclude PR merges, last 10)
+        if [ -z "$COMMIT_RANGE" ]; then
+          COMMITS_LIST=$(git log --oneline --grep="Merge pull request" --invert-grep --max-count=10 | sed 's/^[a-f0-9]\+ /- **Commit**: /')
+        else
+          COMMITS_LIST=$(git log $COMMIT_RANGE --oneline --grep="Merge pull request" --invert-grep --max-count=10 | sed 's/^[a-f0-9]\+ /- **Commit**: /')
+        fi
+
+        # Build changelog content
+        CHANGELOG_CONTENT=""
+        [ -n "$PR_LIST" ] && CHANGELOG_CONTENT="#### Pull Requests"$'\n'"$PR_LIST"
+        [ -n "$COMMITS_LIST" ] && CHANGELOG_CONTENT="${CHANGELOG_CONTENT:+$CHANGELOG_CONTENT$'\n\n'}#### Commits"$'\n'"$COMMITS_LIST"
+        [ -z "$CHANGELOG_CONTENT" ] && CHANGELOG_CONTENT="No changes found."
+
+        # Save outputs
         echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
         echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
-        # Save comparison URL for Full Changelog link
         if [ -n "$LATEST_TAG" ]; then
-          COMPARISON_URL="https://github.com/${{ github.repository }}/compare/${LATEST_TAG}...v${{ needs.prepare-build.outputs.version }}"
+          echo "COMPARISON_URL=https://github.com/${{ github.repository }}/compare/${LATEST_TAG}...v${{ needs.prepare-build.outputs.version }}" >> $GITHUB_OUTPUT
         else
-          COMPARISON_URL="https://github.com/${{ github.repository }}/commits/v${{ needs.prepare-build.outputs.version }}"
+          echo "COMPARISON_URL=https://github.com/${{ github.repository }}/commits/v${{ needs.prepare-build.outputs.version }}" >> $GITHUB_OUTPUT
         fi
-        echo "COMPARISON_URL=$COMPARISON_URL" >> $GITHUB_OUTPUT
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
@@ -285,7 +268,7 @@ jobs:
         tag_name: v${{ needs.prepare-build.outputs.version }}
         name: Release ${{ needs.prepare-build.outputs.version }}
         body: |
-          ## OpenLDAP Prometheus Exporter v${{ needs.prepare-build.outputs.version }}
+          ## ${{ env.IMAGE_DESCRIPTION }} v${{ needs.prepare-build.outputs.version }}
 
           ### Docker Images
 
