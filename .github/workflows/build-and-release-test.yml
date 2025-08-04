@@ -16,10 +16,12 @@ env:
 jobs:
   prepare-build:
     runs-on: ubuntu-latest
+
     outputs:
       version: ${{ steps.version.outputs.version }}
       year_month: ${{ steps.version.outputs.year_month }}
       name_lower: ${{ steps.repo.outputs.name_lower }}
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -153,7 +155,7 @@ jobs:
     steps:
 
     - name: Login to GitHub Container Registry
-      uses: docker/login-action@3
+      uses: docker/login-action@v3
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -161,7 +163,7 @@ jobs:
 
     - name: Docker meta
       id: meta
-      uses: docker/metadata-action@5
+      uses: docker/metadata-action@v5
       with:
         images: ${{ env.GHCR_IMAGE }}
         annotations: |
@@ -171,7 +173,7 @@ jobs:
           type=raw,value=latest
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@3
+      uses: docker/setup-buildx-action@v3
 
     - name: Create manifest list and pushs
       # This step creates a manifest list for the Docker images built for different platforms.
