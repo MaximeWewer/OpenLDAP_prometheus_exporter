@@ -181,7 +181,6 @@ jobs:
       # The manifest list is annotated with metadata.
       # The annotations are obtained from the metadata generated in the previous steps.
       # The manifest list is pushed to the GitHub Container Registry (GHCR) with the specified tags
-      working-directory: /tmp/digests
       id: manifest-annotate
       continue-on-error: true
       run: |
@@ -194,4 +193,4 @@ jobs:
     - name: Inspect image
       id: inspect
       run: |
-        docker buildx imagetools inspect '${{ env.GHCR_IMAGE }}:${{ steps.meta.outputs.version }}'
+        docker buildx imagetools inspect '${{ env.REGISTRY }}/${{ needs.prepare-build.outputs.name_lower }}:${{ needs.prepare-build.outputs.version }}'
