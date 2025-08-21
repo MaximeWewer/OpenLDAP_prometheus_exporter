@@ -261,29 +261,6 @@ func NewInternalMonitoring() *InternalMonitoring {
 	return monitoring
 }
 
-// registerMetrics registers all metrics with Prometheus
-func (im *InternalMonitoring) registerMetrics() {
-	prometheus.MustRegister(
-		im.poolUtilization,
-		im.poolConnections,
-		im.poolWaitTime,
-		im.poolOperations,
-		im.circuitBreakerState,
-		im.circuitBreakerRequests,
-		im.circuitBreakerFailures,
-		im.collectionLatency,
-		im.collectionSuccess,
-		im.collectionFailures,
-		im.cacheOperations,
-		im.cacheHitRatio,
-		im.cacheSize,
-		im.rateLimitRequests,
-		im.rateLimitBlocked,
-		im.goroutineCount,
-		im.memoryUsage,
-		im.uptime,
-	)
-}
 
 // RecordPoolUtilization records connection pool utilization
 func (im *InternalMonitoring) RecordPoolUtilization(server, poolType string, utilization float64) {

@@ -87,7 +87,7 @@ func TestCircuitBreakerStateChangeCallback(t *testing.T) {
 	})
 
 	// Trigger state change
-	cb.Call(func() error {
+	_ = cb.Call(func() error {
 		return errors.New("failure")
 	})
 
@@ -112,7 +112,7 @@ func TestCircuitBreakerIsHealthy(t *testing.T) {
 	}
 
 	// Force failure to open circuit
-	cb.Call(func() error {
+	_ = cb.Call(func() error {
 		return errors.New("failure")
 	})
 
@@ -172,7 +172,7 @@ func TestCircuitBreakerHalfOpen(t *testing.T) {
 	cb := NewCircuitBreaker(config)
 
 	// Force failure to open circuit
-	cb.Call(func() error {
+	_ = cb.Call(func() error {
 		return errors.New("failure")
 	})
 
@@ -237,8 +237,8 @@ func TestCircuitBreakerStats(t *testing.T) {
 	}
 
 	// Make some calls and check stats updates
-	cb.Call(func() error { return nil })
-	cb.Call(func() error { return errors.New("fail") })
+	_ = cb.Call(func() error { return nil })
+	_ = cb.Call(func() error { return errors.New("fail") })
 
 	stats = cb.GetStats()
 	// Convert interface{} to numbers safely
@@ -289,7 +289,7 @@ func TestCircuitBreakerResetWhileOpen(t *testing.T) {
 	cb := NewCircuitBreaker(config)
 
 	// Open the circuit
-	cb.Call(func() error {
+	_ = cb.Call(func() error {
 		return errors.New("failure")
 	})
 

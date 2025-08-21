@@ -35,7 +35,7 @@ func getTestConfig(t *testing.T) *config.Config {
 	username := getEnvOrDefault("TEST_LDAP_USERNAME", defaultLDAPUser)
 	password := getEnvOrDefault("TEST_LDAP_PASSWORD", defaultLDAPPassword)
 
-	cfg, err := config.NewConfig()
+	cfg, err := config.LoadConfig()
 	if err != nil {
 		t.Fatalf("Failed to create config: %v", err)
 	}

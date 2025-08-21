@@ -92,65 +92,6 @@ func validateKey(key string) error {
 	return nil
 }
 
-// safeMapGet safely retrieves a value from the lastValues map with bounds checking
-func (e *OpenLDAPExporter) safeMapGet(key string) (*counterEntry, bool, error) {
-	if err := validateKey(key); err != nil {
-		return nil, false, fmt.Errorf("invalid key: %w", err)
-	}
-
-	e.valueMutex.RLock()
-	defer e.valueMutex.RUnlock()
-
-	if e.lastValues == nil {
-		return nil, false, fmt.Errorf("lastValues map is nil")
-	}
-
-	entry, exists := e.lastValues[key]
-	return entry, exists, nil
-}
-
-// safeMapSet safely sets a value in the lastValues map with bounds checking
-func (e *OpenLDAPExporter) safeMapSet(key string, entry *counterEntry) error {
-	if err := validateKey(key); err != nil {
-		return fmt.Errorf("invalid key: %w", err)
-	}
-
-	if entry == nil {
-		return fmt.Errorf("cannot set nil entry")
-	}
-
-	e.valueMutex.Lock()
-	defer e.valueMutex.Unlock()
-
-	if e.lastValues == nil {
-		return fmt.Errorf("lastValues map is nil")
-	}
-
-	// Check if map is approaching capacity limits
-	if len(e.lastValues) >= MaxCounterEntries {
-		return fmt.Errorf("map capacity exceeded: %d entries (max %d)", len(e.lastValues), MaxCounterEntries)
-	}
-
-	e.lastValues[key] = entry
-	return nil
-}
-
-// safeMapDelete safely deletes a value from the lastValues map with bounds checking
-func (e *OpenLDAPExporter) safeMapDelete(key string) error {
-	if err := validateKey(key); err != nil {
-		return fmt.Errorf("invalid key: %w", err)
-	}
-
-	e.valueMutex.Lock()
-	defer e.valueMutex.Unlock()
-
-	if e.lastValues == nil {
-		return fmt.Errorf("lastValues map is nil")
-	}
-
-	delete(e.lastValues, key)
-	return nil
-}
 
 // isRetryableError determines if an error should be retried
 func isRetryableError(err error) bool {

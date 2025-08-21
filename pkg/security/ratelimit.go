@@ -238,7 +238,7 @@ func RateLimitMiddleware(limiter *RateLimiter) func(http.Handler) http.Handler {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Retry-After", "60") // Suggest retry after 1 minute
 				w.WriteHeader(http.StatusTooManyRequests)
-				w.Write([]byte(`{"error":"Rate limit exceeded","retry_after":"60s"}`))
+				_, _ = w.Write([]byte(`{"error":"Rate limit exceeded","retry_after":"60s"}`))
 				return
 			}
 

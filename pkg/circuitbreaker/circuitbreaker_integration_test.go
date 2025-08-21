@@ -202,7 +202,7 @@ func TestCircuitBreakerRecovery(t *testing.T) {
 
 	// Cause circuit to open
 	for i := 0; i < 2; i++ {
-		cb.Call(func() error {
+		_ = cb.Call(func() error {
 			return errors.New("failure")
 		})
 	}
