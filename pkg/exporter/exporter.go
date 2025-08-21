@@ -92,7 +92,6 @@ func validateKey(key string) error {
 	return nil
 }
 
-
 // isRetryableError determines if an error should be retried
 func isRetryableError(err error) bool {
 	if err == nil {

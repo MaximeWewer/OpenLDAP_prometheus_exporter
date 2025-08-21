@@ -261,7 +261,6 @@ func NewInternalMonitoring() *InternalMonitoring {
 	return monitoring
 }
 
-
 // RecordPoolUtilization records connection pool utilization
 func (im *InternalMonitoring) RecordPoolUtilization(server, poolType string, utilization float64) {
 	im.poolUtilization.WithLabelValues(server, poolType).Set(utilization)
