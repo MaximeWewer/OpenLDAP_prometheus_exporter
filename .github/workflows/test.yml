@@ -1,0 +1,187 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  GO_VERSION: "1.24"
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Setup Go environment
+      uses: ./.github/actions/setup-go-environment
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Run unit tests
+      run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+    - name: Run tests with race detector
+      run: go test -race -short ./...
+
+    - name: Check test coverage
+      run: |
+        go tool cover -func=coverage.out
+        COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+        echo "Coverage: $COVERAGE%"
+        if (( $(echo "$COVERAGE < 70" | bc -l) )); then
+          echo "Coverage is below 70%"
+          exit 1
+        fi
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+        flags: unittests
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    services:
+      openldap:
+        image: bitnami/openldap:latest
+        env:
+          LDAP_ROOT: "dc=example,dc=org"
+          LDAP_ADMIN_USERNAME: "admin"
+          LDAP_ADMIN_PASSWORD: "adminpassword"
+          LDAP_CONFIG_ADMIN_ENABLED: "yes"
+          LDAP_CONFIG_ADMIN_USERNAME: "adminconfig"
+          LDAP_CONFIG_ADMIN_PASSWORD: "configpassword"
+          LDAP_SKIP_DEFAULT_TREE: "yes"
+          LDAP_EXTRA_SCHEMAS: "dyngroup,cosine,inetorgperson,nis"
+        ports:
+        - 1389:1389
+        options: >-
+          --health-cmd "ldapsearch -x -H ldap://localhost:1389 -b cn=Monitor -s base '(objectClass=*)' cn" --health-interval 10s --health-timeout 5s --health-retries 10 --health-start-period 60s
+
+    steps:
+    - name: Setup Go environment
+      uses: ./.github/actions/setup-go-environment
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Setup LDAP test environment
+      uses: ./.github/actions/setup-ldap-test
+
+    - name: Run integration tests
+      env:
+        TEST_LDAP_URL: ldap://localhost:1389
+        TEST_LDAP_USERNAME: cn=adminconfig,cn=config
+        TEST_LDAP_PASSWORD: configpassword
+      run: go test -tags=integration -v ./tests/...
+
+    - name: Install LDAP tools for operation tests
+      run: sudo apt-get update && sudo apt-get install -y ldap-utils
+
+    - name: Run operation metrics tests (bash-based)
+      env:
+        LDAP_HOST: localhost
+        LDAP_PORT: 1389
+        ADMIN_PASSWORD: adminpassword
+        CONFIG_PASSWORD: configpassword
+        EXPORTER_PORT: 9360
+        TEST_TRAFFIC_OPERATIONS: 25
+        TEST_TIMEOUT: 120
+      run: |
+        chmod +x tests/scripts/run-operation-metrics-test.sh
+        ./tests/scripts/run-operation-metrics-test.sh --ldap-port 1389 --traffic 25
+
+    - name: Generate test report
+      if: always()
+      run: |
+        echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [[ -f /tmp/operation_metrics_test_report.txt ]]; then
+          echo "### Operation Metrics Test Report" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat /tmp/operation_metrics_test_report.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        fi
+
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Setup Go environment
+      uses: ./.github/actions/setup-go-environment
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Check code formatting
+      run: |
+        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+          echo "Code is not properly formatted:"
+          gofmt -s -l .
+          exit 1
+        fi
+
+    - name: Run go vet
+      run: go vet ./...
+
+    - name: Check for ineffective assignments
+      run: |
+        go install github.com/gordonklaus/ineffassign@latest
+        ineffassign ./...
+
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+        args: --timeout=5m --verbose
+
+  security:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Setup Go environment
+      uses: ./.github/actions/setup-go-environment
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Run Gosec Security Scanner
+      uses: securecodewarrior/github-action-gosec@master
+      with:
+        args: '-fmt sarif -out results.sarif ./...'
+
+    - name: Upload SARIF file
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: results.sarif
+
+    - name: Check for known vulnerabilities
+      run: |
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        govulncheck ./...
+
+    - name: Dependency review
+      uses: actions/dependency-review-action@v3
+      if: github.event_name == 'pull_request'
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [ unit-tests, integration-tests, static-analysis, security ]
+    if: always()
+
+    steps:
+    - name: Test Results Summary
+      run: |
+        echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Test Type | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Unit Tests | ${{ needs.unit-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Integration Tests | ${{ needs.integration-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Static Analysis | ${{ needs.static-analysis.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Security Analysis | ${{ needs.security.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+

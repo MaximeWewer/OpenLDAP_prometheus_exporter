@@ -24,14 +24,15 @@ RUN apk update && \
 WORKDIR /build
 
 # Copy dependency files first for better Docker layer caching
-COPY exporter/go.mod exporter/go.sum ./
+COPY go.mod go.sum ./
 
 # Download and verify dependencies
 RUN go mod download && \
     go mod verify
 
-# Copy source code
-COPY exporter/*.go ./
+# Copy source code and current structure
+COPY cmd/ ./cmd/
+COPY pkg/ ./pkg/
 
 # Build arguments for ldflags
 ARG VERSION
@@ -50,11 +51,10 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-w -s -extldflags '-static' -X main.Version=${VERSION}" \
     -trimpath \
     -tags netgo \
-    -o openldap-exporter .
+    -o openldap-exporter ./cmd/
 
-# Verify the binary is statically linked
-# Note: The go-ldap library may require some shared libraries, so we check if it's mostly static
-RUN ldd openldap-exporter || echo "Static binary verification completed"
+# Verify the binary was built successfully
+RUN ls -la openldap-exporter && file openldap-exporter
 
 # Runtime stage - using distroless base for minimal attack surface and security
 FROM gcr.io/distroless/base-debian12:nonroot
@@ -78,9 +78,8 @@ USER nonroot:nonroot
 # Expose the metrics port
 EXPOSE 9330
 
-# Health check using built-in health endpoint
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD ["/openldap-exporter", "-version"] || exit 1
+# Health check is handled by the application itself via /health endpoint
+# Docker healthcheck is optional and can be added by the deployment
 
 # Run the exporter
 ENTRYPOINT ["/openldap-exporter"]

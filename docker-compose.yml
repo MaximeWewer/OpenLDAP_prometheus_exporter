@@ -1,0 +1,75 @@
+services:
+  # OpenLDAP Prometheus Exporter
+  openldap-exporter:
+    image: ghcr.io/maximewewer/openldap_prometheus_exporter:latest
+    hostname: openldap-exporter
+    container_name: openldap-exporter
+    restart: unless-stopped
+    ports:
+      - "9330:9330"
+    environment:
+      # ========================================
+      # LDAP configuration (Required)
+      # ========================================
+      LDAP_URL: "ldap://host.docker.internal:389"                       # LDAP server URL
+      LDAP_USERNAME: "cn=adminconfig,cn=config"                         # LDAP authentication username
+      LDAP_PASSWORD: "adminpasswordconfig"                              # LDAP authentication password
+      
+      # ========================================
+      # LDAP configuration (Optional)
+      # ========================================
+      LDAP_SERVER_NAME: "openldap-dev"                                  # Server name for logs and metrics (default: localhost)
+      LDAP_TLS: "false"                                                 # Use TLS for connection (default: false)
+      LDAP_TIMEOUT: "10"                                                # LDAP connection timeout in seconds (default: 10)
+      LDAP_UPDATE_EVERY: "15"                                           # Metrics update interval in seconds (default: 60)
+      # LDAP_SKIP_CERT_VERIFY: "false"                                  # Skip TLS certificate verification (default: false)
+      # LDAP_TLS_CA: "/path/to/ca.crt"                                  # Path to CA certificate for TLS
+      # LDAP_TLS_CERT: "/path/to/client.crt"                            # Path to client certificate
+      # LDAP_TLS_KEY: "/path/to/client.key"                             # Path to client private key
+      
+      # ========================================
+      # HTTP server configuration
+      # ========================================
+      LISTEN_ADDRESS: ":9330"                                           # HTTP server listen address (default: :9330)
+      # HTTP_READ_TIMEOUT: "10s"                                        # HTTP read timeout (default: 10s)
+      # HTTP_WRITE_TIMEOUT: "10s"                                       # HTTP write timeout (default: 10s)
+      # HTTP_IDLE_TIMEOUT: "60s"                                        # HTTP idle timeout (default: 60s)
+      # HTTP_SHUTDOWN_TIMEOUT: "30s"                                    # Graceful shutdown timeout (default: 30s)
+      
+      # ========================================
+      # Rate limiting configuration
+      # ========================================
+      # RATE_LIMIT_REQUESTS: "30"                                       # Requests per minute for /metrics (default: 30)
+      # RATE_LIMIT_BURST: "10"                                          # Burst size for /metrics (default: 10)
+      # HEALTH_RATE_LIMIT_REQUESTS: "60"                                # Requests per minute for /health (default: 60)
+      # HEALTH_RATE_LIMIT_BURST: "20"                                   # Burst size for /health (default: 20)
+      
+      # ========================================
+      # Logging configuration
+      # ========================================
+      LOG_LEVEL: "INFO"                                                 # Log level: DEBUG, INFO, WARN, ERROR, FATAL (default: INFO)
+      
+      # ========================================
+      # Metrics filtering configuration
+      # ========================================
+      # OPENLDAP_METRICS_INCLUDE: "connections,statistics,health"       # Only collect these metric groups
+      # OPENLDAP_METRICS_EXCLUDE: "overlays,tls,backends"               # Exclude these metric groups
+      # Available groups: connections, statistics, operations, threads, time, waiters, overlays, tls, backends, listeners, health, database
+      
+      # ========================================
+      # Domain Component (DC) filtering
+      # ========================================
+      # OPENLDAP_DC_INCLUDE: "example,company,test"                     # Only monitor these domain components
+      # OPENLDAP_DC_EXCLUDE: "dev,staging"                              # Exclude these domain components
+    
+    healthcheck:
+      test: ["CMD", "/openldap-exporter", "-version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        "max-size": "10m"
+        "max-file": "5"

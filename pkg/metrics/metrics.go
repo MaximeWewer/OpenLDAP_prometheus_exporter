@@ -1,4 +1,4 @@
-package main
+package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
@@ -6,40 +6,40 @@ import (
 
 // OpenLDAPMetrics holds all Prometheus metrics for OpenLDAP monitoring
 type OpenLDAPMetrics struct {
-	connectionsCurrent  *prometheus.GaugeVec
-	connectionsTotal    *prometheus.CounterVec
-	bytesTotal          *prometheus.CounterVec
-	pduTotal            *prometheus.CounterVec
-	referralsTotal      *prometheus.CounterVec
-	entriesTotal        *prometheus.CounterVec
-	threadsMax          *prometheus.GaugeVec
-	threadsMaxPending   *prometheus.GaugeVec
-	threadsBackload     *prometheus.GaugeVec
-	threadsActive       *prometheus.GaugeVec
-	threadsOpen         *prometheus.GaugeVec
-	threadsStarting     *prometheus.GaugeVec
-	threadsPending      *prometheus.GaugeVec
-	threadsState        *prometheus.GaugeVec
-	operationsInitiated *prometheus.CounterVec
-	operationsCompleted *prometheus.CounterVec
-	waitersRead         *prometheus.GaugeVec
-	waitersWrite        *prometheus.GaugeVec
-	overlaysInfo        *prometheus.GaugeVec
-	serverTime          *prometheus.GaugeVec
-	serverUptime        *prometheus.GaugeVec
-	tlsInfo             *prometheus.GaugeVec
-	backendsInfo        *prometheus.GaugeVec
-	listenersInfo       *prometheus.GaugeVec
-	databaseEntries     *prometheus.GaugeVec
-	healthStatus        *prometheus.GaugeVec
-	responseTime        *prometheus.GaugeVec
-	scrapeErrors        *prometheus.CounterVec
+	ConnectionsCurrent  *prometheus.GaugeVec
+	ConnectionsTotal    *prometheus.CounterVec
+	BytesTotal          *prometheus.CounterVec
+	PduTotal            *prometheus.CounterVec
+	ReferralsTotal      *prometheus.CounterVec
+	EntriesTotal        *prometheus.CounterVec
+	ThreadsMax          *prometheus.GaugeVec
+	ThreadsMaxPending   *prometheus.GaugeVec
+	ThreadsBackload     *prometheus.GaugeVec
+	ThreadsActive       *prometheus.GaugeVec
+	ThreadsOpen         *prometheus.GaugeVec
+	ThreadsStarting     *prometheus.GaugeVec
+	ThreadsPending      *prometheus.GaugeVec
+	ThreadsState        *prometheus.GaugeVec
+	OperationsInitiated *prometheus.CounterVec
+	OperationsCompleted *prometheus.CounterVec
+	WaitersRead         *prometheus.GaugeVec
+	WaitersWrite        *prometheus.GaugeVec
+	OverlaysInfo        *prometheus.GaugeVec
+	ServerTime          *prometheus.GaugeVec
+	ServerUptime        *prometheus.GaugeVec
+	TlsInfo             *prometheus.GaugeVec
+	BackendsInfo        *prometheus.GaugeVec
+	ListenersInfo       *prometheus.GaugeVec
+	DatabaseEntries     *prometheus.GaugeVec
+	HealthStatus        *prometheus.GaugeVec
+	ResponseTime        *prometheus.GaugeVec
+	ScrapeErrors        *prometheus.CounterVec
 }
 
 // NewOpenLDAPMetrics creates and initializes all OpenLDAP Prometheus metrics
 func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 	return &OpenLDAPMetrics{
-		connectionsCurrent: prometheus.NewGaugeVec(
+		ConnectionsCurrent: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "connections_current",
@@ -47,7 +47,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		connectionsTotal: prometheus.NewCounterVec(
+		ConnectionsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "openldap",
 				Name:      "connections_total",
@@ -56,7 +56,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			[]string{"server"},
 		),
 
-		bytesTotal: prometheus.NewCounterVec(
+		BytesTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "openldap",
 				Name:      "bytes_total",
@@ -64,7 +64,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		pduTotal: prometheus.NewCounterVec(
+		PduTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "openldap",
 				Name:      "pdu_total",
@@ -72,7 +72,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		referralsTotal: prometheus.NewCounterVec(
+		ReferralsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "openldap",
 				Name:      "referrals_total",
@@ -80,7 +80,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		entriesTotal: prometheus.NewCounterVec(
+		EntriesTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "openldap",
 				Name:      "entries_total",
@@ -90,7 +90,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 		),
 
 		// Thread metrics
-		threadsMax: prometheus.NewGaugeVec(
+		ThreadsMax: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "threads_max",
@@ -98,7 +98,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		threadsMaxPending: prometheus.NewGaugeVec(
+		ThreadsMaxPending: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "threads_max_pending",
@@ -106,7 +106,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		threadsBackload: prometheus.NewGaugeVec(
+		ThreadsBackload: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "threads_backload",
@@ -114,7 +114,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		threadsActive: prometheus.NewGaugeVec(
+		ThreadsActive: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "threads_active",
@@ -122,7 +122,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		threadsOpen: prometheus.NewGaugeVec(
+		ThreadsOpen: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "threads_open",
@@ -130,7 +130,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		threadsStarting: prometheus.NewGaugeVec(
+		ThreadsStarting: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "threads_starting",
@@ -138,7 +138,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		threadsPending: prometheus.NewGaugeVec(
+		ThreadsPending: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "threads_pending",
@@ -146,7 +146,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		threadsState: prometheus.NewGaugeVec(
+		ThreadsState: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "threads_state",
@@ -156,7 +156,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 		),
 
 		// Operation metrics
-		operationsInitiated: prometheus.NewCounterVec(
+		OperationsInitiated: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "openldap",
 				Name:      "operations_initiated_total",
@@ -164,7 +164,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server", "operation"},
 		),
-		operationsCompleted: prometheus.NewCounterVec(
+		OperationsCompleted: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "openldap",
 				Name:      "operations_completed_total",
@@ -174,7 +174,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 		),
 
 		// Waiter metrics
-		waitersRead: prometheus.NewGaugeVec(
+		WaitersRead: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "waiters_read",
@@ -182,7 +182,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		waitersWrite: prometheus.NewGaugeVec(
+		WaitersWrite: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "waiters_write",
@@ -192,7 +192,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 		),
 
 		// Overlay metrics
-		overlaysInfo: prometheus.NewGaugeVec(
+		OverlaysInfo: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "overlays_info",
@@ -202,7 +202,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 		),
 
 		// Time metrics
-		serverTime: prometheus.NewGaugeVec(
+		ServerTime: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "server_time",
@@ -210,7 +210,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		serverUptime: prometheus.NewGaugeVec(
+		ServerUptime: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "server_uptime_seconds",
@@ -220,7 +220,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 		),
 
 		// TLS metrics
-		tlsInfo: prometheus.NewGaugeVec(
+		TlsInfo: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "tls_info",
@@ -230,7 +230,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 		),
 
 		// Backend metrics
-		backendsInfo: prometheus.NewGaugeVec(
+		BackendsInfo: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "backends_info",
@@ -240,7 +240,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 		),
 
 		// Listener metrics
-		listenersInfo: prometheus.NewGaugeVec(
+		ListenersInfo: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "listeners_info",
@@ -250,17 +250,17 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 		),
 
 		// Database metrics
-		databaseEntries: prometheus.NewGaugeVec(
+		DatabaseEntries: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "database_entries",
-				Help:      "Number of entries per database/base DN",
+				Help:      "Number of entries per database/base DN with domain component filtering",
 			},
-			[]string{"server", "base_dn"},
+			[]string{"server", "base_dn", "domain_component"},
 		),
 
 		// System health metrics
-		healthStatus: prometheus.NewGaugeVec(
+		HealthStatus: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "health_status",
@@ -268,7 +268,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		responseTime: prometheus.NewGaugeVec(
+		ResponseTime: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "response_time_seconds",
@@ -276,7 +276,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		scrapeErrors: prometheus.NewCounterVec(
+		ScrapeErrors: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "openldap",
 				Name:      "scrape_errors_total",
@@ -290,109 +290,109 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 // Describe implements the prometheus.Collector interface
 func (m *OpenLDAPMetrics) Describe(ch chan<- *prometheus.Desc) {
 	// Connection metrics
-	m.connectionsCurrent.Describe(ch)
-	m.connectionsTotal.Describe(ch)
+	m.ConnectionsCurrent.Describe(ch)
+	m.ConnectionsTotal.Describe(ch)
 
 	// Statistics metrics
-	m.bytesTotal.Describe(ch)
-	m.pduTotal.Describe(ch)
-	m.referralsTotal.Describe(ch)
-	m.entriesTotal.Describe(ch)
+	m.BytesTotal.Describe(ch)
+	m.PduTotal.Describe(ch)
+	m.ReferralsTotal.Describe(ch)
+	m.EntriesTotal.Describe(ch)
 
 	// Thread metrics
-	m.threadsMax.Describe(ch)
-	m.threadsMaxPending.Describe(ch)
-	m.threadsBackload.Describe(ch)
-	m.threadsActive.Describe(ch)
-	m.threadsOpen.Describe(ch)
-	m.threadsStarting.Describe(ch)
-	m.threadsPending.Describe(ch)
-	m.threadsState.Describe(ch)
+	m.ThreadsMax.Describe(ch)
+	m.ThreadsMaxPending.Describe(ch)
+	m.ThreadsBackload.Describe(ch)
+	m.ThreadsActive.Describe(ch)
+	m.ThreadsOpen.Describe(ch)
+	m.ThreadsStarting.Describe(ch)
+	m.ThreadsPending.Describe(ch)
+	m.ThreadsState.Describe(ch)
 
 	// Operation metrics
-	m.operationsInitiated.Describe(ch)
-	m.operationsCompleted.Describe(ch)
+	m.OperationsInitiated.Describe(ch)
+	m.OperationsCompleted.Describe(ch)
 
 	// Waiter metrics
-	m.waitersRead.Describe(ch)
-	m.waitersWrite.Describe(ch)
+	m.WaitersRead.Describe(ch)
+	m.WaitersWrite.Describe(ch)
 
 	// Overlay metrics
-	m.overlaysInfo.Describe(ch)
+	m.OverlaysInfo.Describe(ch)
 
 	// Time metrics
-	m.serverTime.Describe(ch)
-	m.serverUptime.Describe(ch)
+	m.ServerTime.Describe(ch)
+	m.ServerUptime.Describe(ch)
 
 	// TLS metrics
-	m.tlsInfo.Describe(ch)
+	m.TlsInfo.Describe(ch)
 
 	// Backend metrics
-	m.backendsInfo.Describe(ch)
+	m.BackendsInfo.Describe(ch)
 
 	// Listener metrics
-	m.listenersInfo.Describe(ch)
+	m.ListenersInfo.Describe(ch)
 
 	// Database metrics
-	m.databaseEntries.Describe(ch)
+	m.DatabaseEntries.Describe(ch)
 
 	// System health metrics
-	m.healthStatus.Describe(ch)
-	m.responseTime.Describe(ch)
-	m.scrapeErrors.Describe(ch)
+	m.HealthStatus.Describe(ch)
+	m.ResponseTime.Describe(ch)
+	m.ScrapeErrors.Describe(ch)
 }
 
 // Collect implements the prometheus.Collector interface
 func (m *OpenLDAPMetrics) Collect(ch chan<- prometheus.Metric) {
 	// Connection metrics
-	m.connectionsCurrent.Collect(ch)
-	m.connectionsTotal.Collect(ch)
+	m.ConnectionsCurrent.Collect(ch)
+	m.ConnectionsTotal.Collect(ch)
 
 	// Statistics metrics
-	m.bytesTotal.Collect(ch)
-	m.pduTotal.Collect(ch)
-	m.referralsTotal.Collect(ch)
-	m.entriesTotal.Collect(ch)
+	m.BytesTotal.Collect(ch)
+	m.PduTotal.Collect(ch)
+	m.ReferralsTotal.Collect(ch)
+	m.EntriesTotal.Collect(ch)
 
 	// Thread metrics
-	m.threadsMax.Collect(ch)
-	m.threadsMaxPending.Collect(ch)
-	m.threadsBackload.Collect(ch)
-	m.threadsActive.Collect(ch)
-	m.threadsOpen.Collect(ch)
-	m.threadsStarting.Collect(ch)
-	m.threadsPending.Collect(ch)
-	m.threadsState.Collect(ch)
+	m.ThreadsMax.Collect(ch)
+	m.ThreadsMaxPending.Collect(ch)
+	m.ThreadsBackload.Collect(ch)
+	m.ThreadsActive.Collect(ch)
+	m.ThreadsOpen.Collect(ch)
+	m.ThreadsStarting.Collect(ch)
+	m.ThreadsPending.Collect(ch)
+	m.ThreadsState.Collect(ch)
 
 	// Operation metrics
-	m.operationsInitiated.Collect(ch)
-	m.operationsCompleted.Collect(ch)
+	m.OperationsInitiated.Collect(ch)
+	m.OperationsCompleted.Collect(ch)
 
 	// Waiter metrics
-	m.waitersRead.Collect(ch)
-	m.waitersWrite.Collect(ch)
+	m.WaitersRead.Collect(ch)
+	m.WaitersWrite.Collect(ch)
 
 	// Overlay metrics
-	m.overlaysInfo.Collect(ch)
+	m.OverlaysInfo.Collect(ch)
 
 	// Time metrics
-	m.serverTime.Collect(ch)
-	m.serverUptime.Collect(ch)
+	m.ServerTime.Collect(ch)
+	m.ServerUptime.Collect(ch)
 
 	// TLS metrics
-	m.tlsInfo.Collect(ch)
+	m.TlsInfo.Collect(ch)
 
 	// Backend metrics
-	m.backendsInfo.Collect(ch)
+	m.BackendsInfo.Collect(ch)
 
 	// Listener metrics
-	m.listenersInfo.Collect(ch)
+	m.ListenersInfo.Collect(ch)
 
 	// Database metrics
-	m.databaseEntries.Collect(ch)
+	m.DatabaseEntries.Collect(ch)
 
 	// System health metrics
-	m.healthStatus.Collect(ch)
-	m.responseTime.Collect(ch)
-	m.scrapeErrors.Collect(ch)
+	m.HealthStatus.Collect(ch)
+	m.ResponseTime.Collect(ch)
+	m.ScrapeErrors.Collect(ch)
 }

@@ -1,0 +1,349 @@
+# Test LDIF data for integration tests
+# This file adds multiple domain components with users to test DC filtering
+
+# Create organizational units
+dn: ou=people,dc=example,dc=org
+objectClass: organizationalUnit
+ou: people
+description: Regular users organizational unit
+
+dn: ou=employees,dc=example,dc=org
+objectClass: organizationalUnit
+ou: employees
+description: Employee organizational unit
+
+dn: ou=contractors,dc=example,dc=org
+objectClass: organizationalUnit
+ou: contractors
+description: Contractor organizational unit
+
+dn: ou=service-accounts,dc=example,dc=org
+objectClass: organizationalUnit
+ou: service-accounts
+description: Service accounts organizational unit
+
+dn: ou=groups,dc=example,dc=org
+objectClass: organizationalUnit
+ou: groups
+description: Groups organizational unit
+
+# Create test users in people OU
+dn: uid=testuser1,ou=people,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: testuser1
+cn: Test User 1
+sn: User1
+givenName: Test
+displayName: Test User 1
+mail: testuser1@example.org
+uidNumber: 1001
+gidNumber: 1001
+homeDirectory: /home/testuser1
+employeeType: regular
+
+dn: uid=testuser2,ou=people,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: testuser2
+cn: Test User 2
+sn: User2
+givenName: Test
+displayName: Test User 2
+mail: testuser2@example.org
+uidNumber: 1002
+gidNumber: 1002
+homeDirectory: /home/testuser2
+employeeType: regular
+
+# Create employees
+dn: uid=emp001,ou=employees,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: organizationalPerson
+uid: emp001
+cn: John Doe
+sn: Doe
+givenName: John
+displayName: John Doe
+mail: john.doe@example.org
+employeeNumber: EMP001
+employeeType: full-time
+title: Software Engineer
+departmentNumber: IT
+uidNumber: 2001
+gidNumber: 2000
+homeDirectory: /home/emp001
+
+dn: uid=emp002,ou=employees,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: organizationalPerson
+uid: emp002
+cn: Jane Smith
+sn: Smith
+givenName: Jane
+displayName: Jane Smith
+mail: jane.smith@example.org
+employeeNumber: EMP002
+employeeType: full-time
+title: DevOps Engineer
+departmentNumber: IT
+uidNumber: 2002
+gidNumber: 2000
+homeDirectory: /home/emp002
+
+dn: uid=emp003,ou=employees,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: organizationalPerson
+uid: emp003
+cn: Bob Wilson
+sn: Wilson
+givenName: Bob
+displayName: Bob Wilson
+mail: bob.wilson@example.org
+employeeNumber: EMP003
+employeeType: part-time
+title: Security Analyst
+departmentNumber: Security
+uidNumber: 2003
+gidNumber: 2000
+homeDirectory: /home/emp003
+
+# Create contractors
+dn: uid=cont001,ou=contractors,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: cont001
+cn: Alice Johnson
+sn: Johnson
+givenName: Alice
+displayName: Alice Johnson
+mail: alice.johnson@contractor.com
+employeeType: contractor
+title: Consultant
+uidNumber: 3001
+gidNumber: 3000
+homeDirectory: /home/cont001
+
+dn: uid=cont002,ou=contractors,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: cont002
+cn: Charlie Brown
+sn: Brown
+givenName: Charlie
+displayName: Charlie Brown
+mail: charlie.brown@contractor.com
+employeeType: contractor
+title: Technical Writer
+uidNumber: 3002
+gidNumber: 3000
+homeDirectory: /home/cont002
+
+# Create service accounts
+dn: uid=svc-prometheus,ou=service-accounts,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: applicationEntity
+uid: svc-prometheus
+cn: Prometheus Service Account
+sn: Service
+givenName: Prometheus
+displayName: Prometheus Monitoring Service
+mail: prometheus@example.org
+description: Service account for Prometheus monitoring
+uidNumber: 4001
+gidNumber: 4000
+homeDirectory: /var/lib/prometheus
+
+dn: uid=svc-backup,ou=service-accounts,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: applicationEntity
+uid: svc-backup
+cn: Backup Service Account
+sn: Service
+givenName: Backup
+displayName: Backup Service
+mail: backup@example.org
+description: Service account for backup operations
+uidNumber: 4002
+gidNumber: 4000
+homeDirectory: /var/lib/backup
+
+dn: uid=svc-ldap-sync,ou=service-accounts,dc=example,dc=org
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: applicationEntity
+uid: svc-ldap-sync
+cn: LDAP Sync Service Account
+sn: Service
+givenName: LDAP-Sync
+displayName: LDAP Synchronization Service
+mail: ldap-sync@example.org
+description: Service account for LDAP synchronization
+uidNumber: 4003
+gidNumber: 4000
+homeDirectory: /var/lib/ldap-sync
+
+# Create groups
+dn: cn=developers,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: developers
+description: Developers group
+member: uid=emp001,ou=employees,dc=example,dc=org
+member: uid=emp002,ou=employees,dc=example,dc=org
+member: uid=cont001,ou=contractors,dc=example,dc=org
+
+dn: cn=security,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: security
+description: Security team group
+member: uid=emp003,ou=employees,dc=example,dc=org
+
+dn: cn=services,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: services
+description: Service accounts group
+member: uid=svc-prometheus,ou=service-accounts,dc=example,dc=org
+member: uid=svc-backup,ou=service-accounts,dc=example,dc=org
+member: uid=svc-ldap-sync,ou=service-accounts,dc=example,dc=org
+
+dn: cn=all-users,ou=groups,dc=example,dc=org
+objectClass: groupOfNames
+cn: all-users
+description: All users group
+member: uid=testuser1,ou=people,dc=example,dc=org
+member: uid=testuser2,ou=people,dc=example,dc=org
+member: uid=emp001,ou=employees,dc=example,dc=org
+member: uid=emp002,ou=employees,dc=example,dc=org
+member: uid=emp003,ou=employees,dc=example,dc=org
+member: uid=cont001,ou=contractors,dc=example,dc=org
+member: uid=cont002,ou=contractors,dc=example,dc=org
+
+# Additional domain components for DC filtering tests
+# Second domain: company.net
+dn: dc=company,dc=net
+objectClass: dcObject
+objectClass: organization
+dc: company
+o: Company Network Domain
+
+dn: ou=staff,dc=company,dc=net
+objectClass: organizationalUnit
+ou: staff
+description: Company staff organizational unit
+
+dn: uid=staff001,ou=staff,dc=company,dc=net
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: staff001
+cn: Network Admin
+sn: Admin
+givenName: Network
+displayName: Network Admin
+mail: netadmin@company.net
+employeeType: full-time
+title: Network Administrator
+uidNumber: 5001
+gidNumber: 5000
+homeDirectory: /home/staff001
+
+dn: uid=staff002,ou=staff,dc=company,dc=net
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: staff002
+cn: System Admin
+sn: Admin
+givenName: System
+displayName: System Admin
+mail: sysadmin@company.net
+employeeType: full-time
+title: System Administrator
+uidNumber: 5002
+gidNumber: 5000
+homeDirectory: /home/staff002
+
+# Third domain: test.local
+dn: dc=test,dc=local
+objectClass: dcObject
+objectClass: organization
+dc: test
+o: Test Local Domain
+
+dn: ou=users,dc=test,dc=local
+objectClass: organizationalUnit
+ou: users
+description: Test users organizational unit
+
+dn: uid=testuser100,ou=users,dc=test,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: testuser100
+cn: Test User 100
+sn: User100
+givenName: Test
+displayName: Test User 100
+mail: testuser100@test.local
+employeeType: test
+uidNumber: 6001
+gidNumber: 6000
+homeDirectory: /home/testuser100
+
+dn: uid=testuser101,ou=users,dc=test,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: testuser101
+cn: Test User 101
+sn: User101
+givenName: Test
+displayName: Test User 101
+mail: testuser101@test.local
+employeeType: test
+uidNumber: 6002
+gidNumber: 6000
+homeDirectory: /home/testuser101
+
+# Fourth domain: production.com
+dn: dc=production,dc=com
+objectClass: dcObject
+objectClass: organization
+dc: production
+o: Production Domain
+
+dn: ou=operators,dc=production,dc=com
+objectClass: organizationalUnit
+ou: operators
+description: Production operators organizational unit
+
+dn: uid=prod001,ou=operators,dc=production,dc=com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: prod001
+cn: Production Operator 1
+sn: Operator1
+givenName: Production
+displayName: Production Operator 1
+mail: prod001@production.com
+employeeType: full-time
+title: Production Operator
+uidNumber: 7001
+gidNumber: 7000
+homeDirectory: /home/prod001
+
+dn: uid=prod002,ou=operators,dc=production,dc=com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: prod002
+cn: Production Operator 2
+sn: Operator2
+givenName: Production
+displayName: Production Operator 2
+mail: prod002@production.com
+employeeType: full-time
+title: Production Operator
+uidNumber: 7002
+gidNumber: 7000
+homeDirectory: /home/prod002

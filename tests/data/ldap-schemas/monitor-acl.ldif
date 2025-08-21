@@ -1,0 +1,14 @@
+# ACL configuration for Monitor backend access
+# This file configures access control lists to allow adminconfig to read Monitor backend
+
+# Configure ACL for Monitor database
+dn: olcDatabase={1}monitor,cn=config
+changetype: modify
+replace: olcAccess
+olcAccess: to dn.subtree="cn=Monitor" by dn.exact="cn=adminconfig,cn=config" read by * none
+
+# Ensure adminconfig has access to cn=config
+dn: olcDatabase={0}config,cn=config
+changetype: modify
+replace: olcAccess
+olcAccess: to * by dn.exact="cn=adminconfig,cn=config" manage by * none

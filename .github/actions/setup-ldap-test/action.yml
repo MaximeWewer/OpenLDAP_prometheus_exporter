@@ -1,0 +1,45 @@
+name: 'Setup LDAP Test Environment'
+description: 'Sets up LDAP test environment with utilities and configuration'
+
+runs:
+  using: 'composite'
+  steps:
+  - name: Install LDAP utilities
+    shell: bash
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y ldap-utils
+
+  - name: Wait for OpenLDAP to be ready
+    shell: bash
+    run: |
+      echo "Waiting for OpenLDAP to be ready..."
+      for i in {1..30}; do
+        if ldapsearch -x -H ldap://localhost:1389 -b "cn=Monitor" -s base "(objectClass=*)" cn; then
+          echo "OpenLDAP is ready!"
+          break
+        fi
+        echo "Attempt $i: OpenLDAP not ready yet, waiting..."
+        sleep 5
+      done
+
+  - name: Setup LDAP configuration
+    shell: bash
+    run: |
+      # Make setup script executable
+      chmod +x tests/scripts/setup-ldap.sh
+
+      # Run LDAP setup with proper environment
+      LDAP_HOST=localhost LDAP_PORT=1389 ADMIN_PASSWORD=configpassword ./tests/scripts/setup-ldap.sh
+
+  - name: Test OpenLDAP connection
+    shell: bash
+    run: |
+      # Test basic connection
+      ldapsearch -x -H ldap://localhost:1389 -b "cn=Monitor" -s base "(objectClass=*)" cn
+
+      # Test monitor entries
+      ldapsearch -x -H ldap://localhost:1389 -D "cn=adminconfig,cn=config" -w configpassword -b "cn=Monitor" "(objectClass=*)" cn
+
+      # Test connections monitor
+      ldapsearch -x -H ldap://localhost:1389 -D "cn=adminconfig,cn=config" -w configpassword -b "cn=Connections,cn=Monitor" "(objectClass=*)" cn monitorCounter

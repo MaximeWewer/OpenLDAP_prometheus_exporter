@@ -1,0 +1,37 @@
+name: 'Setup Go Environment'
+description: 'Sets up Go environment with caching, downloads and verifies dependencies'
+
+inputs:
+  go-version:
+    description: 'Go version to use'
+    required: false
+    default: '1.24'
+
+runs:
+  using: 'composite'
+  steps:
+  - name: Check out code
+    uses: actions/checkout@v4
+
+  - name: Set up Go
+    uses: actions/setup-go@v4
+    with:
+      go-version: ${{ inputs.go-version }}
+
+  - name: Cache Go modules
+    uses: actions/cache@v3
+    with:
+      path: |
+        ~/.cache/go-build
+        ~/go/pkg/mod
+      key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+      restore-keys: |
+        ${{ runner.os }}-go-
+
+  - name: Download dependencies
+    shell: bash
+    run: go mod download
+
+  - name: Verify dependencies
+    shell: bash
+    run: go mod verify

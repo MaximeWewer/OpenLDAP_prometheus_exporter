@@ -1,0 +1,17 @@
+# Enable monitoring for base DN
+# This configures monitoring for the main database
+# Note: Bitnami OpenLDAP structure: {0}config, {1}monitor, {2}mdb
+
+# Configure main database monitoring
+dn: olcDatabase={2}mdb,cn=config
+changetype: modify
+replace: olcMonitoring
+olcMonitoring: TRUE
+
+# Ensure proper ACL for main database (only if needed)
+# Note: This operation might fail if ACLs are already set, which is acceptable
+dn: olcDatabase={2}mdb,cn=config
+changetype: modify
+add: olcAccess
+olcAccess: to attrs=userPassword by self write by dn.exact="cn=adminconfig,cn=config" write by anonymous auth by * none
+olcAccess: to * by dn.exact="cn=adminconfig,cn=config" write by users read by * none

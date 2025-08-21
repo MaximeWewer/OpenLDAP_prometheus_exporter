@@ -1,0 +1,15 @@
+# Enable Monitor backend if not already enabled
+# This LDIF ensures the Monitor backend is properly configured
+# Note: Bitnami OpenLDAP already has Monitor backend enabled, so we just modify existing configuration
+
+# Configure existing Monitor backend (modify, not add)
+dn: olcDatabase={1}monitor,cn=config
+changetype: modify
+replace: olcAccess
+olcAccess: to dn.subtree="cn=Monitor" by dn.exact="cn=adminconfig,cn=config" read by * none
+
+# Ensure Monitor backend is enabled for monitoring
+dn: olcDatabase={1}monitor,cn=config
+changetype: modify
+replace: olcMonitoring
+olcMonitoring: TRUE

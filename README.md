@@ -1,35 +1,176 @@
 # OpenLDAP Prometheus Exporter
 
-A Prometheus exporter for OpenLDAP using the [*Monitor backend*](https://www.openldap.org/doc/admin26/monitoringslapd.html)
+A Prometheus exporter for OpenLDAP with advanced security features, performance optimizations, and comprehensive monitoring using the [*Monitor backend*](https://www.openldap.org/doc/admin26/monitoringslapd.html)
 
 ## Support
 
 - Compatible with OpenLDAP 2.4+
 - Tested with Bitnami OpenLDAP container
 
-## Required environment variables
+## Environment Variables
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `LDAP_URL` | LDAP server URL | `ldap://openldap:1389` or `ldaps://openldap:1636` |
-| `LDAP_USERNAME` | Connection DN (**prefer adminconfig**) | `cn=adminconfig,cn=config` |
-| `LDAP_PASSWORD` | Account password | `adminpasswordconfig` |
+### LDAP Configuration (Required)
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `LDAP_URL` | LDAP server URL | *Required* | `ldap://localhost:389` |
+| `LDAP_USERNAME` | Username for LDAP authentication | *Required* | `cn=admin,dc=example,dc=com` |
+| `LDAP_PASSWORD` | Password for LDAP authentication | *Required* | `password123` |
 
 > **Recommendation:** Use the `adminconfig` account which has access to `cn=config` and the Monitor backend.
 
-## Optional environment variables
+### LDAP Configuration (Optional)
 
-| Variable | Description | Default |
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `LDAP_SERVER_NAME` | LDAP server name for logs and metrics | `localhost` | `ldap-prod-01` |
+| `LDAP_TLS` | Use TLS for connection | `false` | `true` |
+| `LDAP_TIMEOUT` | LDAP connection timeout (seconds) | `10` | `30` |
+| `LDAP_UPDATE_EVERY` | Metrics update interval (seconds) | `60` | `30` |
+| `LDAP_SKIP_CERT_VERIFY` | Skip TLS certificate verification | `false` | `true` |
+| `LDAP_TLS_CA` | Path to CA certificate for TLS | | `/path/to/ca.crt` |
+| `LDAP_TLS_CERT` | Path to client certificate | | `/path/to/client.crt` |
+| `LDAP_TLS_KEY` | Path to client private key | | `/path/to/client.key` |
+
+### HTTP Server Configuration
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `LISTEN_ADDRESS` | HTTP server listen address | `:9330` | `:8080` |
+| `HTTP_READ_TIMEOUT` | HTTP read timeout | `10s` | `30s` |
+| `HTTP_WRITE_TIMEOUT` | HTTP write timeout | `10s` | `30s` |
+| `HTTP_IDLE_TIMEOUT` | HTTP idle timeout | `60s` | `120s` |
+| `HTTP_SHUTDOWN_TIMEOUT` | Graceful shutdown timeout | `30s` | `60s` |
+
+### Rate Limiting Configuration
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `RATE_LIMIT_REQUESTS` | Requests per minute for /metrics | `30` | `100` |
+| `RATE_LIMIT_BURST` | Burst size for /metrics | `10` | `20` |
+| `HEALTH_RATE_LIMIT_REQUESTS` | Requests per minute for /health | `60` | `120` |
+| `HEALTH_RATE_LIMIT_BURST` | Burst size for /health | `20` | `40` |
+
+### Logging Configuration
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `LOG_LEVEL` | Log level | `INFO` | `DEBUG` |
+
+**Available log levels:**
+
+- `DEBUG`: All logs (very verbose)
+- `INFO`: General information
+- `WARN`: Warnings
+- `ERROR`: Errors only
+- `FATAL`: Fatal errors only
+
+### Metrics Filtering Configuration
+
+| Variable | Description | Example |
 |----------|-------------|---------|
-| `LDAP_SERVER_NAME` | Server name in metrics | `openldap` |
-| `LOG_LEVEL` | Log level (DEBUG, INFO, WARN, ERROR, FATAL) | `INFO` |
-| `LDAP_TLS` | Enable TLS | `false` |
-| `LDAP_TLS_SKIP_VERIFY` | Skip certificate verification | `false` |
-| `LDAP_TLS_CA` | Path to CA certificate | |
-| `LDAP_TLS_CERT` | Path to client certificate | |
-| `LDAP_TLS_KEY` | Path to client private key | |
-| `LDAP_TIMEOUT` | Connection timeout (seconds) | `10` |
-| `LDAP_UPDATE_EVERY` | Collection interval (seconds) | `15` |
+| `OPENLDAP_METRICS_INCLUDE` | Only collect these metric groups | `connections,statistics,health` |
+| `OPENLDAP_METRICS_EXCLUDE` | Exclude these metric groups | `overlays,tls,backends` |
+
+**Available metric groups:** `connections`, `statistics`, `operations`, `threads`, `time`, `waiters`, `overlays`, `tls`, `backends`, `listeners`, `health`, `database`
+
+**Filtering Logic:**
+
+1. **INCLUDE Mode**: If `OPENLDAP_METRICS_INCLUDE` is defined, only listed metrics are collected
+2. **EXCLUDE Mode**: If `OPENLDAP_METRICS_EXCLUDE` is defined (without INCLUDE), all metrics except listed ones are collected
+3. **DEFAULT Mode**: If no filters are defined, all metrics are collected
+
+### Domain Component (DC) Filtering
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `OPENLDAP_DC_INCLUDE` | Only monitor these domain components | `example,company,test` |
+| `OPENLDAP_DC_EXCLUDE` | Exclude these domain components | `dev,staging` |
+
+**Filtering Logic:**
+
+1. **INCLUDE Mode**: If `OPENLDAP_DC_INCLUDE` is defined, only listed domains are monitored
+2. **EXCLUDE Mode**: If `OPENLDAP_DC_EXCLUDE` is defined (without INCLUDE), all domains except listed ones are monitored
+3. **DEFAULT Mode**: If no filters are defined, all domains are monitored
+
+**Domain Component Extraction:**
+
+- `dc=example,dc=org` → Components: `["example", "org"]`
+- `ou=users,dc=company,dc=net` → Components: `["company", "net"]`
+- `uid=user1,ou=people,dc=test,dc=local` → Components: `["test", "local"]`
+
+### Configuration Examples
+
+#### Basic Configuration
+
+```bash
+export LDAP_URL="ldap://localhost:389"
+export LDAP_USERNAME="cn=admin,dc=example,dc=com"
+export LDAP_PASSWORD="mypassword"
+export LOG_LEVEL="INFO"
+./cmd.exe
+```
+
+#### TLS Configuration
+
+```bash
+export LDAP_URL="ldaps://ldap.example.com:636"
+export LDAP_USERNAME="cn=monitoring,ou=services,dc=example,dc=com"
+export LDAP_PASSWORD="secure_password"
+export LDAP_TLS="true"
+export LDAP_TLS_CA="/path/to/ca.crt"
+export LOG_LEVEL="DEBUG"
+./cmd.exe
+```
+
+#### High Performance Configuration
+
+```bash
+export LDAP_URL="ldap://ldap-cluster.internal:389"
+export LDAP_USERNAME="cn=prometheus,ou=monitoring,dc=internal,dc=com"
+export LDAP_PASSWORD="monitoring_password"
+export LDAP_UPDATE_EVERY="30"
+export LISTEN_ADDRESS=":9330"
+export RATE_LIMIT_REQUESTS="100"
+export RATE_LIMIT_BURST="30"
+export HTTP_READ_TIMEOUT="5s"
+export HTTP_WRITE_TIMEOUT="5s"
+export LOG_LEVEL="WARN"
+./cmd.exe
+```
+
+#### Domain-Specific Monitoring
+
+```bash
+# Monitor only production domains
+export OPENLDAP_DC_INCLUDE="production,company"
+export LDAP_URL="ldap://openldap-server:389"
+export LDAP_USERNAME="cn=adminconfig,cn=config"
+export LDAP_PASSWORD="secret"
+./cmd.exe
+```
+
+#### Selective Metrics Collection
+
+```bash
+# Collect only connection and operation metrics
+export OPENLDAP_METRICS_INCLUDE="connections,operations,health"
+export LDAP_URL="ldap://openldap-server:389"
+export LDAP_USERNAME="cn=adminconfig,cn=config"
+export LDAP_PASSWORD="secret"
+./cmd.exe
+```
+
+### Important Notes
+
+1. **Security**: Logs automatically use "Safe" functions to avoid logging passwords and sensitive information
+2. **Validation**: Invalid values generate warning logs and use default values
+3. **Command Line Priority**: Flags like `-web.listen-address` and `-log.level` override environment variables
+4. **Duration Format**: Use Go duration format (e.g., `30s`, `5m`, `1h`)
+5. **INCLUDE Priority**: For both metrics and DC filtering, INCLUDE filters take precedence over EXCLUDE filters
+6. **Case Sensitivity**: Domain component names are case-sensitive
+7. **Performance**: DC filtering improves performance by reducing LDAP queries
+8. **Compatibility**: All filtering features are backward-compatible
 
 ## Required OpenLDAP configuration
 
