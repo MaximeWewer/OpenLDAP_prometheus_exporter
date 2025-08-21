@@ -15,6 +15,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
     - name: Setup Go environment
       uses: ./.github/actions/setup-go-environment
       with:
@@ -64,6 +67,9 @@ jobs:
           --health-cmd "ldapsearch -x -H ldap://localhost:1389 -b '' -s base '(objectClass=*)' namingContexts" --health-interval 10s --health-timeout 5s --health-retries 10 --health-start-period 60s
 
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
     - name: Setup Go environment
       uses: ./.github/actions/setup-go-environment
       with:
@@ -112,6 +118,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
     - name: Setup Go environment
       uses: ./.github/actions/setup-go-environment
       with:
@@ -144,6 +153,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
     - name: Setup Go environment
       uses: ./.github/actions/setup-go-environment
       with:
