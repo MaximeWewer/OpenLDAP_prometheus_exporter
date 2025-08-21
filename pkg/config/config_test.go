@@ -136,7 +136,7 @@ func TestMetricFiltering(t *testing.T) {
 	os.Setenv("LDAP_USERNAME", "testuser")
 	os.Setenv("LDAP_PASSWORD", "testpass")
 	os.Setenv("OPENLDAP_METRICS_INCLUDE", "connections,statistics")
-	
+
 	defer func() {
 		os.Unsetenv("LDAP_URL")
 		os.Unsetenv("LDAP_USERNAME")
@@ -168,7 +168,7 @@ func TestMetricFilteringExclude(t *testing.T) {
 	os.Setenv("LDAP_USERNAME", "testuser")
 	os.Setenv("LDAP_PASSWORD", "testpass")
 	os.Setenv("OPENLDAP_METRICS_EXCLUDE", "threads,overlays")
-	
+
 	defer func() {
 		os.Unsetenv("LDAP_URL")
 		os.Unsetenv("LDAP_USERNAME")
@@ -201,7 +201,7 @@ func TestDCFiltering(t *testing.T) {
 	os.Setenv("LDAP_USERNAME", "testuser")
 	os.Setenv("LDAP_PASSWORD", "testpass")
 	os.Setenv("OPENLDAP_DC_INCLUDE", "example,test")
-	
+
 	defer func() {
 		os.Unsetenv("LDAP_URL")
 		os.Unsetenv("LDAP_USERNAME")
@@ -233,7 +233,7 @@ func TestDCFilteringExclude(t *testing.T) {
 	os.Setenv("LDAP_USERNAME", "testuser")
 	os.Setenv("LDAP_PASSWORD", "testpass")
 	os.Setenv("OPENLDAP_DC_EXCLUDE", "internal,private")
-	
+
 	defer func() {
 		os.Unsetenv("LDAP_URL")
 		os.Unsetenv("LDAP_USERNAME")
@@ -266,7 +266,7 @@ func TestBooleanEnvironmentVariables(t *testing.T) {
 	os.Setenv("LDAP_PASSWORD", "testpass")
 	os.Setenv("LDAP_TLS", "true")
 	os.Setenv("LDAP_TLS_SKIP_VERIFY", "false")
-	
+
 	defer func() {
 		os.Unsetenv("LDAP_URL")
 		os.Unsetenv("LDAP_USERNAME")
@@ -295,7 +295,7 @@ func TestInvalidBooleanEnvironmentVariables(t *testing.T) {
 	os.Setenv("LDAP_USERNAME", "testuser")
 	os.Setenv("LDAP_PASSWORD", "testpass")
 	os.Setenv("LDAP_TLS", "invalid_bool")
-	
+
 	defer func() {
 		os.Unsetenv("LDAP_URL")
 		os.Unsetenv("LDAP_USERNAME")
@@ -321,7 +321,7 @@ func TestInvalidMetricsLists(t *testing.T) {
 	os.Setenv("LDAP_USERNAME", "testuser")
 	os.Setenv("LDAP_PASSWORD", "testpass")
 	os.Setenv("OPENLDAP_METRICS_INCLUDE", "connections,invalid_metric,statistics")
-	
+
 	defer func() {
 		os.Unsetenv("LDAP_URL")
 		os.Unsetenv("LDAP_USERNAME")

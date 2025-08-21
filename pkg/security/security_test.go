@@ -164,9 +164,9 @@ func TestSanitizeLDAPValue(t *testing.T) {
 		{"Normal value", "test", "test"},
 		{"Value with special chars", "test*value", "test*value"}, // No escaping, just cleaning
 		{"Value with parentheses", "test(value)", "test(value)"}, // No escaping, just cleaning
-		{"Value with null byte", "test\x00value", "testvalue"}, // Null bytes removed
+		{"Value with null byte", "test\x00value", "testvalue"},   // Null bytes removed
 		{"Empty value", "", ""},
-		{"Value with backslash", "test\\value", "test\\value"}, // No escaping
+		{"Value with backslash", "test\\value", "test\\value"},     // No escaping
 		{"Value with control chars", "test\r\nvalue", "testvalue"}, // Control chars removed
 	}
 
@@ -216,7 +216,7 @@ func TestIsPrivateIP(t *testing.T) {
 func TestGetClientIP(t *testing.T) {
 	// Note: GetClientIP requires a non-nil HTTP request, so we skip this test
 	// or create a minimal mock. For coverage purposes, we'll create a basic request
-	
+
 	// For now, we'll skip testing GetClientIP with nil since it will panic
 	// In a real test suite, we would create mock HTTP requests
 	t.Skip("GetClientIP requires HTTP request mocking which is complex for this basic test")
@@ -225,30 +225,30 @@ func TestGetClientIP(t *testing.T) {
 // TestRateLimitMiddleware tests the rate limiting middleware
 func TestRateLimitMiddleware(t *testing.T) {
 	rateLimiter := NewRateLimiter(1, 1) // Very restrictive for testing
-	
+
 	// Test that the middleware function exists and can be created
 	middleware := RateLimitMiddleware(rateLimiter)
 	if middleware == nil {
 		t.Error("RateLimitMiddleware should return a non-nil function")
 	}
-	
+
 	// Note: Full testing of the middleware would require creating mock HTTP
 	// requests and responses, which is beyond the scope of this basic test
 }
 
-// TestRateLimiterCleanup tests cleanup functionality  
+// TestRateLimiterCleanup tests cleanup functionality
 func TestRateLimiterCleanup(t *testing.T) {
 	rateLimiter := NewRateLimiter(10, 5)
-	
+
 	// Add some clients
 	rateLimiter.Allow("192.168.1.1")
 	rateLimiter.Allow("192.168.1.2")
-	
+
 	// Test that cleanup doesn't panic
 	// Note: We can't easily test the internal cleanup without access to private fields
 	// But we can ensure the method exists and doesn't crash
-	
-	// Force a manual cleanup call through reflection if needed, 
+
+	// Force a manual cleanup call through reflection if needed,
 	// or just test that the rate limiter continues to work after some time
 	stats := rateLimiter.GetStats()
 	if stats == nil {
@@ -268,7 +268,7 @@ func TestLDAPDNValidationComprehensive(t *testing.T) {
 		{"Multi-component DN", "cn=test,ou=users,dc=example,dc=com", true},
 		{"DN with spaces", "cn=test user,ou=users", true},
 		{"DN with unicode", "cn=tëst,ou=üsers", true},
-		{"Invalid escaping", "cn=test\\", true}, // Actually allowed
+		{"Invalid escaping", "cn=test\\", true},     // Actually allowed
 		{"Invalid component", "invalid=test", true}, // Actually allowed - validation is basic
 		{"Too long DN", "cn=" + string(make([]byte, 1025)), false},
 		{"DN with control chars", "cn=test\r\n,ou=users", false},

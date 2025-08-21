@@ -17,11 +17,11 @@ import (
 func setupTestConfig(t *testing.T) (*config.Config, func()) {
 	// Set up test environment
 	testEnvVars := map[string]string{
-		"LDAP_URL":       "ldap://test.example.com:389",
-		"LDAP_USERNAME":  "testuser",
-		"LDAP_PASSWORD":  "testpass",
-		"LDAP_TIMEOUT":   "5",
-		"LOG_LEVEL":      "ERROR", // Reduce noise in tests
+		"LDAP_URL":      "ldap://test.example.com:389",
+		"LDAP_USERNAME": "testuser",
+		"LDAP_PASSWORD": "testpass",
+		"LDAP_TIMEOUT":  "5",
+		"LOG_LEVEL":     "ERROR", // Reduce noise in tests
 	}
 
 	// Set environment variables
@@ -404,7 +404,7 @@ func TestConstantsValidation(t *testing.T) {
 
 	// Test relationship between cleanup interval and retention period
 	if CounterEntryRetentionPeriod != 2*CounterCleanupInterval {
-		t.Errorf("CounterEntryRetentionPeriod should be 2 * CounterCleanupInterval, got %v vs %v", 
+		t.Errorf("CounterEntryRetentionPeriod should be 2 * CounterCleanupInterval, got %v vs %v",
 			CounterEntryRetentionPeriod, 2*CounterCleanupInterval)
 	}
 }
@@ -486,7 +486,7 @@ func TestMetricFiltering(t *testing.T) {
 	// Test exclude filtering
 	cfg2, cleanup2 := setupTestConfig(t)
 	defer cleanup2()
-	
+
 	cfg2.MetricsInclude = nil
 	cfg2.MetricsExclude = []string{"overlays", "tls"}
 
@@ -515,8 +515,8 @@ func TestDCFiltering(t *testing.T) {
 		dn       string
 		expected []string
 	}{
-		{"cn=connections,cn=Monitor", []string{}},  // No DC components
-		{"cn=total,cn=connections,cn=database,cn=example,cn=Monitor", []string{"example"}},
+		{"cn=connections,cn=Monitor", []string{}}, // No DC components
+		{"cn=total,cn=connections,cn=database,dc=example,dc=org,cn=Monitor", []string{"example", "org"}},
 		{"ou=users,dc=test,dc=org", []string{"test", "org"}},
 	}
 

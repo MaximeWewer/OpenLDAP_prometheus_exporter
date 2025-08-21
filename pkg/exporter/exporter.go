@@ -3,15 +3,15 @@ package exporter
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
-	"math"
 	"sync/atomic"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/go-ldap/ldap/v3"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/config"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
@@ -34,11 +34,11 @@ const (
 	CounterEntryRetentionPeriod = 2 * CounterCleanupInterval
 
 	// Retry configuration constants
-	MaxRetryAttempts    = 3
-	InitialRetryDelay   = 100 * time.Millisecond
-	MaxRetryDelay       = 2 * time.Second
-	RetryBackoffFactor  = 2.0
-	RetryJitterFactor   = 0.1
+	MaxRetryAttempts   = 3
+	InitialRetryDelay  = 100 * time.Millisecond
+	MaxRetryDelay      = 2 * time.Second
+	RetryBackoffFactor = 2.0
+	RetryJitterFactor  = 0.1
 )
 
 // collectionTask represents a metric collection task
@@ -152,7 +152,6 @@ func (e *OpenLDAPExporter) safeMapDelete(key string) error {
 	return nil
 }
 
-
 // isRetryableError determines if an error should be retried
 func isRetryableError(err error) bool {
 	if err == nil {
@@ -240,10 +239,10 @@ func (e *OpenLDAPExporter) retryOperation(ctx context.Context, operation string,
 		select {
 		case <-ctx.Done():
 			logger.SafeError("exporter", "Context cancelled during retry", ctx.Err(), map[string]interface{}{
-				"operation": operation,
-				"attempt": attempt,
+				"operation":    operation,
+				"attempt":      attempt,
 				"max_attempts": retryConfig.MaxAttempts,
-				"server": e.config.ServerName,
+				"server":       e.config.ServerName,
 			})
 			return ctx.Err()
 		default:
@@ -256,8 +255,8 @@ func (e *OpenLDAPExporter) retryOperation(ctx context.Context, operation string,
 			if attempt > 0 {
 				logger.SafeInfo("exporter", "Operation succeeded after retry", map[string]interface{}{
 					"operation": operation,
-					"attempt": attempt + 1,
-					"server": e.config.ServerName,
+					"attempt":   attempt + 1,
+					"server":    e.config.ServerName,
 				})
 			}
 			return nil
@@ -269,9 +268,9 @@ func (e *OpenLDAPExporter) retryOperation(ctx context.Context, operation string,
 		if !isRetryableError(err) {
 			logger.SafeError("exporter", "Non-retryable error encountered", err, map[string]interface{}{
 				"operation": operation,
-				"attempt": attempt + 1,
+				"attempt":   attempt + 1,
 				"retryable": false,
-				"server": e.config.ServerName,
+				"server":    e.config.ServerName,
 			})
 			return err
 		}
@@ -280,12 +279,12 @@ func (e *OpenLDAPExporter) retryOperation(ctx context.Context, operation string,
 		if attempt < retryConfig.MaxAttempts-1 {
 			delay := retryConfig.calculateDelay(attempt)
 			logger.SafeWarn("exporter", "Retrying operation after failure", map[string]interface{}{
-				"operation": operation,
-				"attempt": attempt + 1,
+				"operation":    operation,
+				"attempt":      attempt + 1,
 				"max_attempts": retryConfig.MaxAttempts,
-				"delay": delay.String(),
-				"error": err.Error(),
-				"server": e.config.ServerName,
+				"delay":        delay.String(),
+				"error":        err.Error(),
+				"server":       e.config.ServerName,
 			})
 
 			// Wait with context cancellation support
@@ -293,9 +292,9 @@ func (e *OpenLDAPExporter) retryOperation(ctx context.Context, operation string,
 			case <-ctx.Done():
 				logger.SafeError("exporter", "Context cancelled during retry delay", ctx.Err(), map[string]interface{}{
 					"operation": operation,
-					"attempt": attempt + 1,
-					"delay": delay.String(),
-					"server": e.config.ServerName,
+					"attempt":   attempt + 1,
+					"delay":     delay.String(),
+					"server":    e.config.ServerName,
 				})
 				return ctx.Err()
 			case <-time.After(delay):
@@ -307,8 +306,8 @@ func (e *OpenLDAPExporter) retryOperation(ctx context.Context, operation string,
 	// All attempts failed
 	logger.SafeError("exporter", "All retry attempts failed", lastErr, map[string]interface{}{
 		"operation": operation,
-		"attempts": retryConfig.MaxAttempts,
-		"server": e.config.ServerName,
+		"attempts":  retryConfig.MaxAttempts,
+		"server":    e.config.ServerName,
 	})
 	return lastErr
 }
@@ -326,9 +325,9 @@ type OpenLDAPExporter struct {
 	cleanupDone   chan struct{}            // Channel to signal cleanup goroutine completion
 	closed        int32                    // Atomic flag to indicate if exporter is closed
 	// Frequently accessed counters for atomic operations
-	totalScrapes      atomicFloat64
-	totalErrors       atomicFloat64
-	lastScrapeTime    atomicFloat64
+	totalScrapes   atomicFloat64
+	totalErrors    atomicFloat64
+	lastScrapeTime atomicFloat64
 }
 
 // NewOpenLDAPExporter creates a new OpenLDAP exporter with the given configuration
@@ -389,7 +388,7 @@ func (e *OpenLDAPExporter) Collect(ch chan<- prometheus.Metric) {
 
 	if err := e.ensureConnection(); err != nil {
 		logger.SafeError("exporter", "Failed to establish LDAP connection", err, map[string]interface{}{
-			"server": e.config.ServerName,
+			"server":  e.config.ServerName,
 			"timeout": e.config.Timeout.String(),
 		})
 		// Atomically increment error counter
@@ -406,8 +405,8 @@ func (e *OpenLDAPExporter) Collect(ch chan<- prometheus.Metric) {
 	// Atomically store last scrape time
 	e.lastScrapeTime.Store(float64(time.Now().Unix()))
 	logger.SafeInfo("exporter", "Metrics collection completed successfully", map[string]interface{}{
-		"server":   e.config.ServerName,
-		"duration": duration.String(),
+		"server":        e.config.ServerName,
+		"duration":      duration.String(),
 		"total_scrapes": e.totalScrapes.Load(),
 	})
 }
@@ -600,8 +599,8 @@ func (e *OpenLDAPExporter) collectStatisticsMetrics(server string) {
 	})
 	if err != nil {
 		logger.SafeError("exporter", "Failed to query statistics metrics after retries", err, map[string]interface{}{
-			"server": server,
-			"base_dn": "cn=Statistics,cn=Monitor",
+			"server":     server,
+			"base_dn":    "cn=Statistics,cn=Monitor",
 			"attributes": []string{"cn", "monitorCounter"},
 		})
 		return
@@ -619,7 +618,7 @@ func (e *OpenLDAPExporter) collectStatisticsMetrics(server string) {
 	if len(result.Entries) > 1000 { // Reasonable limit for entries
 		logger.SafeWarn("exporter", "Too many statistics entries, limiting processing", map[string]interface{}{
 			"entries_count": len(result.Entries),
-			"max_entries": 1000,
+			"max_entries":   1000,
 		})
 		result.Entries = result.Entries[:1000]
 	}
@@ -628,7 +627,7 @@ func (e *OpenLDAPExporter) collectStatisticsMetrics(server string) {
 		if i >= len(result.Entries) { // Additional bounds check
 			break
 		}
-		
+
 		if entry == nil { // Nil check for entry
 			logger.SafeWarn("exporter", "Found nil entry in statistics results", map[string]interface{}{
 				"entry_index": i,
@@ -697,9 +696,9 @@ func (e *OpenLDAPExporter) collectOperationsMetrics(server string) {
 	})
 	if err != nil {
 		logger.SafeError("exporter", "Failed to query operations metrics after retries", err, map[string]interface{}{
-			"server": server,
-			"base_dn": "cn=Operations,cn=Monitor",
-			"filter": "(objectClass=monitorOperation)",
+			"server":     server,
+			"base_dn":    "cn=Operations,cn=Monitor",
+			"filter":     "(objectClass=monitorOperation)",
 			"attributes": []string{"cn", "monitorOpInitiated", "monitorOpCompleted"},
 		})
 		return
@@ -758,8 +757,8 @@ func (e *OpenLDAPExporter) collectThreadsMetrics(server string) {
 	})
 	if err != nil {
 		logger.SafeError("exporter", "Failed to query thread metrics after retries", err, map[string]interface{}{
-			"server": server,
-			"base_dn": "cn=Threads,cn=Monitor",
+			"server":     server,
+			"base_dn":    "cn=Threads,cn=Monitor",
 			"attributes": []string{"cn", "monitoredInfo"},
 		})
 		return
@@ -1034,7 +1033,7 @@ func (e *OpenLDAPExporter) extractDomainComponents(dn string) []string {
 	// Validate DN length to prevent memory issues
 	if len(dn) > 2048 { // Reasonable limit for DN length
 		logger.SafeWarn("exporter", "DN too long, truncating", map[string]interface{}{
-			"dn_length": len(dn),
+			"dn_length":  len(dn),
 			"max_length": 2048,
 		})
 		dn = dn[:2048]
@@ -1044,12 +1043,12 @@ func (e *OpenLDAPExporter) extractDomainComponents(dn string) []string {
 
 	// Split DN into components and look for DC= entries
 	parts := strings.Split(dn, ",")
-	
+
 	// Bounds check for parts slice
 	if len(parts) > 100 { // Reasonable limit for DN components
 		logger.SafeWarn("exporter", "DN has too many components, limiting", map[string]interface{}{
 			"components_count": len(parts),
-			"max_components": 100,
+			"max_components":   100,
 		})
 		parts = parts[:100]
 	}
@@ -1058,12 +1057,12 @@ func (e *OpenLDAPExporter) extractDomainComponents(dn string) []string {
 		if i >= len(parts) { // Additional bounds check
 			break
 		}
-		
+
 		part = strings.TrimSpace(part)
 		if len(part) < 3 { // Minimum "dc=" length
 			continue
 		}
-		
+
 		if strings.HasPrefix(strings.ToLower(part), "dc=") {
 			// Extract the value after "dc=" with bounds checking
 			if len(part) > 3 {
@@ -1107,7 +1106,7 @@ func (e *OpenLDAPExporter) getMonitorCounter(dn string) (float64, error) {
 	val, parseErr := strconv.ParseFloat(counterStr, 64)
 	if parseErr != nil {
 		logger.SafeError("exporter", "Failed to parse counter value", parseErr, map[string]interface{}{
-			"dn": dn,
+			"dn":          dn,
 			"counter_str": counterStr,
 		})
 		return 0, parseErr
@@ -1180,8 +1179,8 @@ func (e *OpenLDAPExporter) updateCounter(counter *prometheus.CounterVec, server,
 	if !exists {
 		// First time seeing this metric, initialize counter to current value and store it
 		newEntry := &counterEntry{
-			value:    newValue,
-			lastSeen: time.Now(),
+			value:     newValue,
+			lastSeen:  time.Now(),
 			modifying: 0,
 		}
 
@@ -1212,14 +1211,14 @@ func (e *OpenLDAPExporter) updateCounter(counter *prometheus.CounterVec, server,
 	// Nil check for entry
 	if entry == nil {
 		logger.SafeError("exporter", "Found nil counter entry", nil, map[string]interface{}{
-			"server": server,
-			"key":    key,
+			"server":          server,
+			"key":             key,
 			"recovery_action": "replacing_with_new_entry",
 		})
 		// Replace with new entry
 		e.lastValues[key] = &counterEntry{
-			value:    newValue,
-			lastSeen: time.Now(),
+			value:     newValue,
+			lastSeen:  time.Now(),
 			modifying: 0,
 		}
 		counter.WithLabelValues(server).Add(0)
@@ -1358,8 +1357,8 @@ func (e *OpenLDAPExporter) updateOperationCounter(counter *prometheus.CounterVec
 	if !exists {
 		// First time seeing this metric, initialize counter to current value and store it
 		newEntry := &counterEntry{
-			value:    newValue,
-			lastSeen: time.Now(),
+			value:     newValue,
+			lastSeen:  time.Now(),
 			modifying: 0,
 		}
 
@@ -1398,8 +1397,8 @@ func (e *OpenLDAPExporter) updateOperationCounter(counter *prometheus.CounterVec
 		})
 		// Replace with new entry
 		e.lastValues[key] = &counterEntry{
-			value:    newValue,
-			lastSeen: time.Now(),
+			value:     newValue,
+			lastSeen:  time.Now(),
 			modifying: 0,
 		}
 		counter.WithLabelValues(server, operation).Add(0)

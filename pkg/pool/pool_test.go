@@ -315,7 +315,7 @@ func TestCloseConnection(t *testing.T) {
 	}
 	initialActive := pool.activeConns
 	pool.closeConnection(conn)
-	
+
 	// Active connections should decrease
 	if pool.activeConns != initialActive-1 {
 		t.Errorf("Active connections should decrease after close, got %d", pool.activeConns)
@@ -493,7 +493,7 @@ func TestPoolRetries(t *testing.T) {
 		lastUsed:  time.Now(),
 		conn:      nil,
 	}
-	
+
 	select {
 	case pool.pool <- invalidConn:
 		// Successfully added to pool
@@ -502,7 +502,7 @@ func TestPoolRetries(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	
+
 	// Get should retry and eventually fail to create new connection
 	conn, err := pool.Get(ctx)
 	if err == nil {

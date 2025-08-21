@@ -2,6 +2,7 @@ package circuitbreaker
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -77,11 +78,11 @@ func TestCircuitBreakerStateChangeCallback(t *testing.T) {
 	config.MaxFailures = 1
 	cb := NewCircuitBreaker(config)
 
-	callbackCalled := false
+	var callbackCalled int32
 
 	// Set state change callback
 	cb.SetStateChangeCallback(func(from, to State) {
-		callbackCalled = true
+		atomic.StoreInt32(&callbackCalled, 1)
 		// Just ensure callback is called, don't check specific states
 	})
 
@@ -92,7 +93,7 @@ func TestCircuitBreakerStateChangeCallback(t *testing.T) {
 
 	// The callback should be called, but state might not change as expected
 	// due to implementation details
-	if callbackCalled {
+	if atomic.LoadInt32(&callbackCalled) == 1 {
 		t.Log("State change callback was called successfully")
 	} else {
 		t.Log("State change callback was not called - might be implementation specific")
@@ -139,11 +140,11 @@ func TestCircuitBreakerForceOpen(t *testing.T) {
 
 	// Force open
 	cb.ForceOpen()
-	
+
 	// The behavior might differ from expectations, so just test that ForceOpen exists
 	// and doesn't panic
 	t.Log("ForceOpen called successfully")
-	
+
 	// Test current state
 	state := cb.GetState()
 	t.Logf("State after ForceOpen: %v", state)
@@ -189,7 +190,7 @@ func TestCircuitBreakerHalfOpen(t *testing.T) {
 	// Test that we can work with different states
 	finalState := cb.GetState()
 	t.Logf("Final state: %v", finalState)
-	
+
 	// Just ensure the circuit breaker continues to work
 	if finalState != StateClosed && finalState != StateOpen && finalState != StateHalfOpen {
 		t.Errorf("Unexpected state: %v", finalState)
@@ -244,10 +245,10 @@ func TestCircuitBreakerStats(t *testing.T) {
 	totalRequests := stats["total_requests"]
 	successes := stats["successes"]
 	failures := stats["failures"]
-	
+
 	// Just check that values are reasonable
 	t.Logf("Total requests: %v, Successes: %v, Failures: %v", totalRequests, successes, failures)
-	
+
 	// Basic sanity checks without type assertions
 	if totalRequests == nil {
 		t.Error("total_requests should not be nil")

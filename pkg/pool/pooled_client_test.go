@@ -69,7 +69,7 @@ func TestPooledClientSearch(t *testing.T) {
 
 	// Search will fail (no server) but should handle gracefully
 	result, err := client.Search("cn=Monitor", "(objectClass=*)", []string{"cn"})
-	
+
 	if err == nil {
 		t.Log("Unexpectedly successful search (LDAP server might be running)")
 		if result != nil {
@@ -93,7 +93,7 @@ func TestPooledClientSearchWithContext(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 
 	result, err := client.Search("cn=Monitor", "(objectClass=*)", []string{"cn"})
-	
+
 	if err == nil {
 		t.Error("Should return error on context timeout")
 		if result != nil {
@@ -166,7 +166,7 @@ func TestPooledClientClose(t *testing.T) {
 	defer cleanup()
 
 	client := NewPooledLDAPClient(cfg)
-	
+
 	// Close the client
 	client.Close()
 
@@ -316,17 +316,17 @@ func TestPooledClientConcurrency(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func(id int) {
 			defer func() { done <- true }()
-			
+
 			_, err := client.Search("cn=Monitor", "(objectClass=*)", []string{"cn"})
 			if err != nil {
 				// Expected - no server running
 				t.Logf("Goroutine %d: search failed as expected", id)
 			}
-			
+
 			// Check stats concurrently
 			stats := client.Stats()
 			_ = stats["pool_active_connections"]
-			
+
 			// Check health concurrently
 			_ = client.IsHealthy()
 		}(i)
