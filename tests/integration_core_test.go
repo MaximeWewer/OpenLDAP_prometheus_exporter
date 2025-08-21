@@ -39,11 +39,11 @@ func getTestConfig(t *testing.T) *config.Config {
 	originalURL := os.Getenv("LDAP_URL")
 	originalUsername := os.Getenv("LDAP_USERNAME")
 	originalPassword := os.Getenv("LDAP_PASSWORD")
-	
+
 	os.Setenv("LDAP_URL", url)
 	os.Setenv("LDAP_USERNAME", username)
 	os.Setenv("LDAP_PASSWORD", password)
-	
+
 	// Restore original environment variables after test
 	defer func() {
 		if originalURL == "" {

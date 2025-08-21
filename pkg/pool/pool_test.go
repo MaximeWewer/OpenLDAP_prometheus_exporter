@@ -461,21 +461,21 @@ func TestIsConnectionValidLocked(t *testing.T) {
 		t.Error("Nil connection should not be valid")
 	}
 
-	// Test with valid connection
+	// Test with connection that has nil conn field
 	conn := &PooledConnection{
 		createdAt: time.Now(),
 		lastUsed:  time.Now(),
 		inUse:     true,
-		conn:      nil, // Will fail ping but other checks pass
+		conn:      nil, // This will make the connection invalid
 	}
 
 	conn.mutex.Lock()
 	valid := pool.isConnectionValidLocked(conn)
 	conn.mutex.Unlock()
 
-	// Should be valid (not old, not idle, in use)
-	if !valid {
-		t.Error("Recent in-use connection should be valid (ignoring ping)")
+	// Should NOT be valid because conn.conn is nil
+	if valid {
+		t.Error("Connection with nil conn field should not be valid")
 	}
 }
 
