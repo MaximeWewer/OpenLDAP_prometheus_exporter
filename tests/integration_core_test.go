@@ -35,22 +35,42 @@ func getTestConfig(t *testing.T) *config.Config {
 	username := getEnvOrDefault("TEST_LDAP_USERNAME", defaultLDAPUser)
 	password := getEnvOrDefault("TEST_LDAP_PASSWORD", defaultLDAPPassword)
 
+	// Set required environment variables for config.LoadConfig()
+	originalURL := os.Getenv("LDAP_URL")
+	originalUsername := os.Getenv("LDAP_USERNAME")
+	originalPassword := os.Getenv("LDAP_PASSWORD")
+	
+	os.Setenv("LDAP_URL", url)
+	os.Setenv("LDAP_USERNAME", username)
+	os.Setenv("LDAP_PASSWORD", password)
+	
+	// Restore original environment variables after test
+	defer func() {
+		if originalURL == "" {
+			os.Unsetenv("LDAP_URL")
+		} else {
+			os.Setenv("LDAP_URL", originalURL)
+		}
+		if originalUsername == "" {
+			os.Unsetenv("LDAP_USERNAME")
+		} else {
+			os.Setenv("LDAP_USERNAME", originalUsername)
+		}
+		if originalPassword == "" {
+			os.Unsetenv("LDAP_PASSWORD")
+		} else {
+			os.Setenv("LDAP_PASSWORD", originalPassword)
+		}
+	}()
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		t.Fatalf("Failed to create config: %v", err)
 	}
 
-	cfg.URL = url
-	cfg.Username = username
-	// Create secure password
-	securePassword, err := config.NewSecureString(password)
-	if err != nil {
-		t.Fatalf("Failed to create secure password: %v", err)
-	}
-	cfg.Password = securePassword
 	cfg.ServerName = defaultServerName
 	cfg.TLS = false
-	cfg.Timeout = 10
+	cfg.Timeout = 10 * time.Second
 
 	return cfg
 }
