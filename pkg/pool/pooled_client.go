@@ -37,10 +37,8 @@ func NewPooledLDAPClient(cfg *config.Config) *PooledLDAPClient {
 
 // NewPooledLDAPClientWithOptions creates a new pooled LDAP client with options
 func NewPooledLDAPClientWithOptions(cfg *config.Config, _ bool) *PooledLDAPClient {
-	var pool PoolInterface
-
 	// For now, always use regular pool (adaptive pool needs more work)
-	pool = NewConnectionPool(cfg, 5)
+	pool := NewConnectionPool(cfg, 5)
 	useAdaptivePool := false
 
 	// Create circuit breaker with LDAP-specific configuration

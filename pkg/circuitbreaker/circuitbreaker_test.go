@@ -183,7 +183,7 @@ func TestCircuitBreakerHalfOpen(t *testing.T) {
 	time.Sleep(15 * time.Millisecond)
 
 	// Next call should potentially transition state
-	cb.Call(func() error {
+	_ = cb.Call(func() error {
 		return nil // Success
 	})
 

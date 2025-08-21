@@ -364,7 +364,7 @@ func TestBuildTLSConfig(t *testing.T) {
 	}
 
 	if tlsConfig == nil {
-		t.Error("TLS config should not be nil")
+		t.Fatal("TLS config should not be nil")
 	}
 
 	if tlsConfig.InsecureSkipVerify != cfg.TLSSkipVerify {

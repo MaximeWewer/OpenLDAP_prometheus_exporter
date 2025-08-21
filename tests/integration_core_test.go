@@ -40,9 +40,14 @@ func getTestConfig(t *testing.T) *config.Config {
 		t.Fatalf("Failed to create config: %v", err)
 	}
 
-	cfg.LDAPURL = url
+	cfg.URL = url
 	cfg.Username = username
-	cfg.Password = password
+	// Create secure password
+	securePassword, err := config.NewSecureString(password)
+	if err != nil {
+		t.Fatalf("Failed to create secure password: %v", err)
+	}
+	cfg.Password = securePassword
 	cfg.ServerName = defaultServerName
 	cfg.TLS = false
 	cfg.Timeout = 10
