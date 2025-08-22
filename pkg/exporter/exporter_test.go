@@ -20,7 +20,7 @@ func setupTestConfig(t *testing.T) (*config.Config, func()) {
 		"LDAP_URL":      "ldap://test.example.com:389",
 		"LDAP_USERNAME": "testuser",
 		"LDAP_PASSWORD": "testpass",
-		"LDAP_TIMEOUT":  "5",
+		"LDAP_TIMEOUT":  "1", // Short timeout for tests (1 second instead of 5)
 		"LOG_LEVEL":     "ERROR", // Reduce noise in tests
 	}
 
@@ -1128,10 +1128,8 @@ func TestCollectAllMetricsIndividual(t *testing.T) {
 
 	for _, collectFunc := range collectFunctions {
 		t.Run(collectFunc.name, func(t *testing.T) {
-			// Call each collect function multiple times to hit different code paths
-			for i := 0; i < 2; i++ {
-				collectFunc.fn(server)
-			}
+			// Call each collect function once to test code paths without excessive timeouts
+			collectFunc.fn(server)
 			t.Logf("%s completed without panic", collectFunc.name)
 		})
 	}

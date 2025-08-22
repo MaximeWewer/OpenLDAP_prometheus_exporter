@@ -15,7 +15,7 @@ func setupTestConfig(t *testing.T) (*config.Config, func()) {
 	os.Setenv("LDAP_URL", "ldap://test.example.com:389")
 	os.Setenv("LDAP_USERNAME", "testuser")
 	os.Setenv("LDAP_PASSWORD", "testpass")
-	os.Setenv("LDAP_TIMEOUT", "5")
+	os.Setenv("LDAP_TIMEOUT", "1")
 
 	cleanup := func() {
 		os.Unsetenv("LDAP_URL")
