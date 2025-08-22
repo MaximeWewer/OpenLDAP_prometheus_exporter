@@ -15,17 +15,23 @@ runs:
     with:
       go-version: ${{ inputs.go-version }}
 
+  - name: Clean potential cache conflicts
+    shell: bash
+    run: |
+      # Remove any existing Go module cache to prevent extraction conflicts
+      rm -rf ~/go/pkg/mod || true
+      rm -rf ~/.cache/go-build || true
+
   - name: Cache Go modules
     uses: actions/cache@v4
     with:
       path: |
         ~/.cache/go-build
         ~/go/pkg/mod
-      key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-${{ github.job }}
+      key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-${{ github.job }}-${{ github.run_id }}
       restore-keys: |
+        ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-${{ github.job }}-
         ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-
-        ${{ runner.os }}-go-${{ inputs.go-version }}-
-        ${{ runner.os }}-go-
 
   - name: Download dependencies
     shell: bash

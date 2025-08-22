@@ -437,3 +437,68 @@ func TestIsNetworkError(t *testing.T) {
 		})
 	}
 }
+
+// TestInvalidateConnection tests the invalidateConnection method
+func TestInvalidateConnection(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	client := NewPooledLDAPClient(cfg)
+	defer client.Close()
+
+	// Create a mock connection
+	mockConn := &PooledConnection{
+		conn:      nil, // Simulate a closed/invalid connection
+		lastUsed:  time.Now(),
+		createdAt: time.Now(),
+		inUse:     false,
+	}
+
+	// Test invalidating a connection - should not panic
+	client.invalidateConnection(mockConn)
+
+	// Test invalidating nil connection - should not panic
+	client.invalidateConnection(nil)
+}
+
+// TestPooledClientEdgeCases tests various edge cases for better coverage
+func TestPooledClientEdgeCases(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	client := NewPooledLDAPClient(cfg)
+	defer client.Close()
+
+	// Test multiple rapid searches to trigger pool management
+	for i := 0; i < 5; i++ {
+		_, _ = client.Search("cn=Monitor", "(objectClass=*)", []string{"cn"})
+	}
+
+	// Test health checks during operations
+	for i := 0; i < 3; i++ {
+		healthy := client.IsHealthy()
+		_ = healthy
+	}
+
+	// Test stats during operations
+	stats := client.Stats()
+	if stats == nil {
+		t.Error("Stats should not be nil")
+	}
+
+	// Test various search patterns
+	searchPatterns := []struct {
+		baseDN string
+		filter string
+		attrs  []string
+	}{
+		{"", "(objectClass=*)", []string{"*"}},
+		{"cn=config", "(objectClass=*)", []string{"cn", "objectClass"}},
+		{"cn=Monitor", "(cn=*)", nil},
+		{"ou=people,dc=example,dc=com", "(uid=*)", []string{"uid", "cn"}},
+	}
+
+	for _, pattern := range searchPatterns {
+		_, _ = client.Search(pattern.baseDN, pattern.filter, pattern.attrs)
+	}
+}

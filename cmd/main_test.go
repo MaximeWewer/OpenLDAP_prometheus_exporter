@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +11,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/config"
+	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/exporter"
 )
 
 // setupTestEnv sets up required environment variables for testing
@@ -401,6 +406,196 @@ func BenchmarkHandleHealth(b *testing.B) {
 	}
 }
 
+// TestGetEnvInt tests the getEnvInt function
+func TestGetEnvInt(t *testing.T) {
+	tests := []struct {
+		name         string
+		envVar       string
+		envValue     string
+		defaultValue int
+		expected     int
+	}{
+		{
+			name:         "Valid integer",
+			envVar:       "TEST_INT",
+			envValue:     "42",
+			defaultValue: 10,
+			expected:     42,
+		},
+		{
+			name:         "Invalid integer",
+			envVar:       "TEST_INT_INVALID",
+			envValue:     "not-a-number",
+			defaultValue: 10,
+			expected:     10,
+		},
+		{
+			name:         "Empty value",
+			envVar:       "TEST_INT_EMPTY",
+			envValue:     "",
+			defaultValue: 15,
+			expected:     15,
+		},
+		{
+			name:         "Unset variable",
+			envVar:       "TEST_INT_UNSET",
+			envValue:     "",
+			defaultValue: 20,
+			expected:     20,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envValue != "" {
+				os.Setenv(tt.envVar, tt.envValue)
+				defer os.Unsetenv(tt.envVar)
+			}
+
+			result := getEnvInt(tt.envVar, tt.defaultValue)
+			if result != tt.expected {
+				t.Errorf("getEnvInt() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestGetEnvDuration tests the getEnvDuration function
+func TestGetEnvDuration(t *testing.T) {
+	tests := []struct {
+		name         string
+		envVar       string
+		envValue     string
+		defaultValue time.Duration
+		expected     time.Duration
+	}{
+		{
+			name:         "Valid duration",
+			envVar:       "TEST_DURATION",
+			envValue:     "30s",
+			defaultValue: 10 * time.Second,
+			expected:     30 * time.Second,
+		},
+		{
+			name:         "Invalid duration",
+			envVar:       "TEST_DURATION_INVALID",
+			envValue:     "not-a-duration",
+			defaultValue: 15 * time.Second,
+			expected:     15 * time.Second,
+		},
+		{
+			name:         "Empty value",
+			envVar:       "TEST_DURATION_EMPTY",
+			envValue:     "",
+			defaultValue: 20 * time.Second,
+			expected:     20 * time.Second,
+		},
+		{
+			name:         "Complex duration",
+			envVar:       "TEST_DURATION_COMPLEX",
+			envValue:     "1h30m45s",
+			defaultValue: 10 * time.Second,
+			expected:     1*time.Hour + 30*time.Minute + 45*time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envValue != "" {
+				os.Setenv(tt.envVar, tt.envValue)
+				defer os.Unsetenv(tt.envVar)
+			}
+
+			result := getEnvDuration(tt.envVar, tt.defaultValue)
+			if result != tt.expected {
+				t.Errorf("getEnvDuration() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestHandleInternalMetrics tests the internal metrics handler
+func TestHandleInternalMetrics(t *testing.T) {
+	setupTestEnv()
+	defer cleanupTestEnv()
+
+	// Create a test exporter
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	defer cfg.Clear()
+
+	exp := exporter.NewOpenLDAPExporter(cfg)
+	defer exp.Close()
+
+	// Create test request
+	req := httptest.NewRequest("GET", "/internal/metrics", nil)
+	w := httptest.NewRecorder()
+
+	// Call handler
+	handleInternalMetrics(w, req, exp)
+
+	// Check response
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %v", w.Code)
+	}
+
+	contentType := w.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "text/plain") {
+		t.Errorf("Expected text/plain content type, got %v", contentType)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Error("Expected non-empty response body")
+	}
+}
+
+// TestHandleInternalStatus tests the internal status handler
+func TestHandleInternalStatus(t *testing.T) {
+	setupTestEnv()
+	defer cleanupTestEnv()
+
+	// Create a test exporter
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	defer cfg.Clear()
+
+	exp := exporter.NewOpenLDAPExporter(cfg)
+	defer exp.Close()
+
+	// Create test request
+	req := httptest.NewRequest("GET", "/internal/status", nil)
+	w := httptest.NewRecorder()
+
+	// Call handler
+	handleInternalStatus(w, req, exp)
+
+	// Check response
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %v", w.Code)
+	}
+
+	contentType := w.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		t.Errorf("Expected application/json content type, got %v", contentType)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Error("Expected non-empty response body")
+	}
+
+	// Check if it's valid JSON
+	var status map[string]interface{}
+	if err := json.Unmarshal([]byte(body), &status); err != nil {
+		t.Errorf("Expected valid JSON response, got error: %v", err)
+	}
+}
+
 func BenchmarkSecurityMiddleware(b *testing.B) {
 	handler := securityHeadersMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -412,5 +607,223 @@ func BenchmarkSecurityMiddleware(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
+	}
+}
+
+// TestGetEnvString tests the getEnvString function
+func TestGetEnvString(t *testing.T) {
+	tests := []struct {
+		name         string
+		envVar       string
+		envValue     string
+		defaultValue string
+		expected     string
+	}{
+		{
+			name:         "Set environment variable",
+			envVar:       "TEST_STRING",
+			envValue:     "test_value",
+			defaultValue: "default",
+			expected:     "test_value",
+		},
+		{
+			name:         "Unset environment variable",
+			envVar:       "UNSET_STRING",
+			envValue:     "",
+			defaultValue: "default_value",
+			expected:     "default_value",
+		},
+		{
+			name:         "Empty environment variable",
+			envVar:       "EMPTY_STRING",
+			envValue:     "",
+			defaultValue: "fallback",
+			expected:     "fallback",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envValue != "" {
+				os.Setenv(tt.envVar, tt.envValue)
+				defer os.Unsetenv(tt.envVar)
+			}
+
+			result := getEnvString(tt.envVar, tt.defaultValue)
+			if result != tt.expected {
+				t.Errorf("getEnvString() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestSetupHTTPRoutes tests the setupHTTPRoutes function
+func TestSetupHTTPRoutes(t *testing.T) {
+	setupTestEnv()
+	defer cleanupTestEnv()
+
+	// Create a test exporter
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	defer cfg.Clear()
+
+	exp := exporter.NewOpenLDAPExporter(cfg)
+	defer exp.Close()
+
+	// Setup routes
+	mux := setupHTTPRoutes(exp)
+	if mux == nil {
+		t.Fatal("setupHTTPRoutes should return non-nil ServeMux")
+	}
+
+	// Test that routes are properly registered by making requests
+	testRoutes := []struct {
+		path       string
+		method     string
+		expectCode int
+	}{
+		{"/", "GET", http.StatusOK},
+		{"/health", "GET", http.StatusOK},
+		{"/metrics", "GET", http.StatusOK},
+		{"/internal/metrics", "GET", http.StatusOK},
+		{"/internal/status", "GET", http.StatusOK},
+	}
+
+	for _, route := range testRoutes {
+		t.Run(route.path, func(t *testing.T) {
+			req := httptest.NewRequest(route.method, route.path, nil)
+			w := httptest.NewRecorder()
+
+			mux.ServeHTTP(w, req)
+
+			if w.Code != route.expectCode {
+				t.Errorf("Expected status %d for %s %s, got %d", route.expectCode, route.method, route.path, w.Code)
+			}
+		})
+	}
+}
+
+// TestSecurityHeadersMiddlewareHTTPS tests security headers middleware with HTTPS
+func TestSecurityHeadersMiddlewareHTTPS(t *testing.T) {
+	// Create a test handler
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("test response"))
+	})
+
+	// Wrap with security middleware
+	handler := securityHeadersMiddleware(testHandler)
+
+	// Create test request with TLS
+	req := httptest.NewRequest("GET", "https://localhost/", nil)
+	req.TLS = &tls.ConnectionState{} // Simulate HTTPS
+	w := httptest.NewRecorder()
+
+	// Execute request
+	handler.ServeHTTP(w, req)
+
+	// Check that HSTS header is set for HTTPS
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	hsts := resp.Header.Get("Strict-Transport-Security")
+	if hsts == "" {
+		t.Error("Expected HSTS header for HTTPS request")
+	}
+}
+
+// TestHandleRootEdgeCases tests handleRoot with different scenarios
+func TestHandleRootEdgeCases(t *testing.T) {
+	setupTestEnv()
+	defer cleanupTestEnv()
+
+	// Test with different request methods
+	methods := []string{"GET", "POST", "PUT", "DELETE"}
+	for _, method := range methods {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/", nil)
+			w := httptest.NewRecorder()
+
+			handleRoot(w, req)
+
+			// All methods should return 200 for root handler
+			if w.Code != http.StatusOK {
+				t.Errorf("Expected status 200 for %s method, got %d", method, w.Code)
+			}
+		})
+	}
+
+	// Test with different accept headers
+	acceptHeaders := []string{
+		"text/html",
+		"application/json", 
+		"*/*",
+		"text/plain",
+	}
+
+	for _, accept := range acceptHeaders {
+		t.Run("Accept-"+accept, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/", nil)
+			req.Header.Set("Accept", accept)
+			w := httptest.NewRecorder()
+
+			handleRoot(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("Expected status 200 with Accept: %s, got %d", accept, w.Code)
+			}
+		})
+	}
+}
+
+// TestErrorHandling tests various error handling scenarios
+func TestErrorHandling(t *testing.T) {
+	setupTestEnv()
+	defer cleanupTestEnv()
+
+	// Test version variable handling
+	originalVersion := Version
+	Version = "test-version-1.0.0"
+	defer func() { Version = originalVersion }()
+
+	if Version != "test-version-1.0.0" {
+		t.Errorf("Version should be set to test-version-1.0.0, got %s", Version)
+	}
+
+	// Test handleRoot with various user agents
+	userAgents := []string{
+		"Mozilla/5.0 (compatible; monitoring/1.0)",
+		"Go-http-client/1.1",
+		"curl/7.68.0",
+		"",
+	}
+
+	for _, ua := range userAgents {
+		t.Run("UserAgent-"+ua, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/", nil)
+			if ua != "" {
+				req.Header.Set("User-Agent", ua)
+			}
+			w := httptest.NewRecorder()
+
+			handleRoot(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("Expected status 200 with User-Agent: %s, got %d", ua, w.Code)
+			}
+		})
+	}
+
+	// Test health endpoint edge cases
+	req := httptest.NewRequest("GET", "/health", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	w := httptest.NewRecorder()
+
+	handleHealth(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200 for health endpoint, got %d", w.Code)
 	}
 }

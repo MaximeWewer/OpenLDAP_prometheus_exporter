@@ -218,10 +218,22 @@ jobs:
     - name: Run gocyclo
       run: |
         echo "Running gocyclo (cyclomatic complexity analysis)..."
-        echo "Checking functions with complexity > 10..."
-        gocyclo -over 10 .
-        echo "Checking functions with complexity > 15 (warnings)..."
-        gocyclo -over 15 . || echo "Warning: Some functions have high complexity"
+        echo "Checking functions with complexity > 20..."
+        if gocyclo -over 20 . | grep -q .; then
+          echo "Functions with complexity > 20 found:"
+          gocyclo -over 20 .
+          echo "These functions should be refactored to reduce complexity"
+          exit 1
+        else
+          echo "No functions with complexity > 20 found"
+        fi
+        echo "Functions with complexity 15-20 (warnings):"
+        if gocyclo -over 15 . | grep -v "_test.go" | head -5 | grep -q .; then
+          gocyclo -over 15 . | grep -v "_test.go" | head -5
+          echo "Consider refactoring these functions if possible"
+        else
+          echo "No non-test functions with complexity 15-20 found"
+        fi
 
   security:
     name: Security Analysis

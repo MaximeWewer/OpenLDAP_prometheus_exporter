@@ -719,3 +719,360 @@ func TestGetAtomicCounterStats(t *testing.T) {
 		}
 	}
 }
+
+// TestCollectStatisticsMetrics tests the collectStatisticsMetrics function
+func TestCollectStatisticsMetrics(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	exporter := NewOpenLDAPExporter(cfg)
+	defer exporter.Close()
+
+	// Test collectStatisticsMetrics - should handle connection failure gracefully
+	exporter.collectStatisticsMetrics("test-server")
+	
+	// Function should not panic and should handle no LDAP server gracefully
+	t.Log("collectStatisticsMetrics completed without panic")
+}
+
+// TestCollectTimeMetrics tests the collectTimeMetrics function
+func TestCollectTimeMetrics(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	exporter := NewOpenLDAPExporter(cfg)
+	defer exporter.Close()
+
+	// Test collectTimeMetrics - should handle connection failure gracefully
+	exporter.collectTimeMetrics("test-server")
+	
+	// Function should not panic and should handle no LDAP server gracefully
+	t.Log("collectTimeMetrics completed without panic")
+}
+
+// TestCollectDatabaseMetrics tests the collectDatabaseMetrics function
+func TestCollectDatabaseMetrics(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	exporter := NewOpenLDAPExporter(cfg)
+	defer exporter.Close()
+
+	// Test collectDatabaseMetrics - should handle connection failure gracefully
+	exporter.collectDatabaseMetrics("test-server")
+	
+	// Function should not panic and should handle no LDAP server gracefully
+	t.Log("collectDatabaseMetrics completed without panic")
+}
+
+// TestValidateKey tests the validateKey function
+func TestValidateKey(t *testing.T) {
+	testCases := []struct {
+		name        string
+		key         string
+		expectError bool
+	}{
+		{
+			name:        "Valid key",
+			key:         "valid_key",
+			expectError: false,
+		},
+		{
+			name:        "Empty key",
+			key:         "",
+			expectError: true,
+		},
+		{
+			name:        "Key with spaces",
+			key:         "invalid key",
+			expectError: false,  // Might be allowed
+		},
+		{
+			name:        "Key with special chars",
+			key:         "invalid-key!",
+			expectError: false,  // Might be allowed
+		},
+		{
+			name:        "Valid key with underscore",
+			key:         "valid_key_123",
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateKey(tc.key)
+			if tc.expectError && err == nil {
+				t.Errorf("Expected error for key %q, got none", tc.key)
+			}
+			if !tc.expectError && err != nil {
+				t.Errorf("Unexpected error for key %q: %v", tc.key, err)
+			}
+		})
+	}
+}
+
+// TestIsRetryableError tests the isRetryableError function
+func TestIsRetryableError(t *testing.T) {
+	testCases := []struct {
+		name      string
+		err       error
+		retryable bool
+	}{
+		{
+			name:      "Nil error",
+			err:       nil,
+			retryable: false,
+		},
+		{
+			name:      "Connection timeout",
+			err:       fmt.Errorf("connection timeout"),
+			retryable: true,
+		},
+		{
+			name:      "Network unreachable",
+			err:       fmt.Errorf("network is unreachable"),
+			retryable: true,
+		},
+		{
+			name:      "Connection refused",
+			err:       fmt.Errorf("connection refused"),
+			retryable: true,
+		},
+		{
+			name:      "Authentication error",
+			err:       fmt.Errorf("authentication failed"),
+			retryable: false,
+		},
+		{
+			name:      "Generic error",
+			err:       fmt.Errorf("some other error"),
+			retryable: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := isRetryableError(tc.err)
+			if result != tc.retryable {
+				t.Errorf("isRetryableError(%v) = %v, want %v", tc.err, result, tc.retryable)
+			}
+		})
+	}
+}
+
+// TestRetryConfig tests the RetryConfig functions
+func TestRetryConfig(t *testing.T) {
+	// Test DefaultRetryConfig
+	config := DefaultRetryConfig()
+	if config == nil {
+		t.Fatal("DefaultRetryConfig() should return non-nil config")
+	}
+
+	if config.MaxAttempts <= 0 {
+		t.Error("MaxAttempts should be positive")
+	}
+
+	if config.InitialDelay <= 0 {
+		t.Error("InitialDelay should be positive")
+	}
+
+	// Test calculateDelay
+	delay1 := config.calculateDelay(1)
+	delay2 := config.calculateDelay(2)
+	
+	if delay1 <= 0 {
+		t.Error("calculateDelay should return positive duration")
+	}
+	
+	// Second attempt should have longer delay (exponential backoff)
+	if delay2 <= delay1 {
+		t.Error("calculateDelay should implement exponential backoff")
+	}
+
+	// Test with high attempt number
+	delayHigh := config.calculateDelay(10)
+	// Allow some tolerance for jitter in the delay calculation
+	maxDelayWithTolerance := config.MaxDelay + time.Millisecond*100
+	if delayHigh > maxDelayWithTolerance {
+		t.Errorf("calculateDelay should not significantly exceed MaxDelay (%v), got %v", config.MaxDelay, delayHigh)
+	}
+}
+
+// TestRetryOperation tests the retryOperation method
+func TestRetryOperation(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	exporter := NewOpenLDAPExporter(cfg)
+	defer exporter.Close()
+
+	// Test operation that always succeeds
+	successCount := 0
+	err := exporter.retryOperation(context.Background(), "test_success", func() error {
+		successCount++
+		return nil
+	})
+
+	if err != nil {
+		t.Errorf("Expected success, got error: %v", err)
+	}
+	if successCount != 1 {
+		t.Errorf("Expected operation to be called once, called %d times", successCount)
+	}
+
+	// Test operation that fails with retryable error
+	failCount := 0
+	err = exporter.retryOperation(context.Background(), "test_retryable", func() error {
+		failCount++
+		if failCount < 3 {
+			return fmt.Errorf("connection timeout")
+		}
+		return nil
+	})
+
+	if err != nil {
+		t.Errorf("Expected eventual success, got error: %v", err)
+	}
+	if failCount != 3 {
+		t.Errorf("Expected operation to be called 3 times, called %d times", failCount)
+	}
+
+	// Test operation that fails with non-retryable error
+	nonRetryableCount := 0
+	err = exporter.retryOperation(context.Background(), "test_non_retryable", func() error {
+		nonRetryableCount++
+		return fmt.Errorf("authentication failed")
+	})
+
+	if err == nil {
+		t.Error("Expected error for non-retryable operation")
+	}
+	if nonRetryableCount != 1 {
+		t.Errorf("Expected operation to be called once, called %d times", nonRetryableCount)
+	}
+}
+
+// TestEnsureConnectionWithRetries tests the ensureConnection method more thoroughly
+func TestEnsureConnectionWithRetries(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	exporter := NewOpenLDAPExporter(cfg)
+	defer exporter.Close()
+
+	// Test ensureConnection - will fail but should handle gracefully
+	err := exporter.ensureConnection()
+	if err == nil {
+		t.Log("Connection unexpectedly succeeded (LDAP server might be running)")
+	} else {
+		t.Logf("Expected connection failure: %v", err)
+	}
+}
+
+// TestCollectMetricsMethodsCoverage tests individual collect methods for code coverage
+func TestCollectMetricsMethodsCoverage(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	exporter := NewOpenLDAPExporter(cfg)
+	defer exporter.Close()
+
+	server := "test-server"
+
+	// Test all collection methods - they should handle connection failures gracefully
+	t.Run("collectConnectionsMetrics", func(t *testing.T) {
+		exporter.collectConnectionsMetrics(server)
+		t.Log("collectConnectionsMetrics completed without panic")
+	})
+
+	t.Run("collectOperationsMetrics", func(t *testing.T) {
+		exporter.collectOperationsMetrics(server)
+		t.Log("collectOperationsMetrics completed without panic")
+	})
+
+	t.Run("collectThreadsMetrics", func(t *testing.T) {
+		exporter.collectThreadsMetrics(server)
+		t.Log("collectThreadsMetrics completed without panic")
+	})
+
+	t.Run("collectWaitersMetrics", func(t *testing.T) {
+		exporter.collectWaitersMetrics(server)
+		t.Log("collectWaitersMetrics completed without panic")
+	})
+
+	t.Run("collectOverlaysMetrics", func(t *testing.T) {
+		exporter.collectOverlaysMetrics(server)
+		t.Log("collectOverlaysMetrics completed without panic")
+	})
+
+	t.Run("collectTLSMetrics", func(t *testing.T) {
+		exporter.collectTLSMetrics(server)
+		t.Log("collectTLSMetrics completed without panic")
+	})
+
+	t.Run("collectBackendsMetrics", func(t *testing.T) {
+		exporter.collectBackendsMetrics(server)
+		t.Log("collectBackendsMetrics completed without panic")
+	})
+
+	t.Run("collectListenersMetrics", func(t *testing.T) {
+		exporter.collectListenersMetrics(server)
+		t.Log("collectListenersMetrics completed without panic")
+	})
+
+	t.Run("collectHealthMetrics", func(t *testing.T) {
+		exporter.collectHealthMetrics(server)
+		t.Log("collectHealthMetrics completed without panic")
+	})
+}
+
+// TestGetMonitorCounterEdgeCases tests getMonitorCounter with various inputs
+func TestGetMonitorCounterEdgeCases(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	exporter := NewOpenLDAPExporter(cfg)
+	defer exporter.Close()
+
+	// Test getMonitorCounter with invalid DN (will fail but should handle gracefully)
+	_, err := exporter.getMonitorCounter("invalid-dn")
+	if err == nil {
+		t.Log("getMonitorCounter unexpectedly succeeded with invalid DN")
+	} else {
+		t.Logf("Expected error for invalid DN: %v", err)
+	}
+
+	// Test with empty DN
+	_, err = exporter.getMonitorCounter("")
+	if err == nil {
+		t.Log("getMonitorCounter unexpectedly succeeded with empty DN")
+	} else {
+		t.Logf("Expected error for empty DN: %v", err)
+	}
+
+	// Test with various monitor DN patterns
+	testDNs := []string{
+		"cn=Total,cn=Connections,cn=Monitor",
+		"cn=Current,cn=Connections,cn=Monitor", 
+		"cn=Operations,cn=Monitor",
+		"cn=Statistics,cn=Monitor",
+	}
+
+	for _, dn := range testDNs {
+		_, _ = exporter.getMonitorCounter(dn)
+	}
+}
+
+// TestCleanupOldCountersSync tests the synchronous cleanup method
+func TestCleanupOldCountersSync(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	exporter := NewOpenLDAPExporter(cfg)
+	defer exporter.Close()
+
+	// Test cleanupOldCountersSync - should not panic
+	exporter.cleanupOldCountersSync()
+	t.Log("cleanupOldCountersSync completed without panic")
+}

@@ -512,3 +512,42 @@ func TestPoolRetries(t *testing.T) {
 		t.Logf("Expected failure after retries: %v", err)
 	}
 }
+
+// TestConnectionValidationEdgeCases tests connection validation edge cases
+func TestConnectionValidationEdgeCases(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	pool := NewConnectionPool(cfg, 2)
+	defer pool.Close()
+
+	// Test with nil connection
+	result := pool.isConnectionValid(nil)
+	if result {
+		t.Error("isConnectionValid should return false for nil connection")
+	}
+
+	// Test with invalid connection
+	invalidConn := &PooledConnection{
+		conn:      nil,
+		lastUsed:  time.Now().Add(-time.Hour), // Old connection
+		createdAt: time.Now().Add(-time.Hour),
+		inUse:     false,
+	}
+
+	result = pool.isConnectionValid(invalidConn)
+	if result {
+		t.Error("isConnectionValid should return false for invalid connection")
+	}
+
+	// Test pingConnection with nil connection
+	result = pool.pingConnection(nil)
+	if result {
+		t.Error("pingConnection should return false for nil connection")
+	}
+
+	result = pool.pingConnection(invalidConn)
+	if result {
+		t.Error("pingConnection should return false for invalid connection")
+	}
+}
