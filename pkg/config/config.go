@@ -2,11 +2,9 @@ package config
 
 import (
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
-	"unsafe"
 
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
@@ -45,8 +43,7 @@ func LoadConfig() (*Config, error) {
 		if err != nil {
 			logger.Fatal("config", "Failed to create secure password storage", err)
 		}
-		// Secure wipe password from memory
-		secureWipeString(passwordValue)
+		// Password is now securely stored in SecureString
 	}
 
 	config := &Config{
@@ -353,38 +350,3 @@ func (c *Config) ShouldMonitorDC(domainComponent string) bool {
 	return true
 }
 
-//go:noinline
-//go:nosplit
-func secureWipeString(s string) {
-	// Get the string header to access underlying data
-	if len(s) == 0 {
-		return
-	}
-
-	// Convert string to []byte without copying (unsafe but necessary for secure wipe)
-	data := unsafe.Slice((*byte)(unsafe.Pointer(unsafe.StringData(s))), len(s))
-
-	// Multiple pass overwrite to defeat memory forensics
-	// Pass 1: Zero bytes
-	for i := range data {
-		data[i] = 0x00
-	}
-
-	// Pass 2: 0xFF bytes
-	for i := range data {
-		data[i] = 0xFF
-	}
-
-	// Pass 3: Random pattern
-	for i := range data {
-		data[i] = byte(i) ^ 0xAA
-	}
-
-	// Final pass: Zero again
-	for i := range data {
-		data[i] = 0x00
-	}
-
-	// Force memory barrier to prevent compiler optimization
-	runtime.KeepAlive(data)
-}

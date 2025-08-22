@@ -827,3 +827,172 @@ func TestErrorHandling(t *testing.T) {
 		t.Errorf("Expected status 200 for health endpoint, got %d", w.Code)
 	}
 }
+
+// TestHandleRootNotFound tests 404 handling for non-root paths
+func TestHandleRootNotFound(t *testing.T) {
+	setupTestEnv()
+	defer cleanupTestEnv()
+
+	testPaths := []string{
+		"/nonexistent",
+		"/admin",
+		"/config",
+		"/../..",
+	}
+
+	for _, path := range testPaths {
+		t.Run("Path-"+path, func(t *testing.T) {
+			req := httptest.NewRequest("GET", path, nil)
+			w := httptest.NewRecorder()
+
+			handleRoot(w, req)
+
+			if w.Code != http.StatusNotFound {
+				t.Errorf("Expected status 404 for path %s, got %d", path, w.Code)
+			}
+		})
+	}
+}
+
+// TestRateLimitConfiguration tests rate limit environment variable handling
+func TestRateLimitConfiguration(t *testing.T) {
+	setupTestEnv()
+	defer cleanupTestEnv()
+
+	// Test various rate limit configurations
+	testCases := []struct {
+		name                  string
+		rateEnvVar           string
+		rateValue            string
+		burstEnvVar          string
+		burstValue           string
+		expectedRate         int
+		expectedBurst        int
+	}{
+		{
+			name:                 "Custom rate and burst",
+			rateEnvVar:          "RATE_LIMIT_REQUESTS",
+			rateValue:           "60",
+			burstEnvVar:         "RATE_LIMIT_BURST",
+			burstValue:          "20",
+			expectedRate:        60,
+			expectedBurst:       20,
+		},
+		{
+			name:                 "Invalid rate - should use default",
+			rateEnvVar:          "RATE_LIMIT_REQUESTS",
+			rateValue:           "invalid",
+			burstEnvVar:         "RATE_LIMIT_BURST",
+			burstValue:          "15",
+			expectedRate:        defaultRateLimitRequests,
+			expectedBurst:       15,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			os.Setenv(tc.rateEnvVar, tc.rateValue)
+			os.Setenv(tc.burstEnvVar, tc.burstValue)
+			defer func() {
+				os.Unsetenv(tc.rateEnvVar)
+				os.Unsetenv(tc.burstEnvVar)
+			}()
+
+			// Test getEnvInt function directly
+			actualRate := getEnvInt(tc.rateEnvVar, defaultRateLimitRequests)
+			actualBurst := getEnvInt(tc.burstEnvVar, defaultRateLimitBurst)
+
+			if actualRate != tc.expectedRate {
+				t.Errorf("Expected rate %d, got %d", tc.expectedRate, actualRate)
+			}
+			if actualBurst != tc.expectedBurst {
+				t.Errorf("Expected burst %d, got %d", tc.expectedBurst, actualBurst)
+			}
+		})
+	}
+}
+
+// TestHTTPTimeoutConfiguration tests HTTP timeout environment variables
+func TestHTTPTimeoutConfiguration(t *testing.T) {
+	tests := []struct {
+		name         string
+		envVar       string
+		envValue     string
+		defaultValue time.Duration
+		expected     time.Duration
+	}{
+		{
+			name:         "Valid HTTP read timeout",
+			envVar:       "HTTP_READ_TIMEOUT",
+			envValue:     "15s",
+			defaultValue: defaultReadTimeout,
+			expected:     15 * time.Second,
+		},
+		{
+			name:         "Valid HTTP write timeout",
+			envVar:       "HTTP_WRITE_TIMEOUT",
+			envValue:     "20s",
+			defaultValue: defaultWriteTimeout,
+			expected:     20 * time.Second,
+		},
+		{
+			name:         "Invalid timeout - use default",
+			envVar:       "HTTP_READ_TIMEOUT",
+			envValue:     "invalid-timeout",
+			defaultValue: defaultReadTimeout,
+			expected:     defaultReadTimeout,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envValue != "" {
+				os.Setenv(tt.envVar, tt.envValue)
+				defer os.Unsetenv(tt.envVar)
+			}
+
+			result := getEnvDuration(tt.envVar, tt.defaultValue)
+			if result != tt.expected {
+				t.Errorf("getEnvDuration() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestMainFunctionComponents tests components used by main function
+func TestMainFunctionComponents(t *testing.T) {
+	// Test that all default constants are reasonable
+	constants := map[string]interface{}{
+		"defaultListenAddress":     defaultListenAddress,
+		"defaultShutdownTimeout":   defaultShutdownTimeout,
+		"defaultReadTimeout":       defaultReadTimeout,
+		"defaultWriteTimeout":      defaultWriteTimeout,
+		"defaultIdleTimeout":       defaultIdleTimeout,
+		"defaultRateLimitRequests": defaultRateLimitRequests,
+		"defaultRateLimitBurst":    defaultRateLimitBurst,
+		"defaultHealthRequests":    defaultHealthRequests,
+		"defaultHealthBurst":       defaultHealthBurst,
+	}
+
+	for name, value := range constants {
+		if value == nil {
+			t.Errorf("Constant %s should not be nil", name)
+		}
+		
+		// Check specific types and ranges
+		switch v := value.(type) {
+		case string:
+			if v == "" {
+				t.Errorf("String constant %s should not be empty", name)
+			}
+		case time.Duration:
+			if v <= 0 {
+				t.Errorf("Duration constant %s should be positive, got %v", name, v)
+			}
+		case int:
+			if v <= 0 {
+				t.Errorf("Integer constant %s should be positive, got %v", name, v)
+			}
+		}
+	}
+}
