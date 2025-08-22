@@ -72,11 +72,52 @@ func LoadConfig() (*Config, error) {
 	if config.Password == nil || config.Password.IsEmpty() {
 		logger.Fatal("config", "LDAP_PASSWORD environment variable is required", nil)
 	}
+
+	// Validate timeout values
 	if config.Timeout <= 0 {
-		logger.Fatal("config", "LDAP_TIMEOUT must be greater than 0", nil)
+		logger.Warn("config", "Invalid LDAP_TIMEOUT, using default", map[string]interface{}{
+			"provided": config.Timeout,
+			"default":  10 * time.Second,
+		})
+		config.Timeout = 10 * time.Second
 	}
+	if config.Timeout > 5*time.Minute {
+		logger.Warn("config", "LDAP_TIMEOUT is very high, using maximum", map[string]interface{}{
+			"provided": config.Timeout,
+			"maximum":  5 * time.Minute,
+		})
+		config.Timeout = 5 * time.Minute
+	}
+
 	if config.UpdateEvery <= 0 {
-		logger.Fatal("config", "LDAP_UPDATE_EVERY must be greater than 0", nil)
+		logger.Warn("config", "Invalid LDAP_UPDATE_EVERY, using default", map[string]interface{}{
+			"provided": config.UpdateEvery,
+			"default":  15 * time.Second,
+		})
+		config.UpdateEvery = 15 * time.Second
+	}
+	if config.UpdateEvery < 5*time.Second {
+		logger.Warn("config", "LDAP_UPDATE_EVERY is too low, using minimum", map[string]interface{}{
+			"provided": config.UpdateEvery,
+			"minimum":  5 * time.Second,
+		})
+		config.UpdateEvery = 5 * time.Second
+	}
+	if config.UpdateEvery > 10*time.Minute {
+		logger.Warn("config", "LDAP_UPDATE_EVERY is very high, using maximum", map[string]interface{}{
+			"provided": config.UpdateEvery,
+			"maximum":  10 * time.Minute,
+		})
+		config.UpdateEvery = 10 * time.Minute
+	}
+
+	// Validate server name
+	if len(config.ServerName) > 128 {
+		logger.Warn("config", "Server name too long, truncating", map[string]interface{}{
+			"original_length": len(config.ServerName),
+			"max_length":      128,
+		})
+		config.ServerName = config.ServerName[:128]
 	}
 
 	// Load metric filtering configuration

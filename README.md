@@ -2,12 +2,106 @@
 
 A Prometheus exporter for OpenLDAP with advanced security features, performance optimizations, and comprehensive monitoring using the [*Monitor backend*](https://www.openldap.org/doc/admin26/monitoringslapd.html)
 
+## Features
+
+### Security Features
+
+- **Password Protection**: Credentials are encrypted in memory using ChaCha20-Poly1305
+- **Input Validation**: Comprehensive LDAP input validation to prevent injection attacks
+- **Rate Limiting**: Configurable rate limiting on all endpoints
+- **Security Headers**: Full set of security headers (CSP, HSTS, X-Frame-Options, etc.)
+- **Circuit Breaker**: Protection against cascading failures
+- **Safe Logging**: Automatic redaction of sensitive information in logs
+
+### Performance Optimizations
+
+- **Connection Pooling**: Reusable LDAP connections with configurable pool size
+- **Atomic Operations**: Lock-free metrics updates for better concurrency
+- **Metric Filtering**: Reduce overhead by collecting only needed metrics
+- **Domain Filtering**: Filter by domain components to reduce LDAP queries
+- **Retry Logic**: Exponential backoff with jitter for transient failures
+
 ## Support
 
 - Compatible with OpenLDAP 2.4+
 - Tested with Bitnami OpenLDAP container
 
-## Environment variables
+## Quick Start
+
+### Docker compose (recommended)
+
+```yaml
+openldap-exporter:
+  image: ghcr.io/maximewewer/openldap_prometheus_exporter:latest
+  hostname: openldap-exporter
+  container_name: openldap-exporter
+  restart: unless-stopped
+  ports:
+    - "9330:9330"
+  environment:
+    # LDAP Configuration
+    - LDAP_URL=ldap://openldap:1389
+    - LDAP_USERNAME=cn=adminconfig,cn=config
+    - LDAP_PASSWORD=adminpasswordconfig
+    - LDAP_SERVER_NAME=prod-ldap-01
+    
+    # Logging Configuration
+    - LOG_LEVEL=INFO  # DEBUG for more details
+    
+    # TLS Configuration (if needed)
+    - LDAP_TLS=false
+    - LDAP_TLS_SKIP_VERIFY=false
+    - LDAP_TIMEOUT=10
+    - LDAP_UPDATE_EVERY=15
+```
+
+### Docker
+
+```bash
+docker run -p 9330:9330 \
+  -e LDAP_URL=ldap://myldap.domain.com:389 \
+  -e LDAP_USERNAME=cn=adminconfig,cn=config \
+  -e LDAP_PASSWORD=secret \
+  -e LDAP_SERVER_NAME=ldap-prod-01 \
+  -e LOG_LEVEL=INFO \
+  ghcr.io/maximewewer/openldap_prometheus_exporter:latest
+```
+
+## Prometheus Configuration
+
+```yaml
+scrape_configs:
+  - job_name: 'openldap'
+    static_configs:
+      - targets: ['openldap-exporter:9330']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /metrics
+```
+
+## Required OpenLDAP Configuration
+
+### 1. Monitor backend activation
+
+The Monitor backend must be enabled on your OpenLDAP server.
+
+### 2. Base DN monitoring activation
+
+⚠️ **Important:** You must manually activate monitoring for each **Base DN** you want to monitor. The exporter automatically detects configured bases but cannot activate them.
+
+### 3. ACL configuration
+
+The account used (recommended: `adminconfig`. `LDAP_CONFIG_ADMIN` is used) must have read access to the Monitor backend:
+
+```ldif
+# Example ACL for adminconfig
+dn: olcDatabase={1}monitor,cn=config
+changetype: modify
+replace: olcAccess
+olcAccess: to dn.subtree="cn=Monitor" by dn.exact="cn=adminconfig,cn=config" read by * none
+```
+
+## Configuration
 
 ### LDAP configuration (required)
 
@@ -23,11 +117,11 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `LDAP_SERVER_NAME` | LDAP server name for logs and metrics | `localhost` | `ldap-prod-01` |
+| `LDAP_SERVER_NAME` | LDAP server name for logs and metrics | `openldap` | `ldap-prod-01` |
 | `LDAP_TLS` | Use TLS for connection | `false` | `true` |
 | `LDAP_TIMEOUT` | LDAP connection timeout (seconds) | `10` | `30` |
-| `LDAP_UPDATE_EVERY` | Metrics update interval (seconds) | `60` | `30` |
-| `LDAP_SKIP_CERT_VERIFY` | Skip TLS certificate verification | `false` | `true` |
+| `LDAP_UPDATE_EVERY` | Metrics update interval (seconds) | `15` | `30` |
+| `LDAP_TLS_SKIP_VERIFY` | Skip TLS certificate verification | `false` | `true` |
 | `LDAP_TLS_CA` | Path to CA certificate for TLS | | `/path/to/ca.crt` |
 | `LDAP_TLS_CERT` | Path to client certificate | | `/path/to/client.crt` |
 | `LDAP_TLS_KEY` | Path to client private key | | `/path/to/client.key` |
@@ -99,102 +193,7 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 - `ou=users,dc=company,dc=net` → Components: `["company", "net"]`
 - `uid=user1,ou=people,dc=test,dc=local` → Components: `["test", "local"]`
 
-### Configuration examples
-
-#### Basic configuration
-
-```bash
-export LDAP_URL="ldap://localhost:389"
-export LDAP_USERNAME="cn=admin,dc=example,dc=com"
-export LDAP_PASSWORD="mypassword"
-export LOG_LEVEL="INFO"
-./cmd.exe
-```
-
-#### TLS configuration
-
-```bash
-export LDAP_URL="ldaps://ldap.example.com:636"
-export LDAP_USERNAME="cn=monitoring,ou=services,dc=example,dc=com"
-export LDAP_PASSWORD="secure_password"
-export LDAP_TLS="true"
-export LDAP_TLS_CA="/path/to/ca.crt"
-export LOG_LEVEL="DEBUG"
-./cmd.exe
-```
-
-#### High performance configuration
-
-```bash
-export LDAP_URL="ldap://ldap-cluster.internal:389"
-export LDAP_USERNAME="cn=prometheus,ou=monitoring,dc=internal,dc=com"
-export LDAP_PASSWORD="monitoring_password"
-export LDAP_UPDATE_EVERY="30"
-export LISTEN_ADDRESS=":9330"
-export RATE_LIMIT_REQUESTS="100"
-export RATE_LIMIT_BURST="30"
-export HTTP_READ_TIMEOUT="5s"
-export HTTP_WRITE_TIMEOUT="5s"
-export LOG_LEVEL="WARN"
-./cmd.exe
-```
-
-#### Domain-specific monitoring
-
-```bash
-# Monitor only production domains
-export OPENLDAP_DC_INCLUDE="production,company"
-export LDAP_URL="ldap://openldap-server:389"
-export LDAP_USERNAME="cn=adminconfig,cn=config"
-export LDAP_PASSWORD="secret"
-./cmd.exe
-```
-
-#### Selective metrics collection
-
-```bash
-# Collect only connection and operation metrics
-export OPENLDAP_METRICS_INCLUDE="connections,operations,health"
-export LDAP_URL="ldap://openldap-server:389"
-export LDAP_USERNAME="cn=adminconfig,cn=config"
-export LDAP_PASSWORD="secret"
-./cmd.exe
-```
-
-### Important notes
-
-1. **Security**: Logs automatically use "Safe" functions to avoid logging passwords and sensitive information
-2. **Validation**: Invalid values generate warning logs and use default values
-3. **Command Line Priority**: Flags like `-web.listen-address` and `-log.level` override environment variables
-4. **Duration Format**: Use Go duration format (e.g., `30s`, `5m`, `1h`)
-5. **INCLUDE Priority**: For both metrics and DC filtering, INCLUDE filters take precedence over EXCLUDE filters
-6. **Case Sensitivity**: Domain component names are case-sensitive
-7. **Performance**: DC filtering improves performance by reducing LDAP queries
-8. **Compatibility**: All filtering features are backward-compatible
-
-## Required OpenLDAP configuration
-
-### 1. Monitor backend activation
-
-The Monitor backend must be enabled on your OpenLDAP server.
-
-### 2. Base DN monitoring activation
-
-⚠️ **Important:** You must manually activate monitoring for each **Base DN** you want to monitor. The exporter automatically detects configured bases but cannot activate them.
-
-### 3. ACL configuration
-
-The account used (recommended: `adminconfig`) must have read access to the Monitor backend:
-
-```ldif
-# Example ACL for adminconfig
-dn: olcDatabase={1}monitor,cn=config
-changetype: modify
-replace: olcAccess
-olcAccess: to dn.subtree="cn=Monitor" by dn.exact="cn=adminconfig,cn=config" read by * none
-```
-
-## Exported metrics
+## Exported Metrics
 
 ### Connections
 
@@ -250,61 +249,13 @@ Operation types: `bind`, `unbind`, `add`, `delete`, `modify`, `modrdn`, `compare
 - `openldap_response_time_seconds{server}` - Health check response time
 - `openldap_scrape_errors_total{server}` - Total collection errors
 
-## Usage
-
-### Docker compose (recommended)
-
-```yaml
-openldap-exporter:
-  image: ghcr.io/maximewewer/openldap_prometheus_exporter:latest
-  ports:
-    - "9330:9330"
-  environment:
-    # LDAP Configuration
-    - LDAP_URL=ldap://openldap:1389
-    - LDAP_USERNAME=cn=adminconfig,cn=config
-    - LDAP_PASSWORD=adminpasswordconfig
-    - LDAP_SERVER_NAME=prod-ldap-01
-    
-    # Logging Configuration
-    - LOG_LEVEL=INFO  # DEBUG for more details
-    
-    # TLS Configuration (if needed)
-    - LDAP_TLS=false
-    - LDAP_TLS_SKIP_VERIFY=false
-    - LDAP_TIMEOUT=10
-    - LDAP_UPDATE_EVERY=15
-```
-
-### Docker
-
-```bash
-docker run -p 9330:9330 \
-  -e LDAP_URL=ldap://myldap.domain.com:389 \
-  -e LDAP_USERNAME=cn=adminconfig,cn=config \
-  -e LDAP_PASSWORD=secret \
-  -e LDAP_SERVER_NAME=ldap-prod-01 \
-  -e LOG_LEVEL=INFO \
-  ghcr.io/maximewewer/openldap_prometheus_exporter:latest
-```
-
 ## Endpoints
 
-- `http://localhost:9330/` - Information page with version
+- `http://localhost:9330/` - Information page with version and configuration status
 - `http://localhost:9330/metrics` - Prometheus metrics
 - `http://localhost:9330/health` - JSON health check
-
-## Prometheus configuration
-
-```yaml
-scrape_configs:
-  - job_name: 'openldap'
-    static_configs:
-      - targets: ['openldap-exporter:9330']
-    scrape_interval: 15s
-    scrape_timeout: 10s
-    metrics_path: /metrics
-```
+- `http://localhost:9330/internal/metrics` - Internal exporter metrics (goroutines, memory usage, etc.)
+- `http://localhost:9330/internal/status` - JSON status endpoint for monitoring
 
 ## Logging
 
@@ -321,29 +272,6 @@ The exporter uses a structured logging system in JSON format:
 - `WARN`: Warnings
 - `ERROR`: Non-fatal errors
 - `FATAL`: Fatal errors (program termination)
-
-## Technical architecture
-
-- **Language:** Go 1.24
-- **Logging:** [rs/zerolog](https://github.com/rs/zerolog) for high-performance structured logs
-- **LDAP:** [go-ldap/ldap/v3](github.com/go-ldap/ldap)
-- **Metrics:** Official Prometheus client
-- **Container:** Distroless image for security
-- **Build:** Multi-stage Docker build with static binary
-
-## Development
-
-### Code structure
-
-```text
-├── main.go           # Entry point and HTTP configuration
-├── config.go         # Configuration management
-├── logger.go         # Centralized logging system
-├── ldap_client.go    # LDAP client with TLS management
-├── exporter.go       # Prometheus metrics collector
-├── metrics.go        # Metrics definitions
-└── Dockerfile        # Optimized multi-stage build
-```
 
 ## Troubleshooting
 
@@ -372,3 +300,18 @@ The exporter uses a structured logging system in JSON format:
    ```
 
    Configure `LDAP_TLS_CA` or use `LDAP_TLS_SKIP_VERIFY=true` (not recommended in production)
+
+## Technical Architecture
+
+- **Language:** Go
+- **Logging:** [rs/zerolog](https://github.com/rs/zerolog) for high-performance structured logs
+- **LDAP:** [go-ldap/ldap/v3](https://github.com/go-ldap/ldap)
+- **Metrics:** Official Prometheus client
+- **Security:** ChaCha20-Poly1305 for password encryption, comprehensive input validation
+- **Performance:** Connection pooling, circuit breaker pattern, retry with exponential backoff
+- **Container:** Distroless image for security
+- **Build:** Multi-stage Docker build with static binary
+
+## Development
+
+For development information, see [DEVELOPMENT.md](DEVELOPMENT.md) and [TESTING.md](TESTING.md).

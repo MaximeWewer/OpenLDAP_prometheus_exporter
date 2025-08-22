@@ -31,6 +31,8 @@ type ConnectionPool struct {
 	idleTimeout    time.Duration
 	maxIdleTime    time.Duration
 	closed         bool
+	shutdownChan   chan struct{} // Channel to signal shutdown
+	maintainWG     sync.WaitGroup // WaitGroup to track maintenance goroutine
 }
 
 // PooledConnection wraps an LDAP connection with pool metadata
@@ -51,9 +53,11 @@ func NewConnectionPool(cfg *config.Config, maxConnections int) *ConnectionPool {
 		connTimeout:    30 * time.Second,
 		idleTimeout:    5 * time.Minute,
 		maxIdleTime:    10 * time.Minute,
+		shutdownChan:   make(chan struct{}),
 	}
 
-	// Start connection maintenance goroutine
+	// Start connection maintenance goroutine with proper tracking
+	pool.maintainWG.Add(1)
 	go pool.maintainConnections()
 
 	logger.SafeInfo("pool", "LDAP connection pool created", map[string]interface{}{
@@ -100,23 +104,25 @@ func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 		}
 
 		// Create new connection if we haven't reached the limit
-		p.mutex.Lock()
-		currentActive := atomic.LoadInt64(&p.activeConns)
-		if int(currentActive) < p.maxConnections {
-			atomic.AddInt64(&p.activeConns, 1)
-			p.mutex.Unlock()
-
-			conn, err := p.createConnection()
-			if err != nil {
-				atomic.AddInt64(&p.activeConns, -1)
-				// Don't retry on creation errors, return immediately
-				return nil, fmt.Errorf("failed to create new connection: %w", err)
+		// Use atomic compare-and-swap to avoid race condition
+		for {
+			currentActive := atomic.LoadInt64(&p.activeConns)
+			if int(currentActive) >= p.maxConnections {
+				break
 			}
+			if atomic.CompareAndSwapInt64(&p.activeConns, currentActive, currentActive+1) {
 
-			conn.inUse = true
-			return conn, nil
+				conn, err := p.createConnection()
+				if err != nil {
+					atomic.AddInt64(&p.activeConns, -1)
+					// Don't retry on creation errors, return immediately
+					return nil, fmt.Errorf("failed to create new connection: %w", err)
+				}
+
+				conn.inUse = true
+				return conn, nil
+			}
 		}
-		p.mutex.Unlock()
 
 		// Wait for a connection to become available (only on final attempt)
 		if attempt == maxRetries-1 {
@@ -190,11 +196,21 @@ func (p *ConnectionPool) Put(conn *PooledConnection) {
 	}
 }
 
-// Close closes all connections in the pool
+// Close closes all connections in the pool and stops maintenance goroutine
 func (p *ConnectionPool) Close() {
 	p.mutex.Lock()
+	if p.closed {
+		p.mutex.Unlock()
+		return
+	}
 	p.closed = true
 	p.mutex.Unlock()
+
+	// Signal shutdown to maintenance goroutine
+	close(p.shutdownChan)
+
+	// Wait for maintenance goroutine to finish
+	p.maintainWG.Wait()
 
 	// Close all connections in the pool
 	for {
@@ -410,9 +426,9 @@ func (p *ConnectionPool) closeConnection(conn *PooledConnection) {
 		if err := conn.conn.Close(); err != nil {
 			logger.SafeError("pool", "Error closing LDAP connection", err)
 		}
+		// Only decrement if we actually had a connection
+		atomic.AddInt64(&p.activeConns, -1)
 	}
-
-	atomic.AddInt64(&p.activeConns, -1)
 
 	logger.SafeDebug("pool", "LDAP connection closed", map[string]interface{}{
 		"server":             p.config.ServerName,
@@ -422,16 +438,22 @@ func (p *ConnectionPool) closeConnection(conn *PooledConnection) {
 
 // maintainConnections periodically cleans up old/invalid connections
 func (p *ConnectionPool) maintainConnections() {
+	defer p.maintainWG.Done()
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		p.mutex.RLock()
-		if p.closed {
-			p.mutex.RUnlock()
+	for {
+		select {
+		case <-p.shutdownChan:
+			// Shutdown signal received
 			return
-		}
-		p.mutex.RUnlock()
+		case <-ticker.C:
+			p.mutex.RLock()
+			if p.closed {
+				p.mutex.RUnlock()
+				return
+			}
+			p.mutex.RUnlock()
 
 		// Clean up invalid connections
 		var validConns []*PooledConnection
@@ -479,10 +501,11 @@ func (p *ConnectionPool) maintainConnections() {
 			}
 		}
 
-		logger.SafeDebug("pool", "Connection pool maintenance completed", map[string]interface{}{
-			"active_connections": atomic.LoadInt64(&p.activeConns),
-			"pool_size":          len(p.pool),
-		})
+			logger.SafeDebug("pool", "Connection pool maintenance completed", map[string]interface{}{
+				"active_connections": atomic.LoadInt64(&p.activeConns),
+				"pool_size":          atomic.LoadInt64(&p.poolSize),
+			})
+		}
 	}
 }
 

@@ -16,7 +16,7 @@ pre-check: ## Run pre-check validations (same as CI)
 	@echo "1/6 Checking Go modules..."
 	@go mod verify > /dev/null 2>&1 && echo "✓ Go modules verified" || (echo "✗ Go modules verification failed" && exit 1)
 	@echo "2/6 Checking code formatting..."
-	@if [ "$(shell gofmt -s -l . | wc -l)" -gt 0 ]; then \
+	@if [ "$$(gofmt -s -l . | wc -l)" -gt 0 ]; then \
 		echo "✗ Code formatting issues found:"; \
 		gofmt -s -l .; \
 		echo "Run 'make format' to fix"; \
@@ -30,7 +30,7 @@ pre-check: ## Run pre-check validations (same as CI)
 	@which ineffassign > /dev/null 2>&1 || go install github.com/gordonklaus/ineffassign@latest
 	@ineffassign ./... > /dev/null 2>&1 && echo "✓ No ineffective assignments" || (echo "✗ Ineffective assignments found" && exit 1)
 	@echo "5/6 Running golangci-lint..."
-	@which golangci-lint > /dev/null 2>&1 || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
+	@which golangci-lint > /dev/null 2>&1 || (echo "Install golangci-lint from https://golangci-lint.run/usage/install/" && exit 1)
 	@golangci-lint run --timeout=3m > /dev/null 2>&1 && echo "✓ Linting passed" || (echo "✗ Linting failed - run 'make lint' for details" && exit 1)
 	@echo "6/6 Checking test compilation..."
 	@go test -c ./... > /dev/null 2>&1 && echo "✓ All tests compile" || (echo "✗ Test compilation failed" && exit 1)
@@ -72,29 +72,30 @@ test-integration: ## Run integration tests
 	@echo "Running integration tests..."
 	@go test -tags=integration -v ./tests/...
 
-test-race: ## Run tests with race detector
+test-race: ## Run tests with race detector (requires CGO)
 	@echo "Running tests with race detector..."
-	@go test -race -v ./...
+	@CGO_ENABLED=1 go test -race -v ./...
 
 # Build commands
 build: ## Build the application
 	@echo "Building application..."
-	@go build -o bin/openldap-exporter ./cmd
+	@go build -o bin/openldap-exporter ./cmd/main.go
 	@echo "Build completed: bin/openldap-exporter"
 
 build-all: ## Build for all platforms
 	@echo "Building for all platforms..."
 	@mkdir -p bin
-	@GOOS=linux GOARCH=amd64 go build -o bin/openldap-exporter-linux-amd64 ./cmd
-	@GOOS=windows GOARCH=amd64 go build -o bin/openldap-exporter-windows-amd64.exe ./cmd
-	@GOOS=darwin GOARCH=amd64 go build -o bin/openldap-exporter-darwin-amd64 ./cmd
-	@GOOS=darwin GOARCH=arm64 go build -o bin/openldap-exporter-darwin-arm64 ./cmd
+	@GOOS=linux GOARCH=amd64 go build -o bin/openldap-exporter-linux-amd64 ./cmd/main.go
+	@GOOS=windows GOARCH=amd64 go build -o bin/openldap-exporter-windows-amd64.exe ./cmd/main.go
+	@GOOS=darwin GOARCH=amd64 go build -o bin/openldap-exporter-darwin-amd64 ./cmd/main.go
+	@GOOS=darwin GOARCH=arm64 go build -o bin/openldap-exporter-darwin-arm64 ./cmd/main.go
 	@echo "Multi-platform build completed"
 
 # Installation commands
 install-tools: ## Install development tools
 	@echo "Installing development tools..."
-	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@echo "Installing golangci-lint..."
+	@echo "Please install from: https://golangci-lint.run/usage/install/"
 	@go install github.com/kisielk/errcheck@latest
 	@go install github.com/gordonklaus/ineffassign@latest
 	@echo "Development tools installed"
@@ -139,4 +140,4 @@ setup-hooks: ## Setup git pre-commit hooks
 	@echo 'make pre-check' >> .git/hooks/pre-commit
 	@chmod +x .git/hooks/pre-commit
 	@echo "Git pre-commit hook installed"
-	@echo "Pre-check will run automatically before each commit"
+	@echo "Pre-commit will run automatically before each commit"
