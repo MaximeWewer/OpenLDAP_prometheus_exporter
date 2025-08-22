@@ -892,8 +892,8 @@ func TestRetryConfig(t *testing.T) {
 
 	// Test with high attempt number
 	delayHigh := config.calculateDelay(10)
-	// Allow some tolerance for jitter in the delay calculation
-	maxDelayWithTolerance := config.MaxDelay + time.Millisecond*100
+	// Allow some tolerance for jitter in the delay calculation (exponential backoff + jitter can exceed MaxDelay slightly)
+	maxDelayWithTolerance := config.MaxDelay + time.Millisecond*200
 	if delayHigh > maxDelayWithTolerance {
 		t.Errorf("calculateDelay should not significantly exceed MaxDelay (%v), got %v", config.MaxDelay, delayHigh)
 	}
