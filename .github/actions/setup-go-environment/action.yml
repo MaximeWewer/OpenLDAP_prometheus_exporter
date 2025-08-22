@@ -18,9 +18,10 @@ runs:
   - name: Clean potential cache conflicts
     shell: bash
     run: |
-      # Remove any existing Go module cache to prevent extraction conflicts
-      rm -rf ~/go/pkg/mod || true
-      rm -rf ~/.cache/go-build || true
+      # Clean Go module cache properly using go clean to avoid permission issues
+      go clean -modcache 2>/dev/null || true
+      # Clean build cache
+      go clean -cache 2>/dev/null || true
 
   - name: Cache Go modules
     uses: actions/cache@v4
@@ -28,8 +29,9 @@ runs:
       path: |
         ~/.cache/go-build
         ~/go/pkg/mod
-      key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-${{ github.job }}-${{ github.run_id }}
+      key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-${{ github.job }}-${{ github.run_number }}-${{ github.run_attempt }}
       restore-keys: |
+        ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-${{ github.job }}-${{ github.run_number }}-
         ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-${{ github.job }}-
         ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-
 

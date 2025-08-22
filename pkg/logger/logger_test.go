@@ -105,7 +105,7 @@ func TestSanitizeError(t *testing.T) {
 		{
 			name:     "Error with token",
 			input:    errors.New("auth failed with token abc123def"),
-			expected: "auth failed with token abc123def",  // Token pattern might not match
+			expected: "auth failed with token abc123def", // Token pattern might not match
 		},
 		{
 			name:     "Error with multiple sensitive data",
@@ -115,12 +115,12 @@ func TestSanitizeError(t *testing.T) {
 		{
 			name:     "Error with DN",
 			input:    errors.New("LDAP search failed for cn=admin,dc=example,dc=com"),
-			expected: "LDAP search failed for cn=admin,dc=example,dc=com",  // DN sanitization might not apply to error messages
+			expected: "LDAP search failed for cn=admin,dc=example,dc=com", // DN sanitization might not apply to error messages
 		},
 		{
 			name:     "URL with credentials",
 			input:    errors.New("connection failed to ldap://user:pass@server.com:389"),
-			expected: "connection failed to ldap://user:***@server.com:389",  // Only password is sanitized in URLs
+			expected: "connection failed to ldap://user:***@server.com:389", // Only password is sanitized in URLs
 		},
 	}
 

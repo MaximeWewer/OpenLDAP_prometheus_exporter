@@ -758,7 +758,7 @@ func TestHandleRootEdgeCases(t *testing.T) {
 	// Test with different accept headers
 	acceptHeaders := []string{
 		"text/html",
-		"application/json", 
+		"application/json",
 		"*/*",
 		"text/plain",
 	}

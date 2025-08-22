@@ -730,7 +730,7 @@ func TestCollectStatisticsMetrics(t *testing.T) {
 
 	// Test collectStatisticsMetrics - should handle connection failure gracefully
 	exporter.collectStatisticsMetrics("test-server")
-	
+
 	// Function should not panic and should handle no LDAP server gracefully
 	t.Log("collectStatisticsMetrics completed without panic")
 }
@@ -745,7 +745,7 @@ func TestCollectTimeMetrics(t *testing.T) {
 
 	// Test collectTimeMetrics - should handle connection failure gracefully
 	exporter.collectTimeMetrics("test-server")
-	
+
 	// Function should not panic and should handle no LDAP server gracefully
 	t.Log("collectTimeMetrics completed without panic")
 }
@@ -760,7 +760,7 @@ func TestCollectDatabaseMetrics(t *testing.T) {
 
 	// Test collectDatabaseMetrics - should handle connection failure gracefully
 	exporter.collectDatabaseMetrics("test-server")
-	
+
 	// Function should not panic and should handle no LDAP server gracefully
 	t.Log("collectDatabaseMetrics completed without panic")
 }
@@ -785,12 +785,12 @@ func TestValidateKey(t *testing.T) {
 		{
 			name:        "Key with spaces",
 			key:         "invalid key",
-			expectError: false,  // Might be allowed
+			expectError: false, // Might be allowed
 		},
 		{
 			name:        "Key with special chars",
 			key:         "invalid-key!",
-			expectError: false,  // Might be allowed
+			expectError: false, // Might be allowed
 		},
 		{
 			name:        "Valid key with underscore",
@@ -880,11 +880,11 @@ func TestRetryConfig(t *testing.T) {
 	// Test calculateDelay
 	delay1 := config.calculateDelay(1)
 	delay2 := config.calculateDelay(2)
-	
+
 	if delay1 <= 0 {
 		t.Error("calculateDelay should return positive duration")
 	}
-	
+
 	// Second attempt should have longer delay (exponential backoff)
 	if delay2 <= delay1 {
 		t.Error("calculateDelay should implement exponential backoff")
@@ -1054,7 +1054,7 @@ func TestGetMonitorCounterEdgeCases(t *testing.T) {
 	// Test with various monitor DN patterns
 	testDNs := []string{
 		"cn=Total,cn=Connections,cn=Monitor",
-		"cn=Current,cn=Connections,cn=Monitor", 
+		"cn=Current,cn=Connections,cn=Monitor",
 		"cn=Operations,cn=Monitor",
 		"cn=Statistics,cn=Monitor",
 	}
