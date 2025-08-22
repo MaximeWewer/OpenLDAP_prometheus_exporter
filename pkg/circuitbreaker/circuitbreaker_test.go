@@ -311,3 +311,59 @@ func TestCircuitBreakerResetWhileOpen(t *testing.T) {
 		t.Errorf("Call should succeed after reset, got error: %v", err)
 	}
 }
+
+// TestOnSuccess tests the onSuccess method specifically to improve coverage
+func TestOnSuccess(t *testing.T) {
+	config := DefaultCircuitBreakerConfig()
+	config.MaxFailures = 2
+	config.SuccessThreshold = 2
+	config.Timeout = 100 * time.Millisecond
+	
+	cb := NewCircuitBreaker(config)
+
+	// Force circuit to open first
+	for i := 0; i < 2; i++ {
+		cb.Call(func() error {
+			return errors.New("force open")
+		})
+	}
+
+	// Wait for timeout to allow half-open transition
+	time.Sleep(150 * time.Millisecond)
+
+	// Test successful call in half-open state (should trigger onSuccess logic)
+	err := cb.Call(func() error {
+		return nil // Success
+	})
+	if err != nil {
+		t.Errorf("Successful call in half-open state should work, got: %v", err)
+	}
+
+	// Circuit should now be half-open, test another success
+	err = cb.Call(func() error {
+		return nil // Success
+	})
+	if err != nil {
+		t.Errorf("Second successful call should work, got: %v", err)
+	}
+
+	// After SuccessThreshold successes, circuit should close
+	if cb.GetState() != StateClosed {
+		t.Errorf("Circuit should be closed after success threshold reached, got %v", cb.GetState())
+	}
+
+	// Test onSuccess in closed state
+	for i := 0; i < 3; i++ {
+		err := cb.Call(func() error {
+			return nil // Success in closed state
+		})
+		if err != nil {
+			t.Errorf("Successful call %d in closed state should work, got: %v", i, err)
+		}
+	}
+
+	// State should remain closed
+	if cb.GetState() != StateClosed {
+		t.Errorf("Circuit should remain closed after successful calls, got %v", cb.GetState())
+	}
+}

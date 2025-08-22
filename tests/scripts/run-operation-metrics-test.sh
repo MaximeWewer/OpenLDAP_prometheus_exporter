@@ -429,7 +429,7 @@ test_exporter_metrics() {
     log_info "  - Operations completed entries: $ops_completed"
     
     if [[ $ops_initiated -gt 0 ]] || [[ $ops_completed -gt 0 ]]; then
-        log_success "✅ Operation metrics are being collected!"
+        log_success "Operation metrics are being collected!"
         
         # Show sample metrics
         log_info "Sample operation metrics:"
@@ -616,10 +616,10 @@ main() {
     log_info "Test duration: ${test_duration}s"
     
     if [[ $failed_tests -eq 0 ]]; then
-        log_success "✅ All tests passed successfully!"
+        log_success "All tests passed successfully!"
         exit 0
     else
-        log_warning "⚠ $failed_tests test phases had issues"
+        log_warning "$failed_tests test phases had issues"
         log_info "Check the output above for details"
         exit 1
     fi

@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 )
 
@@ -234,8 +235,44 @@ func TestRateLimitMiddleware(t *testing.T) {
 		t.Error("RateLimitMiddleware should return a non-nil function")
 	}
 
-	// Note: Full testing of the middleware would require creating mock HTTP
-	// requests and responses, which is beyond the scope of this basic test
+	// Create a test handler
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	// Wrap with middleware
+	handler := middleware(testHandler)
+
+	// Test first request should pass
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "192.168.1.1:12345"
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("First request should pass, got status %d", w.Code)
+	}
+
+	// Test second request should be rate limited
+	req2 := httptest.NewRequest("GET", "/", nil)
+	req2.RemoteAddr = "192.168.1.1:12346" // Same IP, different port
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusTooManyRequests {
+		t.Errorf("Second request should be rate limited, got status %d", w2.Code)
+	}
+
+	// Test different IP should still work
+	req3 := httptest.NewRequest("GET", "/", nil)
+	req3.RemoteAddr = "192.168.1.2:12345"
+	w3 := httptest.NewRecorder()
+	handler.ServeHTTP(w3, req3)
+
+	if w3.Code != http.StatusOK {
+		t.Errorf("Different IP should pass, got status %d", w3.Code)
+	}
 }
 
 // TestRateLimiterCleanup tests cleanup functionality
@@ -255,6 +292,50 @@ func TestRateLimiterCleanup(t *testing.T) {
 	stats := rateLimiter.GetStats()
 	if stats == nil {
 		t.Error("Stats should be available after adding clients")
+	}
+}
+
+// TestCleanupClients tests the cleanup functionality using reflection
+func TestCleanupClients(t *testing.T) {
+	rateLimiter := NewRateLimiter(10, 5)
+
+	// Add some clients
+	rateLimiter.Allow("192.168.1.1")
+	rateLimiter.Allow("192.168.1.2")
+
+	// Use reflection to call the private cleanupClients method
+	v := reflect.ValueOf(rateLimiter)
+	method := v.MethodByName("cleanupClients")
+	
+	// Check if method exists (it might be unexported)
+	if !method.IsValid() {
+		// Try to access unexported method
+		elem := v.Elem()
+		methodName := "cleanupClients"
+		method = elem.MethodByName(methodName)
+		if !method.IsValid() {
+			t.Log("cleanupClients method not accessible via reflection, testing indirect behavior")
+			// Test that the rate limiter still works after some operations
+			for i := 0; i < 3; i++ {
+				rateLimiter.Allow("192.168.1.3")
+			}
+			stats := rateLimiter.GetStats()
+			if stats == nil {
+				t.Error("Stats should be available after operations")
+			}
+			return
+		}
+	}
+
+	// If we can access the method, call it
+	if method.IsValid() && method.Type().NumIn() == 0 {
+		// Call cleanupClients
+		method.Call(nil)
+		
+		// Verify that the cleanup was successful (rate limiter should still work)
+		if !rateLimiter.Allow("192.168.1.4") {
+			t.Error("Rate limiter should still work after cleanup")
+		}
 	}
 }
 

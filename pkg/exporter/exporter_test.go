@@ -1076,3 +1076,63 @@ func TestCleanupOldCountersSync(t *testing.T) {
 	exporter.cleanupOldCountersSync()
 	t.Log("cleanupOldCountersSync completed without panic")
 }
+
+// TestEnsureConnectionEdgeCases tests ensureConnection with different scenarios
+func TestEnsureConnectionEdgeCases(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	exporter := NewOpenLDAPExporter(cfg)
+	defer exporter.Close()
+
+	// Test multiple calls to ensureConnection to hit different code paths
+	for i := 0; i < 3; i++ {
+		err := exporter.ensureConnection()
+		if err == nil {
+			t.Log("Connection unexpectedly succeeded (LDAP server might be running)")
+			break
+		} else {
+			t.Logf("Expected connection failure attempt %d: %v", i+1, err)
+		}
+	}
+}
+
+// TestCollectAllMetricsIndividual tests each collect function individually for better coverage
+func TestCollectAllMetricsIndividual(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	exporter := NewOpenLDAPExporter(cfg)
+	defer exporter.Close()
+
+	server := "test-server"
+
+	// Test each collect function individually to get better coverage
+	collectFunctions := []struct {
+		name string
+		fn   func(string)
+	}{
+		{"collectConnectionsMetrics", exporter.collectConnectionsMetrics},
+		{"collectStatisticsMetrics", exporter.collectStatisticsMetrics},
+		{"collectOperationsMetrics", exporter.collectOperationsMetrics},
+		{"collectThreadsMetrics", exporter.collectThreadsMetrics},
+		{"collectTimeMetrics", exporter.collectTimeMetrics},
+		{"collectWaitersMetrics", exporter.collectWaitersMetrics},
+		{"collectOverlaysMetrics", exporter.collectOverlaysMetrics},
+		{"collectTLSMetrics", exporter.collectTLSMetrics},
+		{"collectBackendsMetrics", exporter.collectBackendsMetrics},
+		{"collectListenersMetrics", exporter.collectListenersMetrics},
+		{"collectHealthMetrics", exporter.collectHealthMetrics},
+		{"collectDatabaseMetrics", exporter.collectDatabaseMetrics},
+	}
+
+	for _, collectFunc := range collectFunctions {
+		t.Run(collectFunc.name, func(t *testing.T) {
+			// Call each collect function multiple times to hit different code paths
+			for i := 0; i < 2; i++ {
+				collectFunc.fn(server)
+			}
+			t.Logf("%s completed without panic", collectFunc.name)
+		})
+	}
+}

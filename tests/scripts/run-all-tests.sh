@@ -106,7 +106,7 @@ run_unit_tests() {
     
     log_info "Running unit tests with coverage..."
     if go test -race -coverprofile=coverage.out -covermode=atomic ./...; then
-        log_success "✅ Unit tests passed"
+        log_success "Unit tests passed"
         
         # Show coverage
         local coverage=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
@@ -114,7 +114,7 @@ run_unit_tests() {
         
         return 0
     else
-        log_error "❌ Unit tests failed"
+        log_error "Unit tests failed"
         return 1
     fi
 }
@@ -134,10 +134,10 @@ run_integration_tests() {
     log_info "LDAP URL: $TEST_LDAP_URL"
     
     if go test -tags=integration -v ./tests/...; then
-        log_success "✅ Integration tests passed"
+        log_success "Integration tests passed"
         return 0
     else
-        log_error "❌ Integration tests failed"
+        log_error "Integration tests failed"
         return 1
     fi
 }
@@ -175,10 +175,10 @@ run_operation_tests() {
     log_info "Exporter port: $EXPORTER_PORT"
     
     if "$operation_script" --ldap-host "$LDAP_HOST" --ldap-port "$LDAP_PORT" --exporter-port "$EXPORTER_PORT" --traffic 20; then
-        log_success "✅ Operation metrics tests passed"
+        log_success "Operation metrics tests passed"
         return 0
     else
-        log_error "❌ Operation metrics tests failed"
+        log_error "Operation metrics tests failed"
         return 1
     fi
 }
@@ -202,7 +202,7 @@ run_static_analysis() {
         return 1
     fi
     
-    log_success "✅ Static analysis passed"
+    log_success "Static analysis passed"
     return 0
 }
 
@@ -301,7 +301,7 @@ show_summary() {
         log_success "🎉 All tests passed!"
         return 0
     else
-        log_error "💥 $failed_tests test suite(s) failed"
+        log_error "$failed_tests test suite(s) failed"
         return 1
     fi
 }

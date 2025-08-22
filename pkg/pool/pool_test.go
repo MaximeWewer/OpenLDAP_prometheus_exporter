@@ -423,12 +423,29 @@ func TestSecureWipeString(t *testing.T) {
 	// Test with empty string (should not panic)
 	secureWipeString("")
 
-	// Note: We can't safely test secureWipeString with real strings since
-	// it uses unsafe operations and string literals are immutable.
-	// The function is designed to work with password strings obtained from
-	// config.Password.String() which returns mutable string data.
-	// We just test that empty string doesn't panic.
-	t.Log("secureWipeString with empty string completed successfully")
+	// Test with various string lengths to improve coverage
+	// Note: We're testing that the function doesn't panic with different inputs
+	testStrings := []string{
+		"",
+		"a",
+		"short",
+		"this is a longer test string",
+		"very long string with special characters !@#$%^&*()_+",
+	}
+
+	for _, testStr := range testStrings {
+		// Make a copy to avoid modifying string literals
+		copyStr := string([]byte(testStr))
+		secureWipeString(copyStr)
+		t.Logf("secureWipeString with string of length %d completed successfully", len(testStr))
+	}
+
+	// Test with string containing various characters
+	mixedStr := "password123!@#$%^&*()"
+	copyMixed := string([]byte(mixedStr))
+	secureWipeString(copyMixed)
+	
+	t.Log("secureWipeString tests completed successfully")
 }
 
 // TestConnectionPoolMaintenance tests the maintenance routine
