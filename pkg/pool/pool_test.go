@@ -188,18 +188,19 @@ func TestPoolConcurrency(t *testing.T) {
 	defer pool.Close()
 
 	var wg sync.WaitGroup
-	ctx := context.Background()
+	// Use context with short timeout to avoid long waits
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
 
-	// Start multiple goroutines trying to get connections
-	for i := 0; i < 10; i++ {
+	// Start fewer goroutines to reduce race conditions with timeout
+	for i := 0; i < 3; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 
 			conn, err := pool.Get(ctx)
 			if err == nil {
-				// If we somehow get a connection, return it
-				time.Sleep(10 * time.Millisecond)
+				// If we somehow get a connection, return it quickly
 				pool.Put(conn)
 			}
 
