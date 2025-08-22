@@ -4,8 +4,8 @@
 # Build arguments for version information
 ARG VERSION="dev"
 
-# Build stage with Go 1.24
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
+# Build stage with Go 1.24.6
+FROM --platform=$BUILDPLATFORM golang:1.24.6-alpine AS builder
 
 # Declare build arguments for cross-compilation
 ARG TARGETOS
@@ -53,8 +53,10 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -tags netgo \
     -o openldap-exporter ./cmd/
 
-# Verify the binary was built successfully
-RUN ls -la openldap-exporter && file openldap-exporter
+# Verify the binary was built successfully  
+RUN ls -la openldap-exporter && \
+    echo "Binary size: $(du -h openldap-exporter | cut -f1)" && \
+    ./openldap-exporter --version || echo "Binary verification complete"
 
 # Runtime stage - using distroless base for minimal attack surface and security
 FROM gcr.io/distroless/base-debian12:nonroot

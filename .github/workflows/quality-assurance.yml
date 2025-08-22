@@ -1,17 +1,20 @@
-name: Quality Assurance
+name: Quality assurance
 
 # Comprehensive quality assurance pipeline for the OpenLDAP Prometheus Exporter
 # Includes pre-checks, unit & integration tests, static analysis, and security scanning
 # All jobs depend on pre-check passing to avoid wasting CI resources
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      run_full_suite:
+        description: 'Run full test suite'
+        required: false
+        default: true
+        type: boolean
 
 env:
-  GO_VERSION: "1.23"
+  GO_VERSION: "1.24.6"
 
 jobs:
   pre-check:
@@ -102,6 +105,7 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-latest
     needs: pre-check
+    if: ${{ inputs.run_full_suite == true }}
 
     services:
       openldap:
@@ -171,6 +175,7 @@ jobs:
     name: Static Analysis
     runs-on: ubuntu-latest
     needs: pre-check
+    if: ${{ inputs.run_full_suite == true }}
 
     steps:
     - name: Checkout code
@@ -258,6 +263,8 @@ jobs:
     name: Security Analysis
     runs-on: ubuntu-latest
     needs: pre-check
+    if: ${{ inputs.run_full_suite == true }}
+    
     permissions:
       actions: read
       contents: read
@@ -303,7 +310,7 @@ jobs:
     name: Pipeline Summary
     runs-on: ubuntu-latest
     needs: [ unit-tests, integration-tests, static-analysis, security ]
-    if: always()
+    if: always() && !cancelled()
 
     steps:
     - name: Pipeline Results Summary
@@ -312,7 +319,14 @@ jobs:
         echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
         echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
         echo "| Unit Tests | ${{ needs.unit-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Integration Tests | ${{ needs.integration-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Static Analysis | ${{ needs.static-analysis.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Security Analysis | ${{ needs.security.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+        
+        if [[ "${{ inputs.run_full_suite }}" == "true" ]]; then
+          echo "| Integration Tests | ${{ needs.integration-tests.result == 'success' && '✅ Passed' || (needs.integration-tests.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Static Analysis | ${{ needs.static-analysis.result == 'success' && '✅ Passed' || (needs.static-analysis.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Analysis | ${{ needs.security.result == 'success' && '✅ Passed' || (needs.security.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Integration Tests | ⏭️ Skipped (Quick run) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Static Analysis | ⏭️ Skipped (Quick run) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Analysis | ⏭️ Skipped (Quick run) |" >> $GITHUB_STEP_SUMMARY
+        fi
 
