@@ -27,16 +27,27 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
     
-    - name: Check code formatting
+    - name: Auto-format code with gofmt
       run: |
-        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
-          echo "Code is not properly formatted:"
+        echo "Auto-formatting Go code with gofmt..."
+        BEFORE=$(gofmt -s -l . | wc -l)
+        if [ "$BEFORE" -gt 0 ]; then
+          echo "Found $BEFORE files that need formatting:"
           gofmt -s -l .
           echo ""
-          echo "Run 'gofmt -s -w .' to fix formatting issues"
-          exit 1
+          echo "Applying automatic formatting..."
+          gofmt -s -w .
+          AFTER=$(gofmt -s -l . | wc -l)
+          if [ "$AFTER" -eq 0 ]; then
+            echo "All files have been automatically formatted"
+          else
+            echo "ERROR: Some files still have formatting issues after gofmt"
+            gofmt -s -l .
+            exit 1
+          fi
+        else
+          echo "All Go files are already properly formatted"
         fi
-        echo "Code formatting is correct"
     
     - name: Run go vet
       run: go vet ./...
@@ -188,17 +199,27 @@ jobs:
         echo "Running shadow analysis (variable shadowing detection)..."
         go vet -vettool=$(which shadow) ./...
     
-    - name: Run goimports check
+    - name: Auto-format imports with goimports
       run: |
-        echo "Checking import formatting..."
-        unformatted=$(goimports -l . 2>/dev/null || true)
-        if [ -n "$unformatted" ]; then
-          echo "Files with incorrect import formatting:"
-          echo "$unformatted"
-          echo "Run 'goimports -w .' to fix import issues"
-          exit 1
+        echo "Auto-formatting Go imports with goimports..."
+        BEFORE=$(goimports -l . 2>/dev/null | wc -l || echo "0")
+        if [ "$BEFORE" -gt 0 ]; then
+          echo "Found $BEFORE files with incorrect import formatting:"
+          goimports -l . 2>/dev/null || true
+          echo ""
+          echo "Applying automatic import formatting..."
+          goimports -w . 2>/dev/null || true
+          AFTER=$(goimports -l . 2>/dev/null | wc -l || echo "0")
+          if [ "$AFTER" -eq 0 ]; then
+            echo "All import formatting has been automatically corrected"
+          else
+            echo "ERROR: Some files still have import formatting issues after goimports"
+            goimports -l . 2>/dev/null || true
+            exit 1
+          fi
+        else
+          echo "All Go imports are already properly formatted"
         fi
-        echo "Import formatting is correct"
     
     - name: Run staticcheck
       run: |
