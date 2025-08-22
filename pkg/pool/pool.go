@@ -25,7 +25,7 @@ type ConnectionPool struct {
 	pool           chan *PooledConnection
 	mutex          sync.RWMutex
 	maxConnections int
-	activeConns    int
+	activeConns    int64 // Atomic counter for active connections
 	poolSize       int64 // Atomic counter for pool size
 	connTimeout    time.Duration
 	idleTimeout    time.Duration
@@ -101,15 +101,14 @@ func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 
 		// Create new connection if we haven't reached the limit
 		p.mutex.Lock()
-		if p.activeConns < p.maxConnections {
-			p.activeConns++
+		currentActive := atomic.LoadInt64(&p.activeConns)
+		if int(currentActive) < p.maxConnections {
+			atomic.AddInt64(&p.activeConns, 1)
 			p.mutex.Unlock()
 
 			conn, err := p.createConnection()
 			if err != nil {
-				p.mutex.Lock()
-				p.activeConns--
-				p.mutex.Unlock()
+				atomic.AddInt64(&p.activeConns, -1)
 				// Don't retry on creation errors, return immediately
 				return nil, fmt.Errorf("failed to create new connection: %w", err)
 			}
@@ -205,7 +204,7 @@ func (p *ConnectionPool) Close() {
 			p.closeConnection(conn)
 		default:
 			logger.SafeInfo("pool", "LDAP connection pool closed", map[string]interface{}{
-				"connections_closed": p.activeConns,
+				"connections_closed": atomic.LoadInt64(&p.activeConns),
 			})
 			return
 		}
@@ -413,13 +412,11 @@ func (p *ConnectionPool) closeConnection(conn *PooledConnection) {
 		}
 	}
 
-	p.mutex.Lock()
-	p.activeConns--
-	p.mutex.Unlock()
+	atomic.AddInt64(&p.activeConns, -1)
 
 	logger.SafeDebug("pool", "LDAP connection closed", map[string]interface{}{
 		"server":             p.config.ServerName,
-		"active_connections": p.activeConns,
+		"active_connections": atomic.LoadInt64(&p.activeConns),
 	})
 }
 
@@ -483,7 +480,7 @@ func (p *ConnectionPool) maintainConnections() {
 		}
 
 		logger.SafeDebug("pool", "Connection pool maintenance completed", map[string]interface{}{
-			"active_connections": p.activeConns,
+			"active_connections": atomic.LoadInt64(&p.activeConns),
 			"pool_size":          len(p.pool),
 		})
 	}
@@ -496,7 +493,7 @@ func (p *ConnectionPool) Stats() map[string]interface{} {
 
 	return map[string]interface{}{
 		"max_connections":    p.maxConnections,
-		"active_connections": p.activeConns,
+		"active_connections": atomic.LoadInt64(&p.activeConns),
 		"pool_size":          atomic.LoadInt64(&p.poolSize),
 		"closed":             p.closed,
 	}

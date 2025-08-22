@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -314,12 +315,13 @@ func TestCloseConnection(t *testing.T) {
 	conn := &PooledConnection{
 		conn: nil,
 	}
-	initialActive := pool.activeConns
+	initialActive := atomic.LoadInt64(&pool.activeConns)
 	pool.closeConnection(conn)
 
 	// Active connections should decrease
-	if pool.activeConns != initialActive-1 {
-		t.Errorf("Active connections should decrease after close, got %d", pool.activeConns)
+	finalActive := atomic.LoadInt64(&pool.activeConns)
+	if finalActive != initialActive-1 {
+		t.Errorf("Active connections should decrease after close, got %d", finalActive)
 	}
 }
 

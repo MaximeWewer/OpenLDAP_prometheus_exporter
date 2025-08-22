@@ -129,11 +129,14 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 	// Check if we should allow this request
 	if !cb.canExecute() {
 		cb.blockedRequests++
+		// Capture values for logging while holding mutex
+		state := cb.state.String()
+		failures := cb.failures
 		cb.mutex.Unlock()
 
 		logger.SafeWarn("circuitbreaker", "Request blocked by circuit breaker", map[string]interface{}{
-			"state":    cb.state.String(),
-			"failures": cb.failures,
+			"state":    state,
+			"failures": failures,
 		})
 
 		return errors.New("circuit breaker is open")
