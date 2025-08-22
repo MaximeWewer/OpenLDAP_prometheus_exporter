@@ -153,7 +153,7 @@ func TestPoolStats(t *testing.T) {
 		t.Errorf("Expected max_connections 3, got %v", stats["max_connections"])
 	}
 
-	if stats["active_connections"] != 0 {
+	if stats["active_connections"] != int64(0) {
 		t.Errorf("Expected active_connections 0, got %v", stats["active_connections"])
 	}
 
