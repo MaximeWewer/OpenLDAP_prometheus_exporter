@@ -33,6 +33,9 @@ jobs:
           VERSION="${{ github.event.inputs.force_version }}"
           echo "Using forced version: $VERSION"
         else
+          # Fetch all tags from remote to ensure we have the latest
+          git fetch --tags
+          
           # Get current year and month
           YEAR_MONTH=$(date +'%Y.%m')
           
@@ -213,6 +216,9 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
+        # Fetch all tags from remote to ensure we have the latest
+        git fetch --tags
+        
         # Get the latest tag (previous version)
         LATEST_TAG=$(git tag -l --sort=-version:refname | head -n 1)
 
