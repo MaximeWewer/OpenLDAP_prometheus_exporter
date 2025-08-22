@@ -323,7 +323,7 @@ func TestOnSuccess(t *testing.T) {
 
 	// Force circuit to open first
 	for i := 0; i < 2; i++ {
-		cb.Call(func() error {
+		_ = cb.Call(func() error {
 			return errors.New("force open")
 		})
 	}

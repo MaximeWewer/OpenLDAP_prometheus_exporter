@@ -163,12 +163,10 @@ func TestFatalBehavior(t *testing.T) {
 	
 	// We can at least verify the function signature and that it compiles
 	// by creating a function pointer to it
-	var fatalFunc func(string, string, error, ...map[string]interface{})
-	fatalFunc = Fatal
+	fatalFunc := Fatal
 	
-	if fatalFunc == nil {
-		t.Error("Fatal function should be accessible")
-	}
+	// Verify the function exists (it's always non-nil)
+	_ = fatalFunc
 	
 	// Test the function in a very controlled way
 	// We'll test by verifying we can set up the parameters that would be passed to Fatal
