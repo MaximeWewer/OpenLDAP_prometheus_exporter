@@ -4,7 +4,7 @@ This guide explains how to develop and contribute to the OpenLDAP Prometheus Exp
 
 ## Prerequisites
 
-- Go 1.23+
+- Go 1.24.6+
 - Git
 - Make (optional but recommended)
 
@@ -17,9 +17,9 @@ This guide explains how to develop and contribute to the OpenLDAP Prometheus Exp
 make install-tools
 
 # Or manually
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 go install github.com/kisielk/errcheck@latest
 go install github.com/gordonklaus/ineffassign@latest
+# Install golangci-lint separately from: https://golangci-lint.run/usage/install/
 ```
 
 ### Setup environment
@@ -84,6 +84,7 @@ git push origin feature/my-new-feature
 | `make test` | Run unit tests |
 | `make test-coverage` | Tests with coverage |
 | `make test-integration` | Integration tests |
+| `make test-race` | Tests with race detector (requires CGO) |
 | `make build` | Build application |
 | `make ci-local` | Simulate CI pipeline locally |
 
@@ -102,7 +103,7 @@ The Quality Assurance workflow (`quality-assurance.yml`) includes comprehensive 
 ### Main jobs (run in parallel after pre-check passes)
 
 - **Unit tests**: Race detection, coverage analysis (70% minimum)
-- **Integration tests**: Full LDAP service testing
+- **Integration tests**: Full LDAP service testing with Bitnami OpenLDAP
 - **Static analysis**: 7 advanced tools (staticcheck, errcheck, shadow, goimports, misspell, gocyclo)
 - **Security analysis**: gosec, govulncheck, dependency review
 
@@ -132,8 +133,8 @@ make test-coverage
 # Integration tests (requires LDAP setup)
 make test-integration
 
-# Race detector tests
-make test-race
+# Race detector tests (requires CGO)
+CGO_ENABLED=1 make test-race
 
 # All tests (like CI)
 make ci-local
@@ -173,6 +174,9 @@ Key test packages:
 - `pkg/exporter/*_test.go`: Core LDAP exporter functionality
 - `pkg/security/*_test.go`: Security validation and rate limiting
 - `pkg/monitoring/*_test.go`: Internal monitoring and metrics
+- `pkg/pool/*_test.go`: Connection pool and LDAP client tests
+- `pkg/circuitbreaker/*_test.go`: Circuit breaker pattern tests
+- `tests/integration_core_test.go`: Integration tests with build tag
 
 ## Pre-push checklist
 

@@ -105,7 +105,7 @@ Run all test types with a single command:
 
 ### For Go tests
 
-- Go 1.21+
+- Go 1.24.6+
 - Access to LDAP server (for integration tests)
 
 ### For operation tests
@@ -148,7 +148,7 @@ All tests can be configured using environment variables:
 
 ## CI/CD integration
 
-Tests are automatically executed in GitHub Actions workflow (`.github/workflows/test.yml`):
+Tests are automatically executed in GitHub Actions workflow (`.github/workflows/quality-assurance.yml`):
 
 ### Automated test pipeline
 
