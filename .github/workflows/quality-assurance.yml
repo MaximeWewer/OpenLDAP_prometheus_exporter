@@ -78,11 +78,8 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
 
-    - name: Run unit tests
+    - name: Run unit tests with race detector and coverage
       run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
-
-    - name: Run tests with race detector
-      run: go test -race -short ./...
 
     - name: Check test coverage
       run: |
