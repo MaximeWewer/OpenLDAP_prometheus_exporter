@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -370,5 +371,69 @@ func TestDefaultPoolSize(t *testing.T) {
 	// Check that it uses the expected default value of 5
 	if maxConnsInt != 5 {
 		t.Errorf("Expected default max connections 5, got %d", maxConnsInt)
+	}
+}
+
+// TestIsNetworkError tests the network error detection function
+func TestIsNetworkError(t *testing.T) {
+	testCases := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "Nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "Connection reset error",
+			err:      errors.New("connection reset by peer"),
+			expected: true,
+		},
+		{
+			name:     "Connection closed error",
+			err:      errors.New("connection closed"),
+			expected: true,
+		},
+		{
+			name:     "Broken pipe error",
+			err:      errors.New("broken pipe"),
+			expected: true,
+		},
+		{
+			name:     "Network error",
+			err:      errors.New("network is unreachable"),
+			expected: true,
+		},
+		{
+			name:     "Timeout error",
+			err:      errors.New("operation timeout"),
+			expected: true,
+		},
+		{
+			name:     "Connection refused error",
+			err:      errors.New("connection refused"),
+			expected: true,
+		},
+		{
+			name:     "EOF error",
+			err:      errors.New("EOF"),
+			expected: true,
+		},
+		{
+			name:     "Non-network error",
+			err:      errors.New("some other error"),
+			expected: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := isNetworkError(tc.err)
+			if result != tc.expected {
+				t.Errorf("Expected %v for error '%v', got %v", tc.expected, tc.err, result)
+			}
+		})
 	}
 }

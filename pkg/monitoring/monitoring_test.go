@@ -75,3 +75,18 @@ func TestInternalMonitoring(t *testing.T) {
 
 	t.Log("Internal monitoring test completed successfully")
 }
+
+// TestGetStartTime tests the GetStartTime method
+func TestGetStartTime(t *testing.T) {
+	monitoring := NewInternalMonitoring()
+	
+	startTime := monitoring.GetStartTime()
+	if startTime.IsZero() {
+		t.Error("Start time should not be zero")
+	}
+	
+	// Verify start time is recent (within last second)
+	if time.Since(startTime) > time.Second {
+		t.Error("Start time should be recent")
+	}
+}
