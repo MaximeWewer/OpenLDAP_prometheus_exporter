@@ -457,11 +457,15 @@ func (im *InternalMonitoring) RegisterMetrics(registry *prometheus.Registry) err
 		im.uptime,
 	}
 
+	var firstError error
 	for _, collector := range collectors {
 		if err := registry.Register(collector); err != nil {
 			logger.SafeWarn("monitoring", "Failed to register internal metric collector", map[string]interface{}{
 				"error": err.Error(),
 			})
+			if firstError == nil {
+				firstError = err
+			}
 			// Continue registering other collectors even if one fails
 		}
 	}
@@ -473,7 +477,7 @@ func (im *InternalMonitoring) RegisterMetrics(registry *prometheus.Registry) err
 		"collectors_count": len(collectors),
 	})
 
-	return nil
+	return firstError
 }
 
 // initializeDefaultValues initializes all internal metrics with default values (0)

@@ -280,7 +280,9 @@ func (p *ConnectionPool) establishConnection() (*ldap.Conn, error) {
 		secureWipeString(password)
 		if err != nil {
 			logger.SafeError("pool", "LDAP authentication failed", err, map[string]interface{}{"username": p.config.Username})
-			conn.Close()
+			if closeErr := conn.Close(); closeErr != nil {
+				logger.SafeError("pool", "Failed to close connection after bind failure", closeErr)
+			}
 			return nil, fmt.Errorf("LDAP bind failed: %w", err)
 		}
 		logger.SafeDebug("pool", "LDAP bind successful", map[string]interface{}{"username": p.config.Username})
@@ -406,7 +408,9 @@ func (p *ConnectionPool) closeConnection(conn *PooledConnection) {
 	}
 
 	if conn.conn != nil {
-		conn.conn.Close()
+		if err := conn.conn.Close(); err != nil {
+			logger.SafeError("pool", "Error closing LDAP connection", err)
+		}
 	}
 
 	p.mutex.Lock()

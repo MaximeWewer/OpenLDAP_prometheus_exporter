@@ -703,8 +703,7 @@ func TestGetAtomicCounterStats(t *testing.T) {
 
 	// Check for expected keys
 	expectedKeys := []string{
-		"connections_total", "statistics_bytes", "statistics_entries",
-		"operations_initiated", "operations_completed", "threads_active",
+		"total_scrapes", "total_errors", "last_scrape_time",
 	}
 
 	for _, key := range expectedKeys {

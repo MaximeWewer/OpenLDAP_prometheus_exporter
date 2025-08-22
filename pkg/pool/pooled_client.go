@@ -186,7 +186,9 @@ func (c *PooledLDAPClient) invalidateConnection(conn *PooledConnection) {
 	if conn != nil {
 		// Close the underlying connection directly instead of returning to pool
 		if conn.conn != nil {
-			conn.conn.Close()
+			if err := conn.conn.Close(); err != nil {
+				logger.SafeError("pooled_client", "Error closing LDAP connection", err)
+			}
 		}
 
 		// For interface abstraction, we can't directly access pool internals
