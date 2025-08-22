@@ -240,7 +240,8 @@ func (p *ConnectionPool) establishConnection() (*ldap.Conn, error) {
 
 	if p.config.TLS {
 		logger.SafeDebug("pool", "Using TLS connection")
-		tlsConfig, err := p.buildTLSConfig()
+		var tlsConfig *tls.Config
+		tlsConfig, err = p.buildTLSConfig()
 		if err != nil {
 			logger.SafeError("pool", "Failed to build TLS config", err)
 			return nil, err

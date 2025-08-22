@@ -291,6 +291,9 @@ func NewOpenLDAPExporter(cfg *config.Config) *OpenLDAPExporter {
 		cleanupDone:   make(chan struct{}),
 	}
 
+	// Initialize Up metric to indicate exporter is running
+	exporter.metrics.Up.WithLabelValues(cfg.ServerName).Set(1)
+
 	// Start cleanup routine for old counter entries
 	go exporter.cleanupOldCounters()
 
@@ -753,7 +756,7 @@ func (e *OpenLDAPExporter) collectTimeMetrics(server string) {
 	result, err := e.client.Search("cn=Current,cn=Time,cn=Monitor", "(objectClass=*)", []string{"monitorTimestamp"})
 	if err == nil && len(result.Entries) > 0 {
 		if timeStr := result.Entries[0].GetAttributeValue("monitorTimestamp"); timeStr != "" {
-			if currentTime, err := time.Parse("20060102150405Z", timeStr); err == nil {
+			if currentTime, parseErr := time.Parse("20060102150405Z", timeStr); parseErr == nil {
 				e.metrics.ServerTime.WithLabelValues(server).Set(float64(currentTime.Unix()))
 			}
 		}
@@ -763,7 +766,7 @@ func (e *OpenLDAPExporter) collectTimeMetrics(server string) {
 	result, err = e.client.Search("cn=Start,cn=Time,cn=Monitor", "(objectClass=*)", []string{"monitorTimestamp"})
 	if err == nil && len(result.Entries) > 0 {
 		if startTimeStr := result.Entries[0].GetAttributeValue("monitorTimestamp"); startTimeStr != "" {
-			if startTime, err := time.Parse("20060102150405Z", startTimeStr); err == nil {
+			if startTime, parseErr := time.Parse("20060102150405Z", startTimeStr); parseErr == nil {
 				uptime := time.Since(startTime).Seconds()
 				e.metrics.ServerUptime.WithLabelValues(server).Set(uptime)
 			}

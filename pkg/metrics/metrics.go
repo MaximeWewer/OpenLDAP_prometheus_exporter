@@ -34,6 +34,7 @@ type OpenLDAPMetrics struct {
 	HealthStatus        *prometheus.GaugeVec
 	ResponseTime        *prometheus.GaugeVec
 	ScrapeErrors        *prometheus.CounterVec
+	Up                  *prometheus.GaugeVec
 }
 
 // NewOpenLDAPMetrics creates and initializes all OpenLDAP Prometheus metrics
@@ -284,6 +285,15 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
+
+		Up: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "up",
+				Help:      "Whether the OpenLDAP exporter is up (1) or down (0)",
+			},
+			[]string{"server"},
+		),
 	}
 }
 
@@ -340,6 +350,7 @@ func (m *OpenLDAPMetrics) Describe(ch chan<- *prometheus.Desc) {
 	m.HealthStatus.Describe(ch)
 	m.ResponseTime.Describe(ch)
 	m.ScrapeErrors.Describe(ch)
+	m.Up.Describe(ch)
 }
 
 // Collect implements the prometheus.Collector interface
@@ -395,4 +406,5 @@ func (m *OpenLDAPMetrics) Collect(ch chan<- prometheus.Metric) {
 	m.HealthStatus.Collect(ch)
 	m.ResponseTime.Collect(ch)
 	m.ScrapeErrors.Collect(ch)
+	m.Up.Collect(ch)
 }

@@ -256,8 +256,17 @@ jobs:
         go install golang.org/x/vuln/cmd/govulncheck@latest
         govulncheck ./...
 
-    - name: Dependency review
+    - name: Dependency review (Pull Request only)
+      if: github.event_name == 'pull_request'
       uses: actions/dependency-review-action@v4
+    
+    - name: Check dependencies (Push events)
+      if: github.event_name == 'push'
+      run: |
+        echo "Checking Go module dependencies..."
+        go list -m -u all
+        echo "Verifying module integrity..."
+        go mod verify
 
   test-summary:
     name: Pipeline Summary
