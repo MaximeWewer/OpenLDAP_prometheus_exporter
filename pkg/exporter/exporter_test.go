@@ -652,3 +652,71 @@ func TestEnsureConnection(t *testing.T) {
 		t.Logf("Connection failed as expected: %v", err)
 	}
 }
+
+// TestAtomicCounter tests the atomicFloat64 functions
+func TestAtomicCounter(t *testing.T) {
+	counter := &atomicFloat64{}
+
+	// Test Load - initial value should be 0
+	if val := counter.Load(); val != 0.0 {
+		t.Errorf("Initial Load() = %f, want 0.0", val)
+	}
+
+	// Test Store
+	counter.Store(42.5)
+	if val := counter.Load(); val != 42.5 {
+		t.Errorf("After Store(42.5), Load() = %f, want 42.5", val)
+	}
+
+	// Test CompareAndSwap - should succeed when old value matches
+	if !counter.CompareAndSwap(42.5, 100.25) {
+		t.Error("CompareAndSwap(42.5, 100.25) should succeed")
+	}
+	if val := counter.Load(); val != 100.25 {
+		t.Errorf("After successful CAS, Load() = %f, want 100.25", val)
+	}
+
+	// Test CompareAndSwap - should fail when old value doesn't match
+	if counter.CompareAndSwap(42.5, 200.0) {
+		t.Error("CompareAndSwap(42.5, 200.0) should fail")
+	}
+	if val := counter.Load(); val != 100.25 {
+		t.Errorf("After failed CAS, Load() = %f, want 100.25", val)
+	}
+}
+
+// TestGetAtomicCounterStats tests the GetAtomicCounterStats method
+func TestGetAtomicCounterStats(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	exporter := NewOpenLDAPExporter(cfg)
+	defer exporter.Close()
+
+	// Get atomic counter stats
+	stats := exporter.GetAtomicCounterStats()
+
+	// Check that stats is not nil
+	if stats == nil {
+		t.Fatal("GetAtomicCounterStats() should return non-nil map")
+	}
+
+	// Check for expected keys
+	expectedKeys := []string{
+		"connections_total", "statistics_bytes", "statistics_entries",
+		"operations_initiated", "operations_completed", "threads_active",
+	}
+
+	for _, key := range expectedKeys {
+		if _, exists := stats[key]; !exists {
+			t.Errorf("Stats should contain key %q", key)
+		}
+	}
+
+	// All values should be zero initially (no successful connections)
+	for key, value := range stats {
+		if value != 0 {
+			t.Logf("Note: Counter %s = %f (expected 0 for test config)", key, value)
+		}
+	}
+}

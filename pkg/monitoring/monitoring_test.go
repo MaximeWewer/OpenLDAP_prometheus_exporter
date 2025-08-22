@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/circuitbreaker"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // TestInternalMonitoring tests the internal monitoring system
@@ -79,14 +80,34 @@ func TestInternalMonitoring(t *testing.T) {
 // TestGetStartTime tests the GetStartTime method
 func TestGetStartTime(t *testing.T) {
 	monitoring := NewInternalMonitoring()
-	
+
 	startTime := monitoring.GetStartTime()
 	if startTime.IsZero() {
 		t.Error("Start time should not be zero")
 	}
-	
+
 	// Verify start time is recent (within last second)
 	if time.Since(startTime) > time.Second {
 		t.Error("Start time should be recent")
+	}
+}
+
+// TestRegisterMetrics tests the RegisterMetrics method
+func TestRegisterMetrics(t *testing.T) {
+	monitoring := NewInternalMonitoring()
+
+	// Create a proper registry
+	registry := prometheus.NewRegistry()
+
+	// Register metrics should succeed
+	err := monitoring.RegisterMetrics(registry)
+	if err != nil {
+		t.Errorf("RegisterMetrics() failed: %v", err)
+	}
+
+	// Second registration should fail (already registered)
+	err = monitoring.RegisterMetrics(registry)
+	if err == nil {
+		t.Error("Second RegisterMetrics() should fail due to duplicate registration")
 	}
 }

@@ -7,9 +7,9 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 - Compatible with OpenLDAP 2.4+
 - Tested with Bitnami OpenLDAP container
 
-## Environment Variables
+## Environment variables
 
-### LDAP Configuration (Required)
+### LDAP configuration (required)
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
@@ -19,7 +19,7 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 
 > **Recommendation:** Use the `adminconfig` account which has access to `cn=config` and the Monitor backend.
 
-### LDAP Configuration (Optional)
+### LDAP configuration (optional)
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
@@ -32,7 +32,7 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 | `LDAP_TLS_CERT` | Path to client certificate | | `/path/to/client.crt` |
 | `LDAP_TLS_KEY` | Path to client private key | | `/path/to/client.key` |
 
-### HTTP Server Configuration
+### HTTP server configuration
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
@@ -42,7 +42,7 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 | `HTTP_IDLE_TIMEOUT` | HTTP idle timeout | `60s` | `120s` |
 | `HTTP_SHUTDOWN_TIMEOUT` | Graceful shutdown timeout | `30s` | `60s` |
 
-### Rate Limiting Configuration
+### Rate limiting configuration
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
@@ -51,7 +51,7 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 | `HEALTH_RATE_LIMIT_REQUESTS` | Requests per minute for /health | `60` | `120` |
 | `HEALTH_RATE_LIMIT_BURST` | Burst size for /health | `20` | `40` |
 
-### Logging Configuration
+### Logging configuration
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
@@ -65,7 +65,7 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 - `ERROR`: Errors only
 - `FATAL`: Fatal errors only
 
-### Metrics Filtering Configuration
+### Metrics filtering configuration
 
 | Variable | Description | Example |
 |----------|-------------|---------|
@@ -80,7 +80,7 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 2. **EXCLUDE Mode**: If `OPENLDAP_METRICS_EXCLUDE` is defined (without INCLUDE), all metrics except listed ones are collected
 3. **DEFAULT Mode**: If no filters are defined, all metrics are collected
 
-### Domain Component (DC) Filtering
+### Domain component (DC) filtering
 
 | Variable | Description | Example |
 |----------|-------------|---------|
@@ -99,9 +99,9 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 - `ou=users,dc=company,dc=net` → Components: `["company", "net"]`
 - `uid=user1,ou=people,dc=test,dc=local` → Components: `["test", "local"]`
 
-### Configuration Examples
+### Configuration examples
 
-#### Basic Configuration
+#### Basic configuration
 
 ```bash
 export LDAP_URL="ldap://localhost:389"
@@ -111,7 +111,7 @@ export LOG_LEVEL="INFO"
 ./cmd.exe
 ```
 
-#### TLS Configuration
+#### TLS configuration
 
 ```bash
 export LDAP_URL="ldaps://ldap.example.com:636"
@@ -123,7 +123,7 @@ export LOG_LEVEL="DEBUG"
 ./cmd.exe
 ```
 
-#### High Performance Configuration
+#### High performance configuration
 
 ```bash
 export LDAP_URL="ldap://ldap-cluster.internal:389"
@@ -139,7 +139,7 @@ export LOG_LEVEL="WARN"
 ./cmd.exe
 ```
 
-#### Domain-Specific Monitoring
+#### Domain-specific monitoring
 
 ```bash
 # Monitor only production domains
@@ -150,7 +150,7 @@ export LDAP_PASSWORD="secret"
 ./cmd.exe
 ```
 
-#### Selective Metrics Collection
+#### Selective metrics collection
 
 ```bash
 # Collect only connection and operation metrics
@@ -161,7 +161,7 @@ export LDAP_PASSWORD="secret"
 ./cmd.exe
 ```
 
-### Important Notes
+### Important notes
 
 1. **Security**: Logs automatically use "Safe" functions to avoid logging passwords and sensitive information
 2. **Validation**: Invalid values generate warning logs and use default values
@@ -231,7 +231,7 @@ Operation types: `bind`, `unbind`, `add`, `delete`, `modify`, `modrdn`, `compare
 - `openldap_waiters_read{server}` - Read waiters
 - `openldap_waiters_write{server}` - Write waiters
 
-### System informations
+### System information
 
 - `openldap_backends_info{server,backend,type}` - Information about available backends
 - `openldap_overlays_info{server,overlay,status}` - Information about loaded overlays
@@ -242,7 +242,7 @@ Operation types: `bind`, `unbind`, `add`, `delete`, `modify`, `modrdn`, `compare
 
 - `openldap_database_entries{server,base_dn}` - Entries per database/DN
 
-### Time and Health
+### Time and health
 
 - `openldap_server_time{server}` - Current server timestamp
 - `openldap_server_uptime_seconds{server}` - Server uptime in seconds
@@ -252,7 +252,7 @@ Operation types: `bind`, `unbind`, `add`, `delete`, `modify`, `modrdn`, `compare
 
 ## Usage
 
-### Docker Compose (recommended)
+### Docker compose (recommended)
 
 ```yaml
 openldap-exporter:
@@ -333,7 +333,7 @@ The exporter uses a structured logging system in JSON format:
 
 ## Development
 
-### Code Structure
+### Code structure
 
 ```text
 ├── main.go           # Entry point and HTTP configuration

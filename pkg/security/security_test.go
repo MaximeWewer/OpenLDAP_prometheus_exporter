@@ -2,6 +2,8 @@ package security
 
 import (
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -280,6 +282,89 @@ func TestLDAPDNValidationComprehensive(t *testing.T) {
 			result := (err == nil)
 			if result != tt.expected {
 				t.Errorf("ValidateLDAPDN(%q) error=%v, want success=%v", tt.dn, err, tt.expected)
+			}
+		})
+	}
+}
+
+// TestGetClientIPAddresses tests the GetClientIP function
+func TestGetClientIPAddresses(t *testing.T) {
+	tests := []struct {
+		name       string
+		setupReq   func() *http.Request
+		expectedIP string
+	}{
+		{
+			name: "X-Forwarded-For header single IP",
+			setupReq: func() *http.Request {
+				req := httptest.NewRequest("GET", "/", nil)
+				req.Header.Set("X-Forwarded-For", "192.168.1.100")
+				return req
+			},
+			expectedIP: "192.168.1.100",
+		},
+		{
+			name: "X-Forwarded-For header multiple IPs",
+			setupReq: func() *http.Request {
+				req := httptest.NewRequest("GET", "/", nil)
+				req.Header.Set("X-Forwarded-For", "192.168.1.100, 10.0.0.1, 172.16.0.1")
+				return req
+			},
+			expectedIP: "192.168.1.100",
+		},
+		{
+			name: "X-Real-IP header",
+			setupReq: func() *http.Request {
+				req := httptest.NewRequest("GET", "/", nil)
+				req.Header.Set("X-Real-IP", "192.168.1.200")
+				return req
+			},
+			expectedIP: "192.168.1.200",
+		},
+		{
+			name: "RemoteAddr with port",
+			setupReq: func() *http.Request {
+				req := httptest.NewRequest("GET", "/", nil)
+				req.RemoteAddr = "192.168.1.300:12345"
+				return req
+			},
+			expectedIP: "192.168.1.300",
+		},
+		{
+			name: "RemoteAddr without port",
+			setupReq: func() *http.Request {
+				req := httptest.NewRequest("GET", "/", nil)
+				req.RemoteAddr = "192.168.1.400"
+				return req
+			},
+			expectedIP: "192.168.1.400",
+		},
+		{
+			name: "Invalid RemoteAddr",
+			setupReq: func() *http.Request {
+				req := httptest.NewRequest("GET", "/", nil)
+				req.RemoteAddr = "invalid"
+				return req
+			},
+			expectedIP: "127.0.0.1",
+		},
+		{
+			name: "Empty RemoteAddr",
+			setupReq: func() *http.Request {
+				req := httptest.NewRequest("GET", "/", nil)
+				req.RemoteAddr = ""
+				return req
+			},
+			expectedIP: "127.0.0.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := tt.setupReq()
+			ip := GetClientIP(req)
+			if ip != tt.expectedIP {
+				t.Errorf("GetClientIP() = %v, want %v", ip, tt.expectedIP)
 			}
 		})
 	}

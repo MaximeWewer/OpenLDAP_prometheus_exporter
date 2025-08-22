@@ -21,9 +21,9 @@ tests/
     └── setup-ldap.sh                 # LDAP environment setup (used in CI/CD)
 ```
 
-## Test Types
+## Test types
 
-### 1. Unit Tests (Go-based)
+### 1. Unit tests (Go-based)
 
 Core functionality tests without external dependencies:
 
@@ -32,7 +32,7 @@ go test -v ./...
 go test -race -coverprofile=coverage.out ./...
 ```
 
-### 2. Core Component Tests (Go-based)
+### 2. Core component tests (Go-based)
 
 Tests Go-specific functionality (connection pools, circuit breakers, internal logic):
 
@@ -47,7 +47,7 @@ TEST_LDAP_PASSWORD=configpassword \
 go test -tags=integration -v ./tests/...
 ```
 
-### 3. Operation Metrics Tests (Bash-based)
+### 3. Operation metrics tests (Bash-based)
 
 Dynamic tests that configure LDAP Monitor backend and validate metrics collection:
 
@@ -60,7 +60,7 @@ LDAP_PORT=1389 EXPORTER_PORT=9360 \
 ./tests/scripts/run-operation-metrics-test.sh --traffic 50
 ```
 
-### 4. Complete Test Suite
+### 4. Complete test suite
 
 Run all test types with a single command:
 
@@ -74,9 +74,9 @@ Run all test types with a single command:
 ./tests/scripts/run-all-tests.sh --no-operation
 ```
 
-## Features Tested
+## Features tested
 
-### Core Go Components (integration_core_test.go)
+### Core Go components (integration_core_test.go)
 
 - Connection pool lifecycle and statistics
 - Circuit breaker protection and state transitions  
@@ -86,7 +86,7 @@ Run all test types with a single command:
 - Concurrent metric collection (Go routines)
 - Metric consistency and stability
 
-### Dynamic Operation Metrics
+### Dynamic operation metrics
 
 - LDAP Monitor backend configuration via LDIF files
 - Real LDAP traffic generation and metrics validation
@@ -94,21 +94,21 @@ Run all test types with a single command:
 - Before/after metrics comparison
 - Exporter integration with live LDAP operations
 
-### Error Handling & Resilience
+### Error handling & resilience
 
 - LDAP server unavailability scenarios
 - Invalid credentials and configuration handling
 - Network connectivity issues simulation
 - Circuit breaker state transitions
 
-## Environment Requirements
+## Environment requirements
 
-### For Go Tests
+### For Go tests
 
 - Go 1.21+
 - Access to LDAP server (for integration tests)
 
-### For Operation Tests
+### For operation tests
 
 - Linux environment (native or WSL on Windows)
 - LDAP client tools: `ldapsearch`, `ldapmodify`
@@ -126,31 +126,31 @@ sudo apt-get install -y ldap-utils curl golang-go
 
 All tests can be configured using environment variables:
 
-### LDAP Server Configuration
+### LDAP server configuration
 
 - `LDAP_HOST`: LDAP server host (default: localhost)
 - `LDAP_PORT`: LDAP server port (default: 389)
 - `ADMIN_PASSWORD`: LDAP admin password (default: adminpassword)
 - `CONFIG_PASSWORD`: LDAP config admin password (default: configpassword)
 
-### Test Behavior
+### Test behavior
 
 - `EXPORTER_PORT`: Port for test exporter instance (default: 9360)
 - `TEST_TRAFFIC_OPERATIONS`: Number of LDAP operations to generate (default: 30)
 - `TEST_TIMEOUT`: Test timeout in seconds (default: 300)
 - `BUILD_BINARY`: Whether to rebuild exporter binary (default: true)
 
-### Test Selection
+### Test selection
 
 - `RUN_UNIT_TESTS`: Enable unit tests (default: true)
 - `RUN_INTEGRATION_TESTS`: Enable integration tests (default: true)  
 - `RUN_OPERATION_TESTS`: Enable operation metrics tests (default: true)
 
-## CI/CD Integration
+## CI/CD integration
 
 Tests are automatically executed in GitHub Actions workflow (`.github/workflows/test.yml`):
 
-### Automated Test Pipeline
+### Automated test pipeline
 
 1. **Unit Tests**:
    - Fast tests without external dependencies
@@ -170,15 +170,15 @@ Tests are automatically executed in GitHub Actions workflow (`.github/workflows/
    - Code quality and security checks with `golangci-lint`
    - Vulnerability scanning with `gosec`
 
-### Key Differences from Local Development
+### Key differences from local development
 
 - **CI/CD**: Uses GitHub Actions services (no docker-compose needed)
 - **Local**: Can use `run-all-tests.sh` which includes Docker environment setup
 - **Both**: Share the same core test files and LDIF configurations
 
-## Local Development
+## Local development
 
-### Option 1: Using run-all-tests.sh (Recommended)
+### Option 1: Using run-all-tests.sh (recommended)
 
 For comprehensive local testing including Docker environment setup:
 
@@ -212,14 +212,14 @@ LDAP_HOST=localhost LDAP_PORT=389 \
 
 ## Troubleshooting
 
-### Common Issues
+### Common issues
 
 1. **LDAP tools not found**: Install `ldap-utils` package
 2. **Connection refused**: Verify LDAP server is running and accessible
 3. **Monitor backend not accessible**: LDAP server may not have Monitor backend enabled
 4. **Permission errors**: Ensure LDAP credentials have sufficient privileges
 
-### Debug Mode
+### Debug mode
 
 Enable debug output for detailed test information:
 
@@ -227,7 +227,7 @@ Enable debug output for detailed test information:
 LOG_LEVEL=DEBUG ./tests/scripts/run-operation-metrics-test.sh
 ```
 
-### Test Isolation
+### Test isolation
 
 Each test run uses unique ports and temporary files to avoid conflicts:
 
