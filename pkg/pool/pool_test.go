@@ -3,7 +3,6 @@ package pool
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -915,28 +914,37 @@ MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...
 -----END PRIVATE KEY-----`
 
 	// Create temp files
-	caFile, err := ioutil.TempFile("", "ca*.pem")
+	caFile, err := os.CreateTemp("", "ca*.pem")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.Remove(caFile.Name())
-	caFile.WriteString(caCert)
+	_, err = caFile.WriteString(caCert)
+	if err != nil {
+		t.Fatal(err)
+	}
 	caFile.Close()
 
-	certFile, err := ioutil.TempFile("", "cert*.pem")  
+	certFile, err := os.CreateTemp("", "cert*.pem")  
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.Remove(certFile.Name())
-	certFile.WriteString(clientCert)
+	_, err = certFile.WriteString(clientCert)
+	if err != nil {
+		t.Fatal(err)
+	}
 	certFile.Close()
 
-	keyFile, err := ioutil.TempFile("", "key*.pem")
+	keyFile, err := os.CreateTemp("", "key*.pem")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.Remove(keyFile.Name())
-	keyFile.WriteString(clientKey)
+	_, err = keyFile.WriteString(clientKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 	keyFile.Close()
 
 	// Test with CA file
