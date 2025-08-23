@@ -167,7 +167,7 @@ func TestCircuitBreakerClose(t *testing.T) {
 func TestCircuitBreakerHalfOpen(t *testing.T) {
 	config := DefaultCircuitBreakerConfig()
 	config.MaxFailures = 1
-	config.ResetTimeout = 10 * time.Millisecond
+	config.ResetTimeout = 5 * time.Millisecond
 	config.SuccessThreshold = 2
 	cb := NewCircuitBreaker(config)
 
@@ -180,7 +180,7 @@ func TestCircuitBreakerHalfOpen(t *testing.T) {
 	t.Logf("State after failure: %v", initialState)
 
 	// Wait for reset timeout
-	time.Sleep(15 * time.Millisecond)
+	time.Sleep(8 * time.Millisecond)
 
 	// Next call should potentially transition state
 	_ = cb.Call(func() error {
@@ -362,7 +362,7 @@ func TestOnSuccessWithFailuresReset(t *testing.T) {
 func TestOnFailureInHalfOpen(t *testing.T) {
 	config := DefaultCircuitBreakerConfig()
 	config.MaxFailures = 1
-	config.ResetTimeout = 10 * time.Millisecond
+	config.ResetTimeout = 5 * time.Millisecond
 	cb := NewCircuitBreaker(config)
 	
 	// Open the circuit
@@ -375,7 +375,7 @@ func TestOnFailureInHalfOpen(t *testing.T) {
 	}
 	
 	// Wait for reset timeout to allow half-open transition
-	time.Sleep(15 * time.Millisecond)
+	time.Sleep(8 * time.Millisecond)
 	
 	// First call after timeout should transition to half-open and fail
 	// This tests the onFailure in StateHalfOpen branch

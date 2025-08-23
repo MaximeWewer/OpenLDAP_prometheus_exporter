@@ -22,6 +22,7 @@ func setupTestConfig(t *testing.T) (*config.Config, func()) {
 		"LDAP_PASSWORD": "testpass",
 		"LDAP_TIMEOUT":  "1", // Short timeout for tests (1 second instead of 5)
 		"LOG_LEVEL":     "ERROR", // Reduce noise in tests
+		"OPENLDAP_RETRY_MAX_ATTEMPTS": "1", // Reduce retry attempts for faster tests
 	}
 
 	// Set environment variables
