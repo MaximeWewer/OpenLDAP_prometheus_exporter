@@ -4,7 +4,7 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 
 ## Features
 
-### Security Features
+### Security features
 
 - **Password Protection**: Credentials are encrypted in memory using ChaCha20-Poly1305
 - **Input Validation**: Comprehensive LDAP input validation to prevent injection attacks
@@ -13,7 +13,7 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 - **Circuit Breaker**: Protection against cascading failures
 - **Safe Logging**: Automatic redaction of sensitive information in logs
 
-### Performance Optimizations
+### Performance optimizations
 
 - **Connection Pooling**: Reusable LDAP connections with configurable pool size
 - **Atomic Operations**: Lock-free metrics updates for better concurrency
@@ -67,7 +67,7 @@ docker run -p 9330:9330 \
   ghcr.io/maximewewer/openldap_prometheus_exporter:latest
 ```
 
-## Prometheus Configuration
+## Prometheus configuration
 
 ```yaml
 scrape_configs:
@@ -79,7 +79,7 @@ scrape_configs:
     metrics_path: /metrics
 ```
 
-## Required OpenLDAP Configuration
+## Required OpenLDAP configuration
 
 ### 1. Monitor backend activation
 
@@ -193,7 +193,7 @@ olcAccess: to dn.subtree="cn=Monitor" by dn.exact="cn=adminconfig,cn=config" rea
 - `ou=users,dc=company,dc=net` → Components: `["company", "net"]`
 - `uid=user1,ou=people,dc=test,dc=local` → Components: `["test", "local"]`
 
-## Exported Metrics
+## Exported metrics
 
 ### Connections
 

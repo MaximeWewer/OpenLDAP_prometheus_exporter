@@ -3,6 +3,7 @@ package logger
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"testing"
 )
 
@@ -151,31 +152,217 @@ func TestFatal(t *testing.T) {
 		return
 	}
 	
-	// Test that we can call Fatal in a subprocess to verify it works
-	// This is a common pattern for testing functions that call os.Exit()
-	t.Skip("Fatal function test skipped - it calls os.Exit(). Set TEST_FATAL=1 to test it in isolation.")
+	// Test Fatal using subprocess pattern - this is the standard way to test os.Exit() functions
+	if testing.Short() {
+		t.Skip("Skipping Fatal test in short mode")
+	}
+	
+	// Run the test in a subprocess
+	cmd := exec.Command(os.Args[0], "-test.run=TestFatalSubprocess")
+	cmd.Env = append(os.Environ(), "TEST_FATAL=1")
+	err := cmd.Run()
+	
+	// Fatal should exit with code 1
+	if exitError, ok := err.(*exec.ExitError); ok {
+		if exitError.ExitCode() != 1 {
+			t.Errorf("Expected exit code 1, got %d", exitError.ExitCode())
+		}
+	} else {
+		t.Error("Fatal should have caused program to exit")
+	}
 }
 
-// TestFatalBehavior tests Fatal function behavior using subprocess
-func TestFatalBehavior(t *testing.T) {
-	// Alternative approach: test that Fatal function exists and is callable
-	// without actually calling it (which would exit the test)
+// TestFatalSubprocess is the subprocess test for Fatal
+func TestFatalSubprocess(t *testing.T) {
+	if os.Getenv("TEST_FATAL") != "1" {
+		t.Skip("Not in subprocess mode")
+	}
 	
-	// We can at least verify the function signature and that it compiles
-	// by creating a function pointer to it
-	fatalFunc := Fatal
+	// Initialize logger
+	InitLogger("test-fatal", "DEBUG")
 	
-	// Verify the function exists (it's always non-nil)
-	_ = fatalFunc
+	// This will call os.Exit(1)
+	Fatal("logger_test", "Test fatal message", errors.New("test error"), map[string]interface{}{"test": "fatal"})
+}
+
+// TestInitLoggerAllLevels tests all log levels in InitLogger
+func TestInitLoggerAllLevels(t *testing.T) {
+	// Test all supported log levels
+	levels := []string{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"}
 	
-	// Test the function in a very controlled way
-	// We'll test by verifying we can set up the parameters that would be passed to Fatal
-	pkg := "test-package"
-	message := "test fatal message"
-	fields := map[string]interface{}{"test": "value"}
+	for _, level := range levels {
+		t.Run(level, func(t *testing.T) {
+			// This should not panic and should set the appropriate level
+			InitLogger("test-component-"+level, level)
+			
+			// Verify logger was initialized (no easy way to check level, but no panic means success)
+			t.Logf("Successfully initialized logger with level: %s", level)
+		})
+	}
 	
-	// Verify all these parameters are valid for the Fatal function signature
-	if pkg == "" || message == "" || fields == nil {
-		t.Error("Fatal function parameters should be valid")
+	// Test lowercase levels
+	lowerLevels := []string{"debug", "info", "warn", "error", "fatal"}
+	for _, level := range lowerLevels {
+		t.Run("lower_"+level, func(t *testing.T) {
+			InitLogger("test-component-lower-"+level, level)
+			t.Logf("Successfully initialized logger with lowercase level: %s", level)
+		})
+	}
+	
+	// Test mixed case
+	InitLogger("test-mixed", "WaRn")
+}
+
+// TestSanitizeFieldsWithNil tests sanitizeFields with nil input
+func TestSanitizeFieldsWithNil(t *testing.T) {
+	// Test nil fields
+	result := sanitizeFields(nil)
+	if result != nil {
+		t.Error("sanitizeFields(nil) should return nil")
+	}
+	
+	// Test empty fields
+	emptyFields := make(map[string]interface{})
+	result = sanitizeFields(emptyFields)
+	if result == nil {
+		t.Error("sanitizeFields with empty map should not return nil")
+	}
+	
+	// Clean up the returned map
+	if result != nil {
+		putMapToPool(result)
+	}
+}
+
+// TestSanitizeValueDNBranch tests the DN sanitization branch in sanitizeValue
+func TestSanitizeValueDNBranch(t *testing.T) {
+	tests := []struct {
+		name     string
+		key      string
+		value    interface{}
+		expected interface{}
+	}{
+		{
+			name:     "DN with userPassword",
+			key:      "bindDN", // contains "dn"
+			value:    "cn=admin,userPassword=secret,dc=example,dc=com",
+			expected: "cn=admin,dc=example,dc=com", // userPassword removed
+		},
+		{
+			name:     "DN without userPassword",
+			key:      "searchDN",
+			value:    "cn=admin,dc=example,dc=com",
+			expected: "cn=admin,dc=example,dc=com", // unchanged
+		},
+		{
+			name:     "DN field but no userPassword",
+			key:      "baseDN",
+			value:    "dc=example,dc=com",
+			expected: "dc=example,dc=com", // unchanged
+		},
+		{
+			name:     "Non-DN field",
+			key:      "username",
+			value:    "cn=admin,userPassword=secret,dc=example,dc=com",
+			expected: "cn=admin,userPassword=secret,dc=example,dc=com", // unchanged
+		},
+		{
+			name:     "Non-string value",
+			key:      "portDN",
+			value:    389,
+			expected: 389, // unchanged
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeValue(tt.key, tt.value)
+			if result != tt.expected {
+				t.Errorf("sanitizeValue(%q, %v) = %v, want %v", tt.key, tt.value, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestMapPoolFunctionality tests the map pool functions
+func TestMapPoolFunctionality(t *testing.T) {
+	// Test getting a map from pool
+	m1 := getMapFromPool()
+	if m1 == nil {
+		t.Error("getMapFromPool should return non-nil map")
+	}
+	
+	// Add some data
+	m1["test"] = "value"
+	
+	// Return to pool
+	putMapToPool(m1)
+	
+	// Get another map (might be the same one, but should be clean)
+	m2 := getMapFromPool()
+	if len(m2) != 0 {
+		t.Error("Map from pool should be empty")
+	}
+	
+	// Test putting nil map (should not panic)
+	putMapToPool(nil)
+	
+	// Clean up
+	putMapToPool(m2)
+}
+
+// TestSanitizeValueEdgeCases tests additional edge cases for sanitizeValue
+func TestSanitizeValueEdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		key      string
+		value    interface{}
+		expected interface{}
+	}{
+		{
+			name:     "URL field with credentials",
+			key:      "serverURL",
+			value:    "ldap://admin:secret@server.com:389",
+			expected: "ldap://admin:***@server.com:389",
+		},
+		{
+			name:     "URI field with credentials",
+			key:      "connectionURI",
+			value:    "ldaps://user:pass@ldap.example.com:636",
+			expected: "ldaps://user:***@ldap.example.com:636",
+		},
+		{
+			name:     "Password field",
+			key:      "userPassword",
+			value:    "secret123",
+			expected: "***REDACTED***",
+		},
+		{
+			name:     "Token field",
+			key:      "authToken",
+			value:    "bearer123",
+			expected: "***REDACTED***",
+		},
+		{
+			name:     "Key field",
+			key:      "apiKey",
+			value:    "key123",
+			expected: "***REDACTED***",
+		},
+		{
+			name:     "Normal field",
+			key:      "hostname",
+			value:    "server.example.com",
+			expected: "server.example.com",
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeValue(tt.key, tt.value)
+			if result != tt.expected {
+				t.Errorf("sanitizeValue(%q, %v) = %v, want %v", tt.key, tt.value, result, tt.expected)
+			}
+		})
 	}
 }

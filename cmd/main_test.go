@@ -127,6 +127,7 @@ func TestHandleRoot(t *testing.T) {
 	}
 }
 
+
 // TestHandleHealth tests the health endpoint
 func TestHandleHealth(t *testing.T) {
 	req := httptest.NewRequest("GET", "/health", nil)

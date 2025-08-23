@@ -77,6 +77,44 @@ func TestInternalMonitoring(t *testing.T) {
 	t.Log("Internal monitoring test completed successfully")
 }
 
+// TestRecordEventEdgeCases tests edge cases for RecordEvent to achieve 100% coverage
+func TestRecordEventEdgeCases(t *testing.T) {
+	monitoring := NewInternalMonitoring()
+
+	// Test first event (branch where event doesn't exist)
+	monitoring.RecordEvent("new_event")
+	
+	eventStats := monitoring.GetEventStats()
+	if stats, exists := eventStats["new_event"]; !exists {
+		t.Error("new_event should exist after first RecordEvent")
+	} else if count := stats["count"]; count != int64(1) {
+		t.Errorf("Expected count 1, got %v", count)
+	}
+
+	// Test immediate second event (duration will be very small, testing duration > 0 branch)
+	monitoring.RecordEvent("new_event")
+	
+	// Test multiple rapid events to trigger rate calculation
+	for i := 0; i < 5; i++ {
+		monitoring.RecordEvent("rapid_event")
+		time.Sleep(1 * time.Millisecond) // Small delay to ensure duration > 0
+	}
+	
+	eventStats = monitoring.GetEventStats()
+	if stats, exists := eventStats["rapid_event"]; !exists {
+		t.Error("rapid_event should exist")
+	} else if count := stats["count"]; count != int64(5) {
+		t.Errorf("Expected rapid_event count 5, got %v", count)
+	}
+	
+	// Test rate calculation
+	if stats, exists := eventStats["rapid_event"]; exists {
+		if rate, hasRate := stats["rate"]; hasRate && rate.(float64) <= 0 {
+			t.Error("Rate should be positive for rapid events")
+		}
+	}
+}
+
 // TestGetStartTime tests the GetStartTime method
 func TestGetStartTime(t *testing.T) {
 	monitoring := NewInternalMonitoring()
