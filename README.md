@@ -31,28 +31,34 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 ### Docker compose (recommended)
 
 ```yaml
-openldap-exporter:
-  image: ghcr.io/maximewewer/openldap_prometheus_exporter:latest
-  hostname: openldap-exporter
-  container_name: openldap-exporter
-  restart: unless-stopped
-  ports:
-    - "9330:9330"
-  environment:
-    # LDAP Configuration
-    - LDAP_URL=ldap://openldap:1389
-    - LDAP_USERNAME=cn=adminconfig,cn=config
-    - LDAP_PASSWORD=adminpasswordconfig
-    - LDAP_SERVER_NAME=prod-ldap-01
-    
-    # Logging Configuration
-    - LOG_LEVEL=INFO  # DEBUG for more details
-    
-    # TLS Configuration (if needed)
-    - LDAP_TLS=false
-    - LDAP_TLS_SKIP_VERIFY=false
-    - LDAP_TIMEOUT=10
-    - LDAP_UPDATE_EVERY=15
+services:
+  openldap-exporter:
+    image: ghcr.io/maximewewer/openldap_prometheus_exporter:latest
+    hostname: openldap-exporter
+    container_name: openldap-exporter
+    restart: unless-stopped
+    ports:
+      - "9330:9330"
+    environment:
+      # LDAP Configuration
+      - LDAP_URL=ldap://openldap:1389
+      - LDAP_USERNAME=cn=adminconfig,cn=config
+      - LDAP_PASSWORD=adminpasswordconfig
+      - LDAP_SERVER_NAME=prod-ldap-01
+      
+      # Logging Configuration
+      - LOG_LEVEL=INFO  # DEBUG for more details
+      
+      # TLS Configuration (if needed)
+      - LDAP_TLS=false
+      - LDAP_TLS_SKIP_VERIFY=false
+      - LDAP_TIMEOUT=10
+      - LDAP_UPDATE_EVERY=15
+    logging:
+      driver: json-file
+      options:
+        "max-size": "10m"
+        "max-file": "5"
 ```
 
 ### Docker
