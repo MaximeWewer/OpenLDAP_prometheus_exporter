@@ -10,18 +10,18 @@ runs:
       sudo apt-get update
       sudo apt-get install -y ldap-utils
 
-  - name: Wait for OpenLDAP to be ready
-    shell: bash
-    run: |
-      echo "Waiting for OpenLDAP to be ready..."
-      for i in {1..30}; do
-        if ldapsearch -x -H ldap://localhost:1389 -b "cn=Monitor" -s base "(objectClass=*)" cn; then
-          echo "OpenLDAP is ready!"
-          break
-        fi
-        echo "Attempt $i: OpenLDAP not ready yet, waiting..."
-        sleep 5
-      done
+  # - name: Wait for OpenLDAP to be ready
+  #   shell: bash
+  #   run: |
+  #     echo "Waiting for OpenLDAP to be ready..."
+  #     for i in {1..30}; do
+  #       if ldapsearch -x -H ldap://localhost:1389 -b "" -s base "(objectClass=*)" namingContexts >/dev/null 2>&1; then
+  #         echo "OpenLDAP is ready!"
+  #         break
+  #       fi
+  #       echo "Attempt $i: OpenLDAP not ready yet, waiting..."
+  #       sleep 5
+  #     done
 
   - name: Setup LDAP configuration
     shell: bash
@@ -37,9 +37,9 @@ runs:
     run: |
       # Test basic connection first
       ldapsearch -x -H ldap://localhost:1389 -b '' -s base "(objectClass=*)" namingContexts
-      
+
       # Test config access
       ldapsearch -x -H ldap://localhost:1389 -D "cn=adminconfig,cn=config" -w configpassword -b "cn=config" -s base "(objectClass=*)" cn
-      
+
       # Try Monitor backend (allow failure for now)
       ldapsearch -x -H ldap://localhost:1389 -D "cn=adminconfig,cn=config" -w configpassword -b "cn=Monitor" -s base "(objectClass=*)" cn || echo "Monitor backend not accessible - skipping for now"

@@ -421,8 +421,16 @@ test_exporter_metrics() {
     log_info "Retrieved metrics ($file_size bytes)"
     
     # Check for operation metrics
-    local ops_initiated=$(grep -c "openldap_operations_initiated_total" "$metrics_file" || echo "0")
-    local ops_completed=$(grep -c "openldap_operations_completed_total" "$metrics_file" || echo "0")
+    local ops_initiated=$(grep -c "openldap_operations_initiated_total" "$metrics_file" 2>/dev/null || echo "0")
+    local ops_completed=$(grep -c "openldap_operations_completed_total" "$metrics_file" 2>/dev/null || echo "0")
+    
+    # Clean variables to ensure they contain only numbers
+    ops_initiated=$(echo "$ops_initiated" | tr -d '\n\r' | tr -cd '0-9')
+    ops_completed=$(echo "$ops_completed" | tr -d '\n\r' | tr -cd '0-9')
+    
+    # Ensure variables are not empty
+    ops_initiated=${ops_initiated:-0}
+    ops_completed=${ops_completed:-0}
     
     log_info "Found metrics:"
     log_info "  - Operations initiated entries: $ops_initiated"
