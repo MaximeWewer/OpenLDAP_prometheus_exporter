@@ -263,12 +263,6 @@ func (cb *CircuitBreaker) onSuccess() {
 	}
 }
 
-// setState changes the circuit breaker state and triggers callback if set
-func (cb *CircuitBreaker) setState(newState State) {
-	cb.mutex.Lock()
-	defer cb.mutex.Unlock()
-	cb.setStateUnsafe(newState)
-}
 
 // setStateUnsafe changes the circuit breaker state without acquiring mutex
 // This method assumes the caller already holds the mutex

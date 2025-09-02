@@ -449,7 +449,7 @@ func TestCollectAllMetricsContext(t *testing.T) {
 	defer cancel()
 
 	// This should handle timeout gracefully
-	exporter.collectAllMetricsWithContext(ctx)
+	_ = exporter.collectAllMetricsWithContext(ctx)
 
 	// Test should complete without hanging
 }
@@ -1870,7 +1870,7 @@ func TestGetMonitorGroupComprehensive(t *testing.T) {
 					t.Log("Expected error in static test environment")
 				}
 				// In static environment, result should be nil or empty
-				if result != nil && len(result) > 0 {
+				if len(result) > 0 {
 					t.Logf("Unexpected result in static test: %v", result)
 				}
 			} else {

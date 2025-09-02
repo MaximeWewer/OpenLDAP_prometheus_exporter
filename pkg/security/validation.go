@@ -9,15 +9,8 @@ import (
 
 // Pre-compiled regular expressions for better performance
 var (
-	dnRegex   = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9]*=[^,=]+)(,\s*[a-zA-Z][a-zA-Z0-9]*=[^,=]+)*$`)
-	attrRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9.-]*$`)
+	dnRegex = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9]*=[^,=]+)(,\s*[a-zA-Z][a-zA-Z0-9]*=[^,=]+)*$`)
 )
-
-// dangerousAttributes contains sensitive LDAP attributes (all lowercase for consistent comparison)
-var dangerousAttributes = []string{
-	"userpassword", "unicodepwd", "sambalmpassword", "sambapassword",
-	"krb5key", "usersmimecertificate", "usercertificate", "cACertificate",
-}
 
 // ValidateLDAPDN validates an LDAP Distinguished Name for security and correctness
 func ValidateLDAPDN(dn string) error {

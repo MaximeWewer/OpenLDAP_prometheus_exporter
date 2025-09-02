@@ -728,8 +728,3 @@ func (p *ConnectionPool) recordWaitTime(duration time.Duration) {
 	}
 }
 
-func (p *ConnectionPool) recordPutRequest() {
-	if p.monitoring != nil && p.serverName != "" {
-		p.monitoring.RecordPoolPutRequest(p.serverName, "ldap")
-	}
-}

@@ -24,20 +24,6 @@ func createTestCircuitBreaker() *CircuitBreaker {
 	return NewCircuitBreaker(config)
 }
 
-func createTestCircuitBreakerWithTimeout(resetTimeout time.Duration) *CircuitBreaker {
-	config := DefaultCircuitBreakerConfig()
-	config.MaxFailures = testMaxFailures
-	config.ResetTimeout = resetTimeout
-	return NewCircuitBreaker(config)
-}
-
-func performFailingOperation() error {
-	return errors.New("test failure")
-}
-
-func performSuccessfulOperation() error {
-	return nil
-}
 
 // TestCircuitBreaker tests the circuit breaker functionality
 func TestCircuitBreaker(t *testing.T) {

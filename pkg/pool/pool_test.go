@@ -23,15 +23,6 @@ const (
 	testSmallMaxConnections = 2
 )
 
-// Helper function to create test pool with common error handling pattern
-func createTestPoolWithCleanup(t *testing.T, maxConnections int) (*ConnectionPool, func()) {
-	cfg, cleanup := setupTestConfig(t)
-	pool := NewConnectionPool(cfg, maxConnections)
-	return pool, func() {
-		pool.Close()
-		cleanup()
-	}
-}
 
 // newTestConnectionPool creates a connection pool without maintenance goroutine for testing
 func newTestConnectionPool(cfg *config.Config, maxConnections int) *ConnectionPool {
