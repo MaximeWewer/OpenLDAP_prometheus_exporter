@@ -9,6 +9,18 @@ import (
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
 
+// Error definitions for circuit breaker
+var (
+	ErrCircuitBreakerOpen = errors.New("circuit breaker is open")
+	ErrFunctionCannotBeNil = errors.New("function cannot be nil")
+)
+
+// Timeout constants for circuit breaker operations
+const (
+	CallbackTimeout = 5 * time.Second
+	CloseTimeout    = 10 * time.Second
+)
+
 // State represents the current state of the circuit breaker
 type State int
 
@@ -106,8 +118,8 @@ func NewCircuitBreaker(config CircuitBreakerConfig) *CircuitBreaker {
 
 	logger.SafeInfo("circuitbreaker", "Circuit breaker created", map[string]interface{}{
 		"max_failures":      config.MaxFailures,
-		"timeout":           config.Timeout.String(),
-		"reset_timeout":     config.ResetTimeout.String(),
+		"timeout":           config.Timeout.Truncate(10 * time.Millisecond).String(),
+		"reset_timeout":     config.ResetTimeout.Truncate(10 * time.Millisecond).String(),
 		"success_threshold": config.SuccessThreshold,
 	})
 
@@ -123,38 +135,50 @@ func (cb *CircuitBreaker) SetStateChangeCallback(callback func(from, to State)) 
 
 // Call executes the given function with circuit breaker protection
 func (cb *CircuitBreaker) Call(fn func() error) error {
+	if fn == nil {
+		return ErrFunctionCannotBeNil
+	}
+
+	if err := cb.checkCanExecute(); err != nil {
+		return err
+	}
+
+	err := cb.executeFunction(fn)
+	cb.recordResult(err)
+	return err
+}
+
+// checkCanExecute verifies if the request should be allowed and updates metrics
+func (cb *CircuitBreaker) checkCanExecute() error {
 	cb.mutex.Lock()
+	defer cb.mutex.Unlock()
+	
 	cb.totalRequests++
 
-	// Check if we should allow this request
-	if !cb.canExecute() {
+	if !cb.canExecuteUnsafe() {
 		cb.blockedRequests++
 		// Capture values for logging while holding mutex
 		state := cb.state.String()
 		failures := cb.failures
-		cb.mutex.Unlock()
 
 		logger.SafeWarn("circuitbreaker", "Request blocked by circuit breaker", map[string]interface{}{
 			"state":    state,
 			"failures": failures,
 		})
 
-		return errors.New("circuit breaker is open")
+		return ErrCircuitBreakerOpen
 	}
-
-	cb.mutex.Unlock()
-
-	// Execute the function
-	err := fn()
-
-	// Record the result
-	cb.recordResult(err)
-
-	return err
+	return nil
 }
 
-// canExecute determines if a request should be allowed based on current state
-func (cb *CircuitBreaker) canExecute() bool {
+// executeFunction executes the protected function
+func (cb *CircuitBreaker) executeFunction(fn func() error) error {
+	return fn()
+}
+
+// canExecuteUnsafe determines if a request should be allowed based on current state
+// This method assumes the caller already holds the mutex
+func (cb *CircuitBreaker) canExecuteUnsafe() bool {
 	now := time.Now()
 
 	switch cb.state {
@@ -164,7 +188,7 @@ func (cb *CircuitBreaker) canExecute() bool {
 	case StateOpen:
 		// Check if enough time has passed to try half-open
 		if now.Sub(cb.lastFailureTime) >= cb.config.Timeout {
-			cb.setState(StateHalfOpen)
+			cb.setStateUnsafe(StateHalfOpen)
 			return true
 		}
 		return false
@@ -200,7 +224,7 @@ func (cb *CircuitBreaker) onFailure() {
 	switch cb.state {
 	case StateClosed:
 		if cb.failures >= cb.config.MaxFailures {
-			cb.setState(StateOpen)
+			cb.setStateUnsafe(StateOpen)
 			logger.SafeWarn("circuitbreaker", "Circuit breaker opened due to failures", map[string]interface{}{
 				"failures":     cb.failures,
 				"max_failures": cb.config.MaxFailures,
@@ -209,7 +233,7 @@ func (cb *CircuitBreaker) onFailure() {
 
 	case StateHalfOpen:
 		// Any failure in half-open state immediately opens the circuit
-		cb.setState(StateOpen)
+		cb.setStateUnsafe(StateOpen)
 		logger.SafeWarn("circuitbreaker", "Circuit breaker re-opened after half-open failure", map[string]interface{}{
 			"failures": cb.failures,
 		})
@@ -229,7 +253,7 @@ func (cb *CircuitBreaker) onSuccess() {
 	case StateHalfOpen:
 		cb.successes++
 		if cb.successes >= cb.config.SuccessThreshold {
-			cb.setState(StateClosed)
+			cb.setStateUnsafe(StateClosed)
 			cb.failures = 0
 			logger.SafeInfo("circuitbreaker", "Circuit breaker closed after successful recovery", map[string]interface{}{
 				"successes":         cb.successes,
@@ -241,9 +265,22 @@ func (cb *CircuitBreaker) onSuccess() {
 
 // setState changes the circuit breaker state and triggers callback if set
 func (cb *CircuitBreaker) setState(newState State) {
+	cb.mutex.Lock()
+	defer cb.mutex.Unlock()
+	cb.setStateUnsafe(newState)
+}
+
+// setStateUnsafe changes the circuit breaker state without acquiring mutex
+// This method assumes the caller already holds the mutex
+func (cb *CircuitBreaker) setStateUnsafe(newState State) {
 	oldState := cb.state
 	cb.state = newState
 	cb.stateChanges++
+
+	logger.SafeInfo("circuitbreaker", "Circuit breaker state changed", map[string]interface{}{
+		"from": oldState.String(),
+		"to":   newState.String(),
+	})
 
 	if cb.onStateChange != nil {
 		// Call callback without holding the mutex to avoid deadlocks
@@ -251,11 +288,6 @@ func (cb *CircuitBreaker) setState(newState State) {
 		cb.callbackWg.Add(1)
 		go cb.executeCallback(cb.onStateChange, oldState, newState)
 	}
-
-	logger.SafeInfo("circuitbreaker", "Circuit breaker state changed", map[string]interface{}{
-		"from": oldState.String(),
-		"to":   newState.String(),
-	})
 }
 
 // GetState returns the current state of the circuit breaker
@@ -278,7 +310,7 @@ func (cb *CircuitBreaker) GetStats() map[string]interface{} {
 		"failed_requests":   cb.failedRequests,
 		"blocked_requests":  cb.blockedRequests,
 		"state_changes":     cb.stateChanges,
-		"last_failure_time": cb.lastFailureTime,
+		"last_failure_time": cb.lastFailureTime.Format(time.RFC3339),
 	}
 }
 
@@ -316,7 +348,7 @@ func (cb *CircuitBreaker) executeCallback(callback func(from, to State), oldStat
 	defer cb.callbackWg.Done()
 
 	// Create a timeout context for the callback to prevent hanging
-	ctx, cancel := context.WithTimeout(cb.callbackCtx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(cb.callbackCtx, CallbackTimeout)
 	defer cancel()
 
 	// Execute callback with timeout protection
@@ -361,7 +393,7 @@ func (cb *CircuitBreaker) Close() {
 	select {
 	case <-done:
 		logger.SafeInfo("circuitbreaker", "Circuit breaker closed cleanly")
-	case <-time.After(10 * time.Second):
+	case <-time.After(CloseTimeout):
 		logger.SafeWarn("circuitbreaker", "Circuit breaker close timeout - some callbacks may still be running")
 	}
 }

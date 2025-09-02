@@ -10,6 +10,24 @@ import (
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
 
+// Constants for security configuration
+const (
+	// Rate limiting constants
+	DefaultCleanupInterval = 10 * time.Minute
+	DefaultRetryAfter     = 60
+	
+	// Validation constants
+	MaxDNLength        = 8192
+	MaxFilterLength    = 2048
+	MaxAttributeLength = 256
+)
+
+// RateLimitMonitoring defines the interface for rate limiting monitoring
+type RateLimitMonitoring interface {
+	RecordRateLimitRequest(clientIP, endpoint string)
+	RecordRateLimitBlocked(clientIP, endpoint string)
+}
+
 // RateLimiter implements a simple token bucket rate limiter per IP address
 type RateLimiter struct {
 	clients         map[string]*clientBucket
@@ -17,6 +35,8 @@ type RateLimiter struct {
 	rate            int           // requests per minute
 	burst           int           // maximum burst size
 	cleanupInterval time.Duration // cleanup interval for old clients
+	stopCh          chan struct{} // channel to stop cleanup goroutine
+	stopped         bool          // flag to indicate if rate limiter is stopped
 }
 
 // clientBucket represents the token bucket for a specific client IP
@@ -32,13 +52,25 @@ func NewRateLimiter(requestsPerMinute, burstSize int) *RateLimiter {
 		clients:         make(map[string]*clientBucket),
 		rate:            requestsPerMinute,
 		burst:           burstSize,
-		cleanupInterval: 10 * time.Minute, // Clean up inactive clients after 10 minutes
+		cleanupInterval: DefaultCleanupInterval,
+		stopCh:          make(chan struct{}),
+		stopped:         false,
 	}
 
 	// Start cleanup goroutine
 	go rl.cleanupRoutine()
 
 	return rl
+}
+
+// Stop gracefully stops the rate limiter and its cleanup goroutine
+func (rl *RateLimiter) Stop() {
+	rl.mutex.Lock()
+	if !rl.stopped {
+		rl.stopped = true
+		close(rl.stopCh)
+	}
+	rl.mutex.Unlock()
 }
 
 // Allow checks if a request from the given IP is allowed
@@ -96,23 +128,46 @@ func (rl *RateLimiter) cleanupRoutine() {
 	ticker := time.NewTicker(rl.cleanupInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		rl.cleanupClients()
+	for {
+		select {
+		case <-ticker.C:
+			rl.cleanupClients()
+		case <-rl.stopCh:
+			return
+		}
 	}
 }
 
 // cleanupClients removes clients that haven't been seen for a while
 func (rl *RateLimiter) cleanupClients() {
-	rl.mutex.Lock()
-	defer rl.mutex.Unlock()
-
 	cutoff := time.Now().Add(-rl.cleanupInterval)
+	var toDelete []string
+	
+	// First pass: identify clients to delete (avoid nested locks)
+	rl.mutex.RLock()
 	for ip, bucket := range rl.clients {
 		bucket.mutex.Lock()
 		if bucket.lastSeen.Before(cutoff) {
-			delete(rl.clients, ip)
+			toDelete = append(toDelete, ip)
 		}
 		bucket.mutex.Unlock()
+	}
+	rl.mutex.RUnlock()
+	
+	// Second pass: delete identified clients
+	if len(toDelete) > 0 {
+		rl.mutex.Lock()
+		for _, ip := range toDelete {
+			// Double check as client might have been active between the two passes
+			if bucket, exists := rl.clients[ip]; exists {
+				bucket.mutex.Lock()
+				if bucket.lastSeen.Before(cutoff) {
+					delete(rl.clients, ip)
+				}
+				bucket.mutex.Unlock()
+			}
+		}
+		rl.mutex.Unlock()
 	}
 }
 
@@ -240,11 +295,26 @@ func (rl *RateLimiter) ResetAll() {
 
 // RateLimitMiddleware creates an HTTP middleware that applies rate limiting
 func RateLimitMiddleware(limiter *RateLimiter) func(http.Handler) http.Handler {
+	return RateLimitMiddlewareWithMonitoring(limiter, nil)
+}
+
+// RateLimitMiddlewareWithMonitoring creates an HTTP middleware that applies rate limiting with monitoring
+func RateLimitMiddlewareWithMonitoring(limiter *RateLimiter, monitoring RateLimitMonitoring) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			clientIP := GetClientIP(r)
 
+			// Record rate limit request
+			if monitoring != nil {
+				monitoring.RecordRateLimitRequest(clientIP, r.URL.Path)
+			}
+
 			if !limiter.Allow(clientIP) {
+				// Record blocked request
+				if monitoring != nil {
+					monitoring.RecordRateLimitBlocked(clientIP, r.URL.Path)
+				}
+
 				logger.SafeWarn("ratelimit", "Rate limit exceeded", map[string]interface{}{
 					"client_ip": clientIP,
 					"endpoint":  r.URL.Path,

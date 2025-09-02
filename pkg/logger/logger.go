@@ -98,19 +98,42 @@ var sensitiveFields = []string{
 	"credential", "pass", "userPassword", "userpassword",
 }
 
-// URL patterns that might contain credentials
-var credentialURLPattern = regexp.MustCompile(`(ldap[s]?://)([^:]+):([^@]+)@(.+)`)
+// Pre-compiled regex patterns for performance optimization
+var (
+	// URL patterns that might contain credentials
+	credentialURLPattern = regexp.MustCompile(`(ldap[s]?://)([^:]+):([^@]+)@(.+)`)
+	
+	// Compiled password patterns for error message sanitization
+	passwordPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)password[=:]\s*\S+`),
+		regexp.MustCompile(`(?i)passwd[=:]\s*\S+`),
+		regexp.MustCompile(`(?i)pwd[=:]\s*\S+`),
+		regexp.MustCompile(`(?i)token[=:]\s*\S+`),
+		regexp.MustCompile(`(?i)secret[=:]\s*\S+`),
+		regexp.MustCompile(`(?i)key[=:]\s*\S+`),
+	}
+	
+	// Bind DN password pattern for LDAP error messages
+	bindPattern = regexp.MustCompile(`(?i)(bind\s+failed.*password:\s*)(\S+)`)
+)
 
 // Pool for reusing maps to reduce allocations
-var mapPool = sync.Pool{
-	New: func() interface{} {
-		return make(map[string]interface{}, 8) // Pre-allocate capacity for common case
-	},
-}
+var (
+	mapPool = sync.Pool{
+		New: func() interface{} {
+			return make(map[string]interface{}, 8) // Pre-allocate capacity for common case
+		},
+	}
+	// Mutex to protect map pool operations in high-concurrency scenarios
+	mapPoolMutex sync.RWMutex
+)
 
-// getMapFromPool returns a clean map from the pool
+// getMapFromPool returns a clean map from the pool with thread safety
 func getMapFromPool() map[string]interface{} {
+	mapPoolMutex.RLock()
 	m := mapPool.Get().(map[string]interface{})
+	mapPoolMutex.RUnlock()
+	
 	// Clear the map in case it has leftover data
 	for k := range m {
 		delete(m, k)
@@ -118,10 +141,12 @@ func getMapFromPool() map[string]interface{} {
 	return m
 }
 
-// putMapToPool returns a map to the pool
+// putMapToPool returns a map to the pool with thread safety
 func putMapToPool(m map[string]interface{}) {
 	if m != nil {
+		mapPoolMutex.Lock()
 		mapPool.Put(m)
+		mapPoolMutex.Unlock()
 	}
 }
 
@@ -231,23 +256,12 @@ func sanitizeError(err error) error {
 	// Sanitize URLs in error messages
 	errMsg = sanitizeURL(errMsg)
 
-	// Remove any passwords or tokens that might appear in error messages
-	passwordPatterns := []string{
-		`password[=:]\s*\S+`,
-		`passwd[=:]\s*\S+`,
-		`pwd[=:]\s*\S+`,
-		`token[=:]\s*\S+`,
-		`secret[=:]\s*\S+`,
-		`key[=:]\s*\S+`,
-	}
-
+	// Remove any passwords or tokens that might appear in error messages using pre-compiled patterns
 	for _, pattern := range passwordPatterns {
-		re := regexp.MustCompile(`(?i)` + pattern)
-		errMsg = re.ReplaceAllString(errMsg, "${1}***REDACTED***")
+		errMsg = pattern.ReplaceAllString(errMsg, "***REDACTED***")
 	}
 
-	// Remove bind DN passwords from LDAP error messages
-	bindPattern := regexp.MustCompile(`(?i)(bind\s+failed.*password:\s*)(\S+)`)
+	// Remove bind DN passwords from LDAP error messages using pre-compiled pattern
 	errMsg = bindPattern.ReplaceAllString(errMsg, "${1}***REDACTED***")
 
 	// Create new error with sanitized message

@@ -14,12 +14,33 @@ import (
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/security"
 )
 
+// Configuration constants
+const (
+	DefaultPoolSize = 5
+	DefaultSearchTimeout = 30 * time.Second
+	
+	// Circuit breaker defaults
+	DefaultMaxFailures = 3
+	DefaultTimeout = 60 * time.Second
+	DefaultResetTimeout = 15 * time.Second
+	DefaultSuccessThreshold = 2
+)
+
+// CircuitBreakerMonitoring defines the interface for circuit breaker monitoring
+type CircuitBreakerMonitoring interface {
+	RecordCircuitBreakerState(server string, state circuitbreaker.State)
+	RecordCircuitBreakerRequest(server, result string)
+	RecordCircuitBreakerFailure(server string)
+}
+
 // PooledLDAPClient wraps the connection pool to provide a simple interface with circuit breaker protection
 type PooledLDAPClient struct {
 	pool           PoolInterface // Interface to support both regular and adaptive pools
 	config         *config.Config
 	circuitBreaker *circuitbreaker.CircuitBreaker
 	isAdaptive     bool
+	cbMonitoring   CircuitBreakerMonitoring // Optional circuit breaker monitoring
+	serverName     string                   // Server name for monitoring
 }
 
 // PoolInterface defines the interface that both ConnectionPool and AdaptiveConnectionPool implement
@@ -30,26 +51,69 @@ type PoolInterface interface {
 	Stats() map[string]interface{}
 }
 
+// createCircuitBreakerConfig creates a standard circuit breaker configuration
+func createCircuitBreakerConfig() circuitbreaker.CircuitBreakerConfig {
+	return circuitbreaker.CircuitBreakerConfig{
+		MaxFailures:      DefaultMaxFailures,
+		Timeout:          DefaultTimeout,
+		ResetTimeout:     DefaultResetTimeout,
+		SuccessThreshold: DefaultSuccessThreshold,
+	}
+}
+
 // NewPooledLDAPClient creates a new pooled LDAP client with circuit breaker protection
 func NewPooledLDAPClient(cfg *config.Config) *PooledLDAPClient {
 	return NewPooledLDAPClientWithOptions(cfg, false)
 }
 
+// NewPooledLDAPClientWithMonitoring creates a new pooled LDAP client with monitoring support
+func NewPooledLDAPClientWithMonitoring(cfg *config.Config, monitoring PoolMonitoring, serverName string) *PooledLDAPClient {
+	// Create pool with monitoring support
+	pool := NewConnectionPoolWithMonitoring(cfg, DefaultPoolSize, monitoring, serverName)
+	
+	// Create circuit breaker with standard configuration
+	cb := circuitbreaker.NewCircuitBreaker(createCircuitBreakerConfig())
+
+	// Check if monitoring supports circuit breaker monitoring
+	var cbMonitoring CircuitBreakerMonitoring
+	if cbMon, ok := monitoring.(CircuitBreakerMonitoring); ok {
+		cbMonitoring = cbMon
+	}
+
+	// Set up circuit breaker monitoring callback if monitoring supports it
+	if cbMonitoring != nil {
+		// Record initial state
+		cbMonitoring.RecordCircuitBreakerState(serverName, cb.GetState())
+		
+		// Set up state change callback
+		cb.SetStateChangeCallback(func(from, to circuitbreaker.State) {
+			cbMonitoring.RecordCircuitBreakerState(serverName, to)
+			logger.SafeWarn("pooled_client", "LDAP circuit breaker state changed", map[string]interface{}{
+				"server": serverName,
+				"from":   from.String(),
+				"to":     to.String(),
+			})
+		})
+	}
+
+	return &PooledLDAPClient{
+		pool:           pool,
+		config:         cfg,
+		circuitBreaker: cb,
+		isAdaptive:     false,
+		cbMonitoring:   cbMonitoring,
+		serverName:     serverName,
+	}
+}
+
 // NewPooledLDAPClientWithOptions creates a new pooled LDAP client with options
 func NewPooledLDAPClientWithOptions(cfg *config.Config, _ bool) *PooledLDAPClient {
 	// For now, always use regular pool (adaptive pool needs more work)
-	pool := NewConnectionPool(cfg, 5)
+	pool := NewConnectionPool(cfg, DefaultPoolSize)
 	useAdaptivePool := false
 
-	// Create circuit breaker with LDAP-specific configuration
-	cbConfig := circuitbreaker.CircuitBreakerConfig{
-		MaxFailures:      3,                // Open after 3 consecutive failures
-		Timeout:          60 * time.Second, // Wait 1 minute before trying again
-		ResetTimeout:     15 * time.Second, // Test for 15 seconds in half-open
-		SuccessThreshold: 2,                // Need 2 successes to close
-	}
-
-	circuitBreakerInstance := circuitbreaker.NewCircuitBreaker(cbConfig)
+	// Create circuit breaker with standard configuration
+	circuitBreakerInstance := circuitbreaker.NewCircuitBreaker(createCircuitBreakerConfig())
 
 	// Set up circuit breaker state change logging
 	circuitBreakerInstance.SetStateChangeCallback(func(from, to circuitbreaker.State) {
@@ -111,9 +175,10 @@ func (c *PooledLDAPClient) Search(baseDN, filter string, attributes []string) (*
 
 	// Use circuit breaker to protect against cascading failures
 	var result *ldap.SearchResult
+	
 	err := c.circuitBreaker.Call(func() error {
 		// Get connection from pool with timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), DefaultSearchTimeout)
 		defer cancel()
 
 		conn, err := c.pool.Get(ctx)
@@ -160,6 +225,23 @@ func (c *PooledLDAPClient) Search(baseDN, filter string, attributes []string) (*
 		return nil
 	})
 
+	// Record circuit breaker monitoring
+	if c.cbMonitoring != nil && c.serverName != "" {
+		if err != nil {
+			if strings.Contains(err.Error(), "circuit breaker is open") {
+				// Request was blocked by circuit breaker
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
+			} else {
+				// Request was allowed but failed
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName)
+			}
+		} else {
+			// Request was allowed and succeeded
+			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+		}
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +269,13 @@ func (c *PooledLDAPClient) invalidateConnection(conn *PooledConnection) {
 		// Close the underlying connection directly instead of returning to pool
 		if conn.conn != nil {
 			if err := conn.conn.Close(); err != nil {
-				logger.SafeError("pooled_client", "Error closing LDAP connection", err)
+				logger.SafeError("pooled_client", "Error closing LDAP connection", err, map[string]interface{}{
+					"server": c.config.ServerName,
+				})
+			} else {
+				logger.SafeDebug("pooled_client", "LDAP connection closed successfully", map[string]interface{}{
+					"server": c.config.ServerName,
+				})
 			}
 		}
 
@@ -208,16 +296,6 @@ func (c *PooledLDAPClient) Stats() map[string]interface{} {
 		for k, v := range poolStats {
 			stats["pool_"+k] = v
 		}
-
-		// Adaptive pool support disabled for now
-		// if c.isAdaptive && c.adaptivePool != nil {
-		//     adaptiveStats := c.adaptivePool.GetAdaptiveStats()
-		//     for k, v := range adaptiveStats {
-		//         if k != "max_connections" && k != "active_connections" && k != "pool_size" && k != "closed" {
-		//             stats["adaptive_"+k] = v
-		//         }
-		//     }
-		// }
 	} else {
 		stats["pool_error"] = "no pool available"
 	}

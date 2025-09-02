@@ -93,7 +93,7 @@ The Monitor backend must be enabled on your OpenLDAP server.
 
 ### 2. Base DN monitoring activation
 
-⚠️ **Important:** You must manually activate monitoring for each **Base DN** you want to monitor. The exporter automatically detects configured bases but cannot activate them.
+**Important:** You must manually activate monitoring for each **Base DN** you want to monitor. The exporter automatically detects configured bases but cannot activate them.
 
 ### 3. ACL configuration
 
@@ -146,6 +146,7 @@ olcAccess: to dn.subtree="cn=Monitor" by dn.exact="cn=adminconfig,cn=config" rea
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
+| `RATE_LIMIT_ENABLED` | Enable/disable rate limiting | `true` | `false` |
 | `RATE_LIMIT_REQUESTS` | Requests per minute for /metrics | `30` | `100` |
 | `RATE_LIMIT_BURST` | Burst size for /metrics | `10` | `20` |
 | `HEALTH_RATE_LIMIT_REQUESTS` | Requests per minute for /health | `60` | `120` |
@@ -169,10 +170,10 @@ olcAccess: to dn.subtree="cn=Monitor" by dn.exact="cn=adminconfig,cn=config" rea
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `OPENLDAP_METRICS_INCLUDE` | Only collect these metric groups | `connections,statistics,health` |
-| `OPENLDAP_METRICS_EXCLUDE` | Exclude these metric groups | `overlays,tls,backends` |
+| `OPENLDAP_METRICS_INCLUDE` | Only collect these metric groups | `connections,statistics,health,server` |
+| `OPENLDAP_METRICS_EXCLUDE` | Exclude these metric groups | `overlays,tls,backends,log,sasl` |
 
-**Available metric groups:** `connections`, `statistics`, `operations`, `threads`, `time`, `waiters`, `overlays`, `tls`, `backends`, `listeners`, `health`, `database`
+**Available metric groups:** `connections`, `statistics`, `operations`, `threads`, `time`, `waiters`, `overlays`, `tls`, `backends`, `listeners`, `health`, `database`, `server`, `log`, `sasl`
 
 **Filtering Logic:**
 
@@ -201,67 +202,228 @@ olcAccess: to dn.subtree="cn=Monitor" by dn.exact="cn=adminconfig,cn=config" rea
 
 ## Exported metrics
 
-### Connections
+The exporter exposes two types of metrics:
 
-- `openldap_connections_current{server}` - Current connections
-- `openldap_connections_total{server}` - Total connections (cumulative)
+1. **OpenLDAP metrics** (namespace `openldap`) - collected from LDAP server via `cn=Monitor`
+2. **Internal metrics** (namespace `openldap_exporter`) - exporter performance and health
 
-### LDAP operations
+### OpenLDAP metrics (namespace: `openldap`)
 
-- `openldap_operations_initiated_total{server,operation}` - Operations initiated by type
-- `openldap_operations_completed_total{server,operation}` - Operations completed by type
+These metrics are collected in different configurable groups. Use `OPENLDAP_METRICS_INCLUDE` or `OPENLDAP_METRICS_EXCLUDE` to filter groups according to your needs.
 
-Operation types: `bind`, `unbind`, `add`, `delete`, `modify`, `modrdn`, `compare`, `search`, `abandon`, `extended`
+### Connections (`connections`)
 
-### Traffic statistics
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_connections_current` | Gauge | `server` | Current number of connections | `cn=Current,cn=Connections,cn=Monitor` |
+| `openldap_connections_total` | Counter | `server` | Total number of connections (cumulative) | `cn=Total,cn=Connections,cn=Monitor` |
 
-- `openldap_bytes_total{server}` - Total bytes transmitted
-- `openldap_entries_total{server}` - Total entries sent
-- `openldap_referrals_total{server}` - Total referrals sent
-- `openldap_pdu_total{server}` - Total PDUs processed
+### Statistics (`statistics`)
 
-### Thread metrics
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_bytes_total` | Counter | `server` | Total bytes transmitted | `cn=Bytes,cn=Statistics,cn=Monitor` |
+| `openldap_entries_total` | Counter | `server` | Total entries sent | `cn=Entries,cn=Statistics,cn=Monitor` |
+| `openldap_referrals_total` | Counter | `server` | Total referrals sent | `cn=Referrals,cn=Statistics,cn=Monitor` |
+| `openldap_pdu_total` | Counter | `server` | Total PDUs processed | `cn=PDU,cn=Statistics,cn=Monitor` |
 
-- `openldap_threads_max{server}` - Maximum number of threads
-- `openldap_threads_active{server}` - Active threads
-- `openldap_threads_open{server}` - Open threads
-- `openldap_threads_pending{server}` - Pending threads
-- `openldap_threads_max_pending{server}` - Maximum pending threads
-- `openldap_threads_starting{server}` - Starting threads
-- `openldap_threads_backload{server}` - Thread backload
-- `openldap_threads_state{server,state}` - Thread pool state
+### Operations (`operations`)
 
-### Waiters
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_operations_initiated_total` | Counter | `server`, `operation` | Operations initiated by type | `cn=Operations,cn=Monitor` |
+| `openldap_operations_completed_total` | Counter | `server`, `operation` | Operations completed by type | `cn=Operations,cn=Monitor` |
 
-- `openldap_waiters_read{server}` - Read waiters
-- `openldap_waiters_write{server}` - Write waiters
+**Available operation types:** `bind`, `unbind`, `add`, `delete`, `modify`, `modrdn`, `compare`, `search`, `abandon`, `extended`
 
-### System information
+### Threads (`threads`)
 
-- `openldap_backends_info{server,backend,type}` - Information about available backends
-- `openldap_overlays_info{server,overlay,status}` - Information about loaded overlays
-- `openldap_listeners_info{server,listener,address}` - Information about active listeners
-- `openldap_tls_info{server,component,status}` - TLS configuration information
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_threads_max` | Gauge | `server` | Maximum number of threads | `cn=Max,cn=Threads,cn=Monitor` |
+| `openldap_threads_max_pending` | Gauge | `server` | Maximum number of pending threads | `cn=Max Pending,cn=Threads,cn=Monitor` |
+| `openldap_threads_backload` | Gauge | `server` | Thread workload | `cn=Backload,cn=Threads,cn=Monitor` |
+| `openldap_threads_active` | Gauge | `server` | Active threads | `cn=Active,cn=Threads,cn=Monitor` |
+| `openldap_threads_open` | Gauge | `server` | Open threads | `cn=Open,cn=Threads,cn=Monitor` |
+| `openldap_threads_starting` | Gauge | `server` | Starting threads | `cn=Starting,cn=Threads,cn=Monitor` |
+| `openldap_threads_pending` | Gauge | `server` | Pending threads | `cn=Pending,cn=Threads,cn=Monitor` |
+| `openldap_threads_state` | Gauge | `server`, `state` | Thread pool state | `cn=State,cn=Threads,cn=Monitor` |
 
-### Databases
+### Time (`time`)
 
-- `openldap_database_entries{server,base_dn}` - Entries per database/DN
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_server_time` | Gauge | `server` | Current server timestamp | `cn=Current,cn=Time,cn=Monitor` |
+| `openldap_server_uptime_seconds` | Gauge | `server` | Server uptime in seconds | `cn=Start,cn=Time,cn=Monitor` |
 
-### Time and health
+### Waiters (`waiters`)
 
-- `openldap_server_time{server}` - Current server timestamp
-- `openldap_server_uptime_seconds{server}` - Server uptime in seconds
-- `openldap_health_status{server}` - Server health status (1=healthy, 0=unhealthy)
-- `openldap_response_time_seconds{server}` - Health check response time
-- `openldap_scrape_errors_total{server}` - Total collection errors
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_waiters_read` | Gauge | `server` | Number of read waiters | `cn=Read,cn=Waiters,cn=Monitor` |
+| `openldap_waiters_write` | Gauge | `server` | Number of write waiters | `cn=Write,cn=Waiters,cn=Monitor` |
+
+### Overlays (`overlays`)
+
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_overlays_info` | Gauge | `server`, `overlay`, `status` | Information about loaded overlays | `cn=Overlays,cn=Monitor` |
+
+### TLS (`tls`)
+
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_tls_info` | Gauge | `server`, `component`, `status` | TLS configuration information | `cn=TLS,cn=Monitor` |
+
+### Backends (`backends`)
+
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_backends_info` | Gauge | `server`, `backend`, `type` | Information about available backends | `cn=Backends,cn=Monitor` |
+
+### Listeners (`listeners`)
+
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_listeners_info` | Gauge | `server`, `listener`, `address` | Information about active listeners | `cn=Listeners,cn=Monitor` |
+
+### Database (`database`)
+
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_database_entries` | Gauge | `server`, `base_dn`, `domain_component` | Number of entries per base DN with domain component filtering | `cn=Database,cn=Monitor` |
+| `openldap_database_info` | Gauge | `server`, `base_dn`, `is_shadow`, `context`, `readonly` | Database metadata | `cn=Database,cn=Monitor` |
+
+### Server (`server`)
+
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_server_info` | Gauge | `server`, `version`, `description` | OpenLDAP server version and description | `cn=Monitor` |
+
+### Log (`log`)
+
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_log_level_enabled` | Gauge | `server`, `log_type` | Enabled log levels (1=enabled, 0=disabled) | `cn=Log,cn=Monitor` |
+
+**Available log types:** `Trace`, `Packets`, `Args`, `Conns`, `BER`, `Filter`, `Config`, `ACL`, `Stats`, `Stats2`, `Shell`, `Parse`, `Sync`
+
+### SASL (`sasl`)
+
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_sasl_info` | Gauge | `server`, `mechanism`, `status` | SASL authentication mechanisms configuration | `cn=SASL,cn=Monitor` |
+
+### Health (`health`)
+
+| Metric | Type | Labels | Description | Source |
+|----------|------|---------|-------------|--------|
+| `openldap_health_status` | Gauge | `server` | Server health status (1=healthy, 0=unhealthy) | Calculated |
+| `openldap_response_time_seconds` | Gauge | `server` | Health check response time | Calculated |
+| `openldap_scrape_errors_total` | Counter | `server` | Total number of scrape errors | Internal |
+| `openldap_up` | Gauge | `server` | Whether the OpenLDAP exporter is up (1) or not (0) | Internal |
+
+### Internal exporter metrics (namespace: `openldap_exporter`)
+
+These metrics are exposed on the `/internal/metrics` endpoint and allow monitoring the performance and health of the exporter itself.
+
+#### Connection pool (`openldap_exporter_pool`)
+
+**Basic metrics**
+
+| Metric | Type | Labels | Description |
+|----------|------|---------|-------------|
+| `openldap_exporter_pool_utilization_ratio` | Gauge | `server`, `pool_type` | Connection pool utilization ratio (0-1) |
+| `openldap_exporter_pool_connections` | Gauge | `server`, `pool_type`, `state` | Number of connections by state (active, idle, total) |
+| `openldap_exporter_pool_operations_total` | Counter | `server`, `pool_type`, `operation` | Total number of pool operations (get, put, create, close) |
+
+**Connection lifecycle**
+
+| Metric | Type | Labels | Description |
+|----------|------|---------|-------------|
+| `openldap_exporter_pool_connections_created_total` | Counter | `server`, `pool_type` | Total number of connections created |
+| `openldap_exporter_pool_connections_closed_total` | Counter | `server`, `pool_type`, `reason` | Total number of connections closed (reason: normal, timeout, error, shutdown) |
+| `openldap_exporter_pool_connections_failed_total` | Counter | `server`, `pool_type`, `error` | Total number of failed connection attempts |
+| `openldap_exporter_pool_connections_reused_total` | Counter | `server`, `pool_type` | Total number of connections reused from the pool |
+
+**Connection quality**
+
+| Metric | Type | Labels | Description |
+|----------|------|---------|-------------|
+| `openldap_exporter_pool_wait_time_seconds` | Histogram | `server`, `pool_type` | Wait time to get a connection from the pool |
+| `openldap_exporter_pool_wait_timeouts_total` | Counter | `server`, `pool_type` | Total number of connection wait timeouts |
+
+**Health monitoring**
+
+| Metric | Type | Labels | Description |
+|----------|------|---------|-------------|
+| `openldap_exporter_pool_health_checks_total` | Counter | `server`, `pool_type` | Total number of health checks performed |
+| `openldap_exporter_pool_health_check_failures_total` | Counter | `server`, `pool_type` | Total number of health check failures |
+
+**Operation details**
+
+| Metric | Type | Labels | Description |
+|----------|------|---------|-------------|
+| `openldap_exporter_pool_get_requests_total` | Counter | `server`, `pool_type` | Total number of connection get requests |
+| `openldap_exporter_pool_get_failures_total` | Counter | `server`, `pool_type`, `reason` | Total number of connection get failures (reason: timeout, creation_failed, max_attempts) |
+| `openldap_exporter_pool_put_requests_total` | Counter | `server`, `pool_type` | Total number of connection put requests |
+| `openldap_exporter_pool_put_rejections_total` | Counter | `server`, `pool_type`, `reason` | Total number of connection put rejections (reason: invalid_connection, pool_full) |
+
+#### Circuit breaker (`openldap_exporter_circuit_breaker`)
+
+| Metric | Type | Labels | Description |
+|----------|------|---------|-------------|
+| `openldap_exporter_circuit_breaker_state` | Gauge | `server` | Circuit breaker state (0=closed, 1=half-open, 2=open) |
+| `openldap_exporter_circuit_breaker_requests_total` | Counter | `server`, `result` | Total number of circuit breaker requests (allowed, blocked) |
+| `openldap_exporter_circuit_breaker_failures_total` | Counter | `server` | Total number of circuit breaker failures |
+
+#### Metrics collection (`openldap_exporter_collection`)
+
+| Metric | Type | Labels | Description |
+|----------|------|---------|-------------|
+| `openldap_exporter_collection_latency_seconds` | Histogram | `server`, `metric_type` | Metrics collection latency |
+| `openldap_exporter_collection_success_total` | Counter | `server`, `metric_type` | Total number of successful collections |
+| `openldap_exporter_collection_failures_total` | Counter | `server`, `metric_type` | Total number of collection failures |
+
+
+#### Rate limiting (`openldap_exporter_rate_limit`)
+
+| Metric | Type | Labels | Description |
+|----------|------|---------|-------------|
+| `openldap_exporter_rate_limit_requests_total` | Counter | `client_ip`, `endpoint` | Total number of requests with rate limiting |
+| `openldap_exporter_rate_limit_blocked_total` | Counter | `client_ip`, `endpoint` | Total number of requests blocked by rate limiting |
+
+#### System (`openldap_exporter_system`)
+
+| Metric | Type | Labels | Description |
+|----------|------|---------|-------------|
+| `openldap_exporter_system_goroutines` | Gauge | `server` | Number of active goroutines |
+| `openldap_exporter_system_memory_bytes` | Gauge | `server`, `type` | Memory usage in bytes (heap, stack, sys) |
+| `openldap_exporter_system_uptime_seconds` | Gauge | `server` | Exporter uptime in seconds |
 
 ## Endpoints
 
-- `http://localhost:9330/` - Information page with version and configuration status
-- `http://localhost:9330/metrics` - Prometheus metrics
-- `http://localhost:9330/health` - JSON health check
-- `http://localhost:9330/internal/metrics` - Internal exporter metrics (goroutines, memory usage, etc.)
-- `http://localhost:9330/internal/status` - JSON status endpoint for monitoring
+All endpoints include security headers and are subject to configured rate limiting.
+
+### Main endpoints
+
+| Endpoint | Type | Description | Content |
+|----------|------|-------------|---------|
+| `/` | HTML | Information page with version and configuration status | Web page showing version, active metric filters (include/exclude) |
+| `/health` | JSON | Health check with status information | `{"status":"ok","version":"x.x.x","timestamp":"2025-09-02T14:44:30Z","uptime":"12.64s"}` |
+| `/metrics` | Text | OpenLDAP Prometheus metrics | All OpenLDAP metrics (namespace `openldap`) according to configured filtering |
+
+### Internal endpoints
+
+| Endpoint | Type | Description | Content |
+|----------|------|-------------|---------|
+| `/internal/metrics` | Text | Internal exporter metrics | Performance metrics (namespace `openldap_exporter`): pool, circuit breaker, collection, rate limiting, system |
+
+### Rate limiting configuration
+
+- **Endpoints `/metrics`, `/internal/metrics`**: `RATE_LIMIT_REQUESTS` req/min (default: 30), burst `RATE_LIMIT_BURST` (default: 10)
+- **Endpoint `/health`**: `HEALTH_RATE_LIMIT_REQUESTS` req/min (default: 60), burst `HEALTH_RATE_LIMIT_BURST` (default: 20)
+- **Endpoint `/`**: Same limit as `/metrics`
 
 ## Logging
 

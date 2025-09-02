@@ -2,9 +2,55 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
+
+// Test configuration constants
+const (
+	testURL = "ldap://test.example.com:389"
+	testUsername = "testuser"
+	testPassword = "testpass"
+)
+
+// Helper functions to reduce code duplication
+func setupTestEnvironment(additionalVars map[string]string) func() {
+	// Set required variables
+	os.Setenv("LDAP_URL", testURL)
+	os.Setenv("LDAP_USERNAME", testUsername)
+	os.Setenv("LDAP_PASSWORD", testPassword)
+	
+	// Set additional variables
+	for key, value := range additionalVars {
+		os.Setenv(key, value)
+	}
+	
+	// Return cleanup function
+	return func() {
+		os.Unsetenv("LDAP_URL")
+		os.Unsetenv("LDAP_USERNAME")
+		os.Unsetenv("LDAP_PASSWORD")
+		for key := range additionalVars {
+			os.Unsetenv(key)
+		}
+	}
+}
+
+func createTestConfig(t *testing.T, additionalVars map[string]string) (*Config, func()) {
+	cleanup := setupTestEnvironment(additionalVars)
+	
+	config, err := LoadConfig()
+	if err != nil {
+		cleanup()
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	
+	return config, func() {
+		config.Clear()
+		cleanup()
+	}
+}
 
 // TestSecureString tests the real SecureString implementation
 func TestSecureString(t *testing.T) {
@@ -94,31 +140,13 @@ func TestConfigurationValidation(t *testing.T) {
 
 // TestEnvironmentVariablesParsing tests environment variables parsing
 func TestEnvironmentVariablesParsing(t *testing.T) {
-	// Test timeout parsing
-	os.Setenv("LDAP_TIMEOUT", "30")
-	os.Setenv("LDAP_UPDATE_EVERY", "45")
-
-	defer func() {
-		os.Unsetenv("LDAP_TIMEOUT")
-		os.Unsetenv("LDAP_UPDATE_EVERY")
-	}()
-
-	// This tests the internal parsing logic indirectly through config loading
-	os.Setenv("LDAP_URL", "ldap://test.example.com:389")
-	os.Setenv("LDAP_USERNAME", "testuser")
-	os.Setenv("LDAP_PASSWORD", "testpass")
-
-	defer func() {
-		os.Unsetenv("LDAP_URL")
-		os.Unsetenv("LDAP_USERNAME")
-		os.Unsetenv("LDAP_PASSWORD")
-	}()
-
-	config, err := LoadConfig()
-	if err != nil {
-		t.Fatalf("Failed to load config: %v", err)
+	additionalVars := map[string]string{
+		"LDAP_TIMEOUT":     "30",
+		"LDAP_UPDATE_EVERY": "45",
 	}
-	defer config.Clear()
+	
+	config, cleanup := createTestConfig(t, additionalVars)
+	defer cleanup()
 
 	if config.Timeout != 30*time.Second {
 		t.Errorf("Expected timeout 30s, got %v", config.Timeout)
@@ -347,5 +375,229 @@ func TestInvalidMetricsLists(t *testing.T) {
 	// filtered out during config loading and logged as warnings.
 	if !config.ShouldCollectMetric("invalid_metric") {
 		t.Error("ShouldCollectMetric should return true for 'invalid_metric' since it's in include list (validation happens elsewhere)")
+	}
+}
+
+// TestTimeoutBoundaryValues tests timeout validation edge cases
+func TestTimeoutBoundaryValues(t *testing.T) {
+	tests := []struct {
+		name                 string
+		timeoutValue         string
+		updateEveryValue     string
+		expectedTimeout      time.Duration
+		expectedUpdateEvery  time.Duration
+	}{
+		{
+			name:                 "Zero timeout",
+			timeoutValue:         "0",
+			updateEveryValue:     "15",
+			expectedTimeout:      10 * time.Second, // Should use default
+			expectedUpdateEvery:  15 * time.Second,
+		},
+		{
+			name:                 "Negative timeout", 
+			timeoutValue:         "-5",
+			updateEveryValue:     "15",
+			expectedTimeout:      10 * time.Second, // Should use default
+			expectedUpdateEvery:  15 * time.Second,
+		},
+		{
+			name:                 "Very high timeout",
+			timeoutValue:         "600", // 10 minutes
+			updateEveryValue:     "15",
+			expectedTimeout:      5 * time.Minute, // Should be capped at 5 minutes
+			expectedUpdateEvery:  15 * time.Second,
+		},
+		{
+			name:                 "Zero update_every",
+			timeoutValue:         "10",
+			updateEveryValue:     "0",
+			expectedTimeout:      10 * time.Second,
+			expectedUpdateEvery:  15 * time.Second, // Should use default
+		},
+		{
+			name:                 "Very low update_every",
+			timeoutValue:         "10",
+			updateEveryValue:     "3",
+			expectedTimeout:      10 * time.Second,
+			expectedUpdateEvery:  5 * time.Second, // Should be capped at minimum
+		},
+		{
+			name:                 "Very high update_every",
+			timeoutValue:         "10",
+			updateEveryValue:     "700", // ~11.7 minutes
+			expectedTimeout:      10 * time.Second,
+			expectedUpdateEvery:  10 * time.Minute, // Should be capped at 10 minutes
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Setenv("LDAP_URL", "ldap://test.example.com:389")
+			os.Setenv("LDAP_USERNAME", "testuser")
+			os.Setenv("LDAP_PASSWORD", "testpass")
+			os.Setenv("LDAP_TIMEOUT", tt.timeoutValue)
+			os.Setenv("LDAP_UPDATE_EVERY", tt.updateEveryValue)
+
+			defer func() {
+				os.Unsetenv("LDAP_URL")
+				os.Unsetenv("LDAP_USERNAME")
+				os.Unsetenv("LDAP_PASSWORD")
+				os.Unsetenv("LDAP_TIMEOUT")
+				os.Unsetenv("LDAP_UPDATE_EVERY")
+			}()
+
+			config, err := LoadConfig()
+			if err != nil {
+				t.Fatalf("Failed to load config: %v", err)
+			}
+			defer config.Clear()
+
+			if config.Timeout != tt.expectedTimeout {
+				t.Errorf("Expected timeout %v, got %v", tt.expectedTimeout, config.Timeout)
+			}
+			if config.UpdateEvery != tt.expectedUpdateEvery {
+				t.Errorf("Expected update_every %v, got %v", tt.expectedUpdateEvery, config.UpdateEvery)
+			}
+		})
+	}
+}
+
+// TestLongServerName tests server name length validation
+func TestLongServerName(t *testing.T) {
+	longName := strings.Repeat("a", 200) // Longer than 128 characters
+	
+	os.Setenv("LDAP_URL", "ldap://test.example.com:389")
+	os.Setenv("LDAP_USERNAME", "testuser")
+	os.Setenv("LDAP_PASSWORD", "testpass")
+	os.Setenv("LDAP_SERVER_NAME", longName)
+
+	defer func() {
+		os.Unsetenv("LDAP_URL")
+		os.Unsetenv("LDAP_USERNAME")
+		os.Unsetenv("LDAP_PASSWORD")
+		os.Unsetenv("LDAP_SERVER_NAME")
+	}()
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	defer config.Clear()
+
+	if len(config.ServerName) != 128 {
+		t.Errorf("Expected server name to be truncated to 128 characters, got %d", len(config.ServerName))
+	}
+	
+	expectedName := longName[:128]
+	if config.ServerName != expectedName {
+		t.Errorf("Server name not properly truncated")
+	}
+}
+
+// TestTLSSkipVerifyWarning tests the TLS warning functionality
+func TestTLSSkipVerifyWarning(t *testing.T) {
+	os.Setenv("LDAP_URL", "ldap://test.example.com:389")
+	os.Setenv("LDAP_USERNAME", "testuser")
+	os.Setenv("LDAP_PASSWORD", "testpass")
+	os.Setenv("LDAP_TLS_SKIP_VERIFY", "true")
+
+	defer func() {
+		os.Unsetenv("LDAP_URL")
+		os.Unsetenv("LDAP_USERNAME")
+		os.Unsetenv("LDAP_PASSWORD")
+		os.Unsetenv("LDAP_TLS_SKIP_VERIFY")
+	}()
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	defer config.Clear()
+
+	if !config.TLSSkipVerify {
+		t.Error("Expected TLSSkipVerify to be true")
+	}
+}
+
+// TestSecureStringEdgeCases tests edge cases for SecureString
+func TestSecureStringEdgeCases(t *testing.T) {
+	// Test String method on nil SecureString
+	var nilSecure *SecureString
+	result := nilSecure.String()
+	if result != "" {
+		t.Errorf("Expected empty string for nil SecureString, got %s", result)
+	}
+
+	// Test String method on empty ciphertext
+	secureStr := &SecureString{
+		ciphertext: []byte{},
+		nonce:      []byte{1, 2, 3},
+		aead:       nil,
+	}
+	result = secureStr.String()
+	if result != "" {
+		t.Errorf("Expected empty string for SecureString with empty ciphertext, got %s", result)
+	}
+
+	// Test Clear on nil SecureString (should not panic)
+	nilSecure.Clear()
+
+	// Test IsEmpty on various states
+	if !nilSecure.IsEmpty() {
+		t.Error("nil SecureString should be empty")
+	}
+
+	secureStr2 := &SecureString{
+		ciphertext: []byte{},
+		nonce:      []byte{},
+		aead:       nil,
+	}
+	if !secureStr2.IsEmpty() {
+		t.Error("SecureString with empty ciphertext should be empty")
+	}
+}
+
+// TestValidateFilteringFunctions tests metric and DC filtering validation
+func TestValidateFilteringFunctions(t *testing.T) {
+	// Test with both include and exclude (include should take precedence)
+	os.Setenv("LDAP_URL", "ldap://test.example.com:389")
+	os.Setenv("LDAP_USERNAME", "testuser")
+	os.Setenv("LDAP_PASSWORD", "testpass")
+	os.Setenv("OPENLDAP_METRICS_INCLUDE", "connections,statistics")
+	os.Setenv("OPENLDAP_METRICS_EXCLUDE", "threads,operations")
+	os.Setenv("OPENLDAP_DC_INCLUDE", "example,test")
+	os.Setenv("OPENLDAP_DC_EXCLUDE", "internal,private")
+
+	defer func() {
+		os.Unsetenv("LDAP_URL")
+		os.Unsetenv("LDAP_USERNAME")
+		os.Unsetenv("LDAP_PASSWORD")
+		os.Unsetenv("OPENLDAP_METRICS_INCLUDE")
+		os.Unsetenv("OPENLDAP_METRICS_EXCLUDE")
+		os.Unsetenv("OPENLDAP_DC_INCLUDE")
+		os.Unsetenv("OPENLDAP_DC_EXCLUDE")
+	}()
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	defer config.Clear()
+
+	// Verify that include takes precedence over exclude for metrics
+	if !config.ShouldCollectMetric("connections") {
+		t.Error("Should collect 'connections' metric (in include list)")
+	}
+	if config.ShouldCollectMetric("threads") {
+		t.Error("Should NOT collect 'threads' metric (not in include list, even though in exclude)")
+	}
+
+	// Verify that include takes precedence over exclude for DC
+	if !config.ShouldMonitorDC("example") {
+		t.Error("Should monitor 'example' DC (in include list)")
+	}
+	if config.ShouldMonitorDC("internal") {
+		t.Error("Should NOT monitor 'internal' DC (not in include list, even though in exclude)")
 	}
 }

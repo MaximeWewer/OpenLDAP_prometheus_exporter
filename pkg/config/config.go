@@ -9,6 +9,22 @@ import (
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
 
+// Configuration constants for validation limits
+const (
+	// Timeout limits
+	MinTimeout     = 1 * time.Second
+	MaxTimeout     = 5 * time.Minute
+	DefaultTimeout = 10 * time.Second
+
+	// Update interval limits
+	MinUpdateEvery     = 5 * time.Second
+	MaxUpdateEvery     = 10 * time.Minute
+	DefaultUpdateEvery = 15 * time.Second
+
+	// Server name limits
+	MaxServerNameLen = 128
+)
+
 // Config holds all configuration parameters for the OpenLDAP exporter
 type Config struct {
 	URL           string
@@ -30,6 +46,9 @@ type Config struct {
 	// DC filtering options
 	DCInclude []string // Only monitor these domain components
 	DCExclude []string // Exclude these domain components from monitoring
+	
+	// Rate limiting options
+	RateLimitEnabled bool // Enable/disable rate limiting (RATE_LIMIT_ENABLED)
 }
 
 // LoadConfig loads configuration from environment variables
@@ -74,47 +93,47 @@ func LoadConfig() (*Config, error) {
 	if config.Timeout <= 0 {
 		logger.Warn("config", "Invalid LDAP_TIMEOUT, using default", map[string]interface{}{
 			"provided": config.Timeout,
-			"default":  10 * time.Second,
+			"default":  DefaultTimeout,
 		})
-		config.Timeout = 10 * time.Second
+		config.Timeout = DefaultTimeout
 	}
-	if config.Timeout > 5*time.Minute {
+	if config.Timeout > MaxTimeout {
 		logger.Warn("config", "LDAP_TIMEOUT is very high, using maximum", map[string]interface{}{
 			"provided": config.Timeout,
-			"maximum":  5 * time.Minute,
+			"maximum":  MaxTimeout,
 		})
-		config.Timeout = 5 * time.Minute
+		config.Timeout = MaxTimeout
 	}
 
 	if config.UpdateEvery <= 0 {
 		logger.Warn("config", "Invalid LDAP_UPDATE_EVERY, using default", map[string]interface{}{
 			"provided": config.UpdateEvery,
-			"default":  15 * time.Second,
+			"default":  DefaultUpdateEvery,
 		})
-		config.UpdateEvery = 15 * time.Second
+		config.UpdateEvery = DefaultUpdateEvery
 	}
-	if config.UpdateEvery < 5*time.Second {
+	if config.UpdateEvery < MinUpdateEvery {
 		logger.Warn("config", "LDAP_UPDATE_EVERY is too low, using minimum", map[string]interface{}{
 			"provided": config.UpdateEvery,
-			"minimum":  5 * time.Second,
+			"minimum":  MinUpdateEvery,
 		})
-		config.UpdateEvery = 5 * time.Second
+		config.UpdateEvery = MinUpdateEvery
 	}
-	if config.UpdateEvery > 10*time.Minute {
+	if config.UpdateEvery > MaxUpdateEvery {
 		logger.Warn("config", "LDAP_UPDATE_EVERY is very high, using maximum", map[string]interface{}{
 			"provided": config.UpdateEvery,
-			"maximum":  10 * time.Minute,
+			"maximum":  MaxUpdateEvery,
 		})
-		config.UpdateEvery = 10 * time.Minute
+		config.UpdateEvery = MaxUpdateEvery
 	}
 
 	// Validate server name
-	if len(config.ServerName) > 128 {
+	if len(config.ServerName) > MaxServerNameLen {
 		logger.Warn("config", "Server name too long, truncating", map[string]interface{}{
 			"original_length": len(config.ServerName),
-			"max_length":      128,
+			"max_length":      MaxServerNameLen,
 		})
-		config.ServerName = config.ServerName[:128]
+		config.ServerName = config.ServerName[:MaxServerNameLen]
 	}
 
 	// Load metric filtering configuration
@@ -124,6 +143,9 @@ func LoadConfig() (*Config, error) {
 	// Load DC filtering configuration
 	config.DCInclude = parseMetricsList(getEnvOrDefault("OPENLDAP_DC_INCLUDE", ""))
 	config.DCExclude = parseMetricsList(getEnvOrDefault("OPENLDAP_DC_EXCLUDE", ""))
+	
+	// Load rate limiting configuration
+	config.RateLimitEnabled = getEnvBoolOrDefault("RATE_LIMIT_ENABLED", true)
 
 	// Validate and warn about metric filtering configuration
 	config.validateMetricFiltering()
@@ -199,7 +221,8 @@ func parseMetricsList(value string) []string {
 func (c *Config) validateMetricFiltering() {
 	validMetricGroups := []string{
 		"connections", "statistics", "operations", "threads", "time",
-		"waiters", "overlays", "tls", "backends", "listeners", "health", "database",
+		"waiters", "overlays", "tls", "backends", "listeners", "health",
+		"database", "server", "log", "sasl",
 	}
 
 	// Validate include list
@@ -349,4 +372,3 @@ func (c *Config) ShouldMonitorDC(domainComponent string) bool {
 	// DEFAULT behavior: monitor all DCs when no filters are specified
 	return true
 }
-

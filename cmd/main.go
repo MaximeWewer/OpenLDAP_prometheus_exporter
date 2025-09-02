@@ -34,6 +34,8 @@ const (
 	defaultHealthBurst       = 20
 )
 
+// Environment variable helper functions
+
 // getEnvString retrieves a string value from environment variable or returns default
 func getEnvString(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
@@ -48,11 +50,7 @@ func getEnvInt(key string, defaultValue int) int {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
 		}
-		logger.Warn("main", "Invalid integer value for environment variable", map[string]interface{}{
-			"key":           key,
-			"value":         value,
-			"using_default": defaultValue,
-		})
+		logEnvParseWarning(key, value, "integer", defaultValue)
 	}
 	return defaultValue
 }
@@ -63,13 +61,24 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 		if duration, err := time.ParseDuration(value); err == nil {
 			return duration
 		}
-		logger.Warn("main", "Invalid duration value for environment variable", map[string]interface{}{
-			"key":           key,
-			"value":         value,
-			"using_default": defaultValue.String(),
-		})
+		logEnvParseWarning(key, value, "duration", defaultValue.String())
 	}
 	return defaultValue
+}
+
+// logEnvParseWarning logs a warning when environment variable parsing fails
+func logEnvParseWarning(key, value, expectedType string, defaultValue interface{}) {
+	logger.Warn("main", "Invalid "+expectedType+" value for environment variable", map[string]interface{}{
+		"key":           key,
+		"value":         value,
+		"expected_type": expectedType,
+		"using_default": defaultValue,
+	})
+}
+
+// formatDuration formats a duration with at most 2 decimal places (centiseconds precision)
+func formatDuration(d time.Duration) string {
+	return d.Truncate(10 * time.Millisecond).String()
 }
 
 var (
@@ -157,54 +166,75 @@ func setupHTTPRoutes(exp *exporter.OpenLDAPExporter) http.Handler {
 	healthRequests := getEnvInt("HEALTH_RATE_LIMIT_REQUESTS", defaultHealthRequests)
 	healthBurst := getEnvInt("HEALTH_RATE_LIMIT_BURST", defaultHealthBurst)
 
-	// Create rate limiter with configurable values
-	rateLimiter := security.NewRateLimiter(rateLimitRequests, rateLimitBurst)
-	rateLimitMiddleware := security.RateLimitMiddleware(rateLimiter)
+	// Get configuration to check if rate limiting is enabled
+	cfg := exp.GetConfig()
+	monitoring := exp.GetInternalMonitoring()
+
+	// Create rate limiting middleware conditionally
+	var rateLimitMiddleware func(http.Handler) http.Handler
+	var healthMiddleware func(http.Handler) http.Handler
+	var internalMiddleware func(http.Handler) http.Handler
+
+	if cfg.RateLimitEnabled {
+		// Rate limiting is enabled, create actual rate limiters
+		rateLimiter := security.NewRateLimiter(rateLimitRequests, rateLimitBurst)
+		rateLimitMiddleware = security.RateLimitMiddlewareWithMonitoring(rateLimiter, monitoring)
+
+		healthLimiter := security.NewRateLimiter(healthRequests, healthBurst)
+		healthMiddleware = security.RateLimitMiddlewareWithMonitoring(healthLimiter, monitoring)
+
+		internalLimiter := security.NewRateLimiter(rateLimitRequests, rateLimitBurst)
+		internalMiddleware = security.RateLimitMiddlewareWithMonitoring(internalLimiter, monitoring)
+	} else {
+		// Rate limiting is disabled, create pass-through middleware
+		passThrough := func(next http.Handler) http.Handler {
+			return next
+		}
+		rateLimitMiddleware = passThrough
+		healthMiddleware = passThrough
+		internalMiddleware = passThrough
+	}
 
 	// Security middleware
 	securityMiddleware := securityHeadersMiddleware
 
+	// Helper function to chain middleware
+	chainMiddleware := func(middleware func(http.Handler) http.Handler, handler http.Handler) http.Handler {
+		return securityMiddleware(middleware(handler))
+	}
+
 	// Root endpoint with basic information (rate limited + security headers)
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		securityMiddleware(rateLimitMiddleware(http.HandlerFunc(handleRoot))).ServeHTTP(w, r)
-	})
+	mux.Handle("/", chainMiddleware(rateLimitMiddleware, http.HandlerFunc(handleRoot)))
 
 	// Metrics endpoint (rate limited + security headers)
-	mux.Handle("/metrics", securityMiddleware(rateLimitMiddleware(promhttp.Handler())))
+	mux.Handle("/metrics", chainMiddleware(rateLimitMiddleware, promhttp.Handler()))
 
 	// Health check endpoint (rate limited but more generous + security headers)
-	healthLimiter := security.NewRateLimiter(healthRequests, healthBurst)
-	healthMiddleware := security.RateLimitMiddleware(healthLimiter)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		securityMiddleware(healthMiddleware(http.HandlerFunc(handleHealth))).ServeHTTP(w, r)
-	})
+	mux.Handle("/health", chainMiddleware(healthMiddleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handleHealth(w, exp)
+	})))
 
 	// Internal monitoring endpoint (rate limited + security headers)
-	internalLimiter := security.NewRateLimiter(rateLimitRequests, rateLimitBurst) // Same as metrics endpoint
-	internalMiddleware := security.RateLimitMiddleware(internalLimiter)
-	mux.HandleFunc("/internal/metrics", func(w http.ResponseWriter, r *http.Request) {
-		securityMiddleware(internalMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handleInternalMetrics(w, r, exp)
-		}))).ServeHTTP(w, r)
-	})
+	mux.Handle("/internal/metrics", chainMiddleware(internalMiddleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handleInternalMetrics(w, r, exp)
+	})))
 
-	// Add a simple JSON status endpoint for the web UI
-	mux.HandleFunc("/internal/status", func(w http.ResponseWriter, r *http.Request) {
-		securityMiddleware(internalMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handleInternalStatus(w, r, exp)
-		}))).ServeHTTP(w, r)
-	})
+	logData := map[string]interface{}{
+		"rate_limiting_enabled":    cfg.RateLimitEnabled,
+		"security_headers_enabled": true,
+		"endpoints":                []string{"/", "/metrics", "/health", "/internal/metrics"},
+	}
 
-	logger.SafeInfo("main", "HTTP security and rate limiting configured", map[string]interface{}{
-		"metrics_requests_per_min":          rateLimitRequests,
-		"metrics_burst_size":                rateLimitBurst,
-		"health_requests_per_min":           healthRequests,
-		"health_burst_size":                 healthBurst,
-		"internal_metrics_requests_per_min": healthRequests / 2,
-		"internal_metrics_burst_size":       healthBurst / 2,
-		"security_headers_enabled":          true,
-		"endpoints":                         []string{"/", "/metrics", "/health", "/internal/metrics"},
-	})
+	if cfg.RateLimitEnabled {
+		logData["metrics_requests_per_min"] = rateLimitRequests
+		logData["metrics_burst_size"] = rateLimitBurst
+		logData["health_requests_per_min"] = healthRequests
+		logData["health_burst_size"] = healthBurst
+		logData["internal_metrics_requests_per_min"] = rateLimitRequests
+		logData["internal_metrics_burst_size"] = rateLimitBurst
+	}
+
+	logger.SafeInfo("main", "HTTP security and rate limiting configured", logData)
 
 	return mux
 }
@@ -276,24 +306,24 @@ const rootPageTemplate = `<!DOCTYPE html>
 		<div class="container">
 			<h1>OpenLDAP Exporter</h1>
 			<div class="info">
-				<h3>Version Information</h3>
+				<h3>Version information</h3>
 				<p><strong>Version:</strong> %s</p>
 			</div>
 			<div class="metrics-info">
-				<h3>Metrics Overview</h3>
-				<p><strong>Available Metric Groups:</strong> <span class="metric-count">12</span> (connections, statistics, operations, threads, time, waiters, overlays, tls, backends, listeners, health, database)</p>
-				<p><strong>Total Metrics:</strong> <span class="metric-count">25+</span> OpenLDAP monitoring metrics</p>
-				<p><strong>Last Scrape:</strong> <span class="timestamp" id="lastScrape">Available on first /metrics request</span></p>
+				<h3>Metrics overview</h3>
+				<p><strong>Available metric groups:</strong> <span class="metric-count">15</span> (connections, statistics, operations, threads, time, waiters, overlays, tls, backends, listeners, health, database, server, log, sasl)</p>
+				<p><strong>Total metrics:</strong> <span class="metric-count">25+</span> OpenLDAP monitoring metrics</p>
+				<p><strong>Last scrape:</strong> <span class="timestamp" id="lastScrape">Available on first /metrics request</span></p>
 			</div>
 			<div class="status-info">
-				<h3>Filtering Configuration</h3>
-				<p><strong>Metrics Include:</strong> %s</p>
-				<p><strong>Metrics Exclude:</strong> %s</p>
+				<h3>Filtering configuration</h3>
+				<p><strong>Metrics include:</strong> %s</p>
+				<p><strong>Metrics exclude:</strong> %s</p>
 			</div>
 			<div class="info">
-				<h3>Available Endpoints</h3>
+				<h3>Available endpoints</h3>
 				<ul>
-					<li><a href="/health">Health</a> - Health check endpoint</li>
+					<li><a href="/health">Health</a> - Health check with status information</li>
 					<li><a href="/metrics">Metrics</a> - OpenLDAP Prometheus metrics endpoint</li>
 					<li><a href="/internal/metrics">Internal Metrics</a> - Internal exporter Prometheus metrics endpoint</li>
 				</ul>
@@ -304,11 +334,11 @@ const rootPageTemplate = `<!DOCTYPE html>
 		<script>
 			// Update last scrape time every 30 seconds
 			function updateLastScrape() {
-				fetch('/internal/status')
+				fetch('/health')
 					.then(response => response.json())
 					.then(data => {
 						if (data.timestamp) {
-							const date = new Date(data.timestamp * 1000);
+							const date = new Date(data.timestamp);
 							document.getElementById('lastScrape').textContent = date.toLocaleString();
 						}
 					})
@@ -356,11 +386,28 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleHealth provides a simple health check endpoint
-func handleHealth(w http.ResponseWriter, r *http.Request) {
+func handleHealth(w http.ResponseWriter, exp *exporter.OpenLDAPExporter) {
 	w.Header().Set("Content-Type", "application/json")
+
+	monitoring := exp.GetInternalMonitoring()
+
+	// Prepare enriched health response
+	response := map[string]interface{}{
+		"status":    "ok",
+		"version":   Version,
+		"timestamp": time.Now().Format(time.RFC3339),
+		"uptime":    formatDuration(time.Since(monitoring.GetStartTime())),
+	}
+
+	jsonData, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		logger.Error("main", "Failed to marshal health status", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
-	response := `{"status":"ok","version":"` + Version + `"}`
-	_, _ = w.Write([]byte(response))
+	_, _ = w.Write(jsonData)
 }
 
 // handleInternalMetrics provides internal monitoring metrics
@@ -386,29 +433,4 @@ func handleInternalMetrics(w http.ResponseWriter, r *http.Request, exp *exporter
 
 	// Serve the internal metrics in Prometheus format
 	handler.ServeHTTP(w, r)
-}
-
-// handleInternalStatus provides a simple JSON status for the web UI
-func handleInternalStatus(w http.ResponseWriter, r *http.Request, exp *exporter.OpenLDAPExporter) {
-	w.Header().Set("Content-Type", "application/json")
-
-	monitoring := exp.GetInternalMonitoring()
-
-	// Prepare simple status response for web UI
-	response := map[string]interface{}{
-		"version":   Version,
-		"timestamp": time.Now().Unix(),
-		"uptime":    time.Since(monitoring.GetStartTime()).String(),
-		"status":    "running",
-	}
-
-	jsonData, err := json.MarshalIndent(response, "", "  ")
-	if err != nil {
-		logger.Error("main", "Failed to marshal internal status", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(jsonData)
 }

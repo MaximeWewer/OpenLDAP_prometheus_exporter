@@ -20,8 +20,8 @@ type OpenLDAPMetrics struct {
 	ThreadsStarting     *prometheus.GaugeVec
 	ThreadsPending      *prometheus.GaugeVec
 	ThreadsState        *prometheus.GaugeVec
-	OperationsInitiated *prometheus.CounterVec
-	OperationsCompleted *prometheus.CounterVec
+	OperationsInitiated *prometheus.GaugeVec
+	OperationsCompleted *prometheus.GaugeVec
 	WaitersRead         *prometheus.GaugeVec
 	WaitersWrite        *prometheus.GaugeVec
 	OverlaysInfo        *prometheus.GaugeVec
@@ -31,10 +31,14 @@ type OpenLDAPMetrics struct {
 	BackendsInfo        *prometheus.GaugeVec
 	ListenersInfo       *prometheus.GaugeVec
 	DatabaseEntries     *prometheus.GaugeVec
+	DatabaseInfo        *prometheus.GaugeVec
 	HealthStatus        *prometheus.GaugeVec
 	ResponseTime        *prometheus.GaugeVec
 	ScrapeErrors        *prometheus.CounterVec
 	Up                  *prometheus.GaugeVec
+	ServerInfo          *prometheus.GaugeVec
+	LogLevels           *prometheus.GaugeVec
+	SaslInfo            *prometheus.GaugeVec
 }
 
 // NewOpenLDAPMetrics creates and initializes all OpenLDAP Prometheus metrics
@@ -157,19 +161,19 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 		),
 
 		// Operation metrics
-		OperationsInitiated: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
+		OperationsInitiated: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
 				Namespace: "openldap",
-				Name:      "operations_initiated_total",
-				Help:      "Total operations initiated by type (cn=Operations,cn=Monitor)",
+				Name:      "operations_initiated_delta",
+				Help:      "Operations initiated delta since last collection (cn=Operations,cn=Monitor)",
 			},
 			[]string{"server", "operation"},
 		),
-		OperationsCompleted: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
+		OperationsCompleted: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
 				Namespace: "openldap",
-				Name:      "operations_completed_total",
-				Help:      "Total operations completed by type (cn=Operations,cn=Monitor)",
+				Name:      "operations_completed_delta",
+				Help:      "Operations completed delta since last collection (cn=Operations,cn=Monitor)",
 			},
 			[]string{"server", "operation"},
 		),
@@ -294,117 +298,120 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
+
+		// New metrics for comprehensive monitoring
+		ServerInfo: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "server_info",
+				Help:      "Information about the OpenLDAP server (cn=Monitor)",
+			},
+			[]string{"server", "version", "description"},
+		),
+
+		DatabaseInfo: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "database_info",
+				Help:      "Information about databases including shadow, context, and readonly status",
+			},
+			[]string{"server", "base_dn", "is_shadow", "context", "readonly"},
+		),
+
+		LogLevels: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "log_level_enabled",
+				Help:      "Enabled log levels in cn=Log,cn=Monitor (1=enabled, 0=disabled)",
+			},
+			[]string{"server", "log_type"},
+		),
+
+		SaslInfo: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "sasl_info",
+				Help:      "SASL mechanism information (cn=SASL,cn=Monitor)",
+			},
+			[]string{"server", "mechanism", "status"},
+		),
+	}
+}
+
+// getAllMetrics returns a slice of all metric collectors to reduce code duplication
+func (m *OpenLDAPMetrics) getAllMetrics() []prometheus.Collector {
+	return []prometheus.Collector{
+		// Connection metrics
+		m.ConnectionsCurrent,
+		m.ConnectionsTotal,
+		
+		// Statistics metrics
+		m.BytesTotal,
+		m.PduTotal,
+		m.ReferralsTotal,
+		m.EntriesTotal,
+		
+		// Thread metrics
+		m.ThreadsMax,
+		m.ThreadsMaxPending,
+		m.ThreadsBackload,
+		m.ThreadsActive,
+		m.ThreadsOpen,
+		m.ThreadsStarting,
+		m.ThreadsPending,
+		m.ThreadsState,
+		
+		// Operation metrics
+		m.OperationsInitiated,
+		m.OperationsCompleted,
+		
+		// Waiter metrics
+		m.WaitersRead,
+		m.WaitersWrite,
+		
+		// Overlay metrics
+		m.OverlaysInfo,
+		
+		// Time metrics
+		m.ServerTime,
+		m.ServerUptime,
+		
+		// TLS metrics
+		m.TlsInfo,
+		
+		// Backend metrics
+		m.BackendsInfo,
+		
+		// Listener metrics
+		m.ListenersInfo,
+		
+		// Database metrics
+		m.DatabaseEntries,
+		m.DatabaseInfo,
+		
+		// System health metrics
+		m.HealthStatus,
+		m.ResponseTime,
+		m.ScrapeErrors,
+		m.Up,
+		
+		// Additional metrics
+		m.ServerInfo,
+		m.LogLevels,
+		m.SaslInfo,
 	}
 }
 
 // Describe implements the prometheus.Collector interface
 func (m *OpenLDAPMetrics) Describe(ch chan<- *prometheus.Desc) {
-	// Connection metrics
-	m.ConnectionsCurrent.Describe(ch)
-	m.ConnectionsTotal.Describe(ch)
-
-	// Statistics metrics
-	m.BytesTotal.Describe(ch)
-	m.PduTotal.Describe(ch)
-	m.ReferralsTotal.Describe(ch)
-	m.EntriesTotal.Describe(ch)
-
-	// Thread metrics
-	m.ThreadsMax.Describe(ch)
-	m.ThreadsMaxPending.Describe(ch)
-	m.ThreadsBackload.Describe(ch)
-	m.ThreadsActive.Describe(ch)
-	m.ThreadsOpen.Describe(ch)
-	m.ThreadsStarting.Describe(ch)
-	m.ThreadsPending.Describe(ch)
-	m.ThreadsState.Describe(ch)
-
-	// Operation metrics
-	m.OperationsInitiated.Describe(ch)
-	m.OperationsCompleted.Describe(ch)
-
-	// Waiter metrics
-	m.WaitersRead.Describe(ch)
-	m.WaitersWrite.Describe(ch)
-
-	// Overlay metrics
-	m.OverlaysInfo.Describe(ch)
-
-	// Time metrics
-	m.ServerTime.Describe(ch)
-	m.ServerUptime.Describe(ch)
-
-	// TLS metrics
-	m.TlsInfo.Describe(ch)
-
-	// Backend metrics
-	m.BackendsInfo.Describe(ch)
-
-	// Listener metrics
-	m.ListenersInfo.Describe(ch)
-
-	// Database metrics
-	m.DatabaseEntries.Describe(ch)
-
-	// System health metrics
-	m.HealthStatus.Describe(ch)
-	m.ResponseTime.Describe(ch)
-	m.ScrapeErrors.Describe(ch)
-	m.Up.Describe(ch)
+	for _, metric := range m.getAllMetrics() {
+		metric.Describe(ch)
+	}
 }
 
 // Collect implements the prometheus.Collector interface
 func (m *OpenLDAPMetrics) Collect(ch chan<- prometheus.Metric) {
-	// Connection metrics
-	m.ConnectionsCurrent.Collect(ch)
-	m.ConnectionsTotal.Collect(ch)
-
-	// Statistics metrics
-	m.BytesTotal.Collect(ch)
-	m.PduTotal.Collect(ch)
-	m.ReferralsTotal.Collect(ch)
-	m.EntriesTotal.Collect(ch)
-
-	// Thread metrics
-	m.ThreadsMax.Collect(ch)
-	m.ThreadsMaxPending.Collect(ch)
-	m.ThreadsBackload.Collect(ch)
-	m.ThreadsActive.Collect(ch)
-	m.ThreadsOpen.Collect(ch)
-	m.ThreadsStarting.Collect(ch)
-	m.ThreadsPending.Collect(ch)
-	m.ThreadsState.Collect(ch)
-
-	// Operation metrics
-	m.OperationsInitiated.Collect(ch)
-	m.OperationsCompleted.Collect(ch)
-
-	// Waiter metrics
-	m.WaitersRead.Collect(ch)
-	m.WaitersWrite.Collect(ch)
-
-	// Overlay metrics
-	m.OverlaysInfo.Collect(ch)
-
-	// Time metrics
-	m.ServerTime.Collect(ch)
-	m.ServerUptime.Collect(ch)
-
-	// TLS metrics
-	m.TlsInfo.Collect(ch)
-
-	// Backend metrics
-	m.BackendsInfo.Collect(ch)
-
-	// Listener metrics
-	m.ListenersInfo.Collect(ch)
-
-	// Database metrics
-	m.DatabaseEntries.Collect(ch)
-
-	// System health metrics
-	m.HealthStatus.Collect(ch)
-	m.ResponseTime.Collect(ch)
-	m.ScrapeErrors.Collect(ch)
-	m.Up.Collect(ch)
+	for _, metric := range m.getAllMetrics() {
+		metric.Collect(ch)
+	}
 }

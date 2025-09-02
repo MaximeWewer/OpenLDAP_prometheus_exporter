@@ -18,11 +18,11 @@ services:
       # ========================================
       # LDAP configuration (Optional)
       # ========================================
-      LDAP_SERVER_NAME: "openldap-dev"                                  # Server name for logs and metrics (default: localhost)
+      LDAP_SERVER_NAME: "openldap-dev"                                  # Server name for logs and metrics (default: openldap)
       LDAP_TLS: "false"                                                 # Use TLS for connection (default: false)
       LDAP_TIMEOUT: "10"                                                # LDAP connection timeout in seconds (default: 10)
-      LDAP_UPDATE_EVERY: "15"                                           # Metrics update interval in seconds (default: 60)
-      # LDAP_SKIP_CERT_VERIFY: "false"                                  # Skip TLS certificate verification (default: false)
+      LDAP_UPDATE_EVERY: "15"                                           # Metrics update interval in seconds (default: 15)
+      # LDAP_TLS_SKIP_VERIFY: "false"                                   # Skip TLS certificate verification (default: false)
       # LDAP_TLS_CA: "/path/to/ca.crt"                                  # Path to CA certificate for TLS
       # LDAP_TLS_CERT: "/path/to/client.crt"                            # Path to client certificate
       # LDAP_TLS_KEY: "/path/to/client.key"                             # Path to client private key
@@ -39,6 +39,7 @@ services:
       # ========================================
       # Rate limiting configuration
       # ========================================
+      # RATE_LIMIT_ENABLED: "true"                                      # Enable/disable rate limiting (default: true)
       # RATE_LIMIT_REQUESTS: "30"                                       # Requests per minute for /metrics (default: 30)
       # RATE_LIMIT_BURST: "10"                                          # Burst size for /metrics (default: 10)
       # HEALTH_RATE_LIMIT_REQUESTS: "60"                                # Requests per minute for /health (default: 60)
@@ -54,7 +55,7 @@ services:
       # ========================================
       # OPENLDAP_METRICS_INCLUDE: "connections,statistics,health"       # Only collect these metric groups
       # OPENLDAP_METRICS_EXCLUDE: "overlays,tls,backends"               # Exclude these metric groups
-      # Available groups: connections, statistics, operations, threads, time, waiters, overlays, tls, backends, listeners, health, database
+      # Available groups: connections, statistics, operations, threads, time, waiters, overlays, tls, backends, listeners, health, database, server, log, sasl
       
       # ========================================
       # Domain Component (DC) filtering
@@ -68,6 +69,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+
     logging:
       driver: json-file
       options:

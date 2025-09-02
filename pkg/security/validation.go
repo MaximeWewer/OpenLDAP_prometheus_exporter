@@ -7,6 +7,18 @@ import (
 	"unicode"
 )
 
+// Pre-compiled regular expressions for better performance
+var (
+	dnRegex   = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9]*=[^,=]+)(,\s*[a-zA-Z][a-zA-Z0-9]*=[^,=]+)*$`)
+	attrRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9.-]*$`)
+)
+
+// dangerousAttributes contains sensitive LDAP attributes (all lowercase for consistent comparison)
+var dangerousAttributes = []string{
+	"userpassword", "unicodepwd", "sambalmpassword", "sambapassword", 
+	"krb5key", "usersmimecertificate", "usercertificate", "cACertificate",
+}
+
 // ValidateLDAPDN validates an LDAP Distinguished Name for security and correctness
 func ValidateLDAPDN(dn string) error {
 	if dn == "" {
@@ -24,8 +36,8 @@ func ValidateLDAPDN(dn string) error {
 	}
 
 	// Check for excessively long DN (DoS protection)
-	if len(dn) > 8192 {
-		return errors.New("invalid DN: exceeds maximum length (8192 characters)")
+	if len(dn) > MaxDNLength {
+		return errors.New("invalid DN: exceeds maximum length")
 	}
 
 	// Check for suspicious characters that could indicate injection attempts
@@ -44,7 +56,6 @@ func ValidateLDAPDN(dn string) error {
 
 	// Validate basic DN structure using regex
 	// This regex matches basic DN format: cn=value,ou=value,dc=value
-	dnRegex := regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9]*=[^,=]+)(,\s*[a-zA-Z][a-zA-Z0-9]*=[^,=]+)*$`)
 	if !dnRegex.MatchString(dn) {
 		return errors.New("invalid DN: malformed structure")
 	}

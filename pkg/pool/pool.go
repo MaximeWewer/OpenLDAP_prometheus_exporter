@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,50 @@ import (
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/config"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
+
+// Constants for pool configuration
+const (
+	// Connection management
+	DefaultMaxRetries = 3
+	DefaultGetTimeout = 30 * time.Second
+	DefaultPoolTimeout = 30 * time.Second
+	DefaultMaintenanceInterval = 1 * time.Minute
+	DefaultHealthCheckInterval = 30 * time.Second
+	
+	// Connection validation
+	ConnectionValidationTimeout = 5 * time.Second
+	MaxIdleTime = 10 * time.Minute
+	
+	// Pool sizing
+	MinPoolSize = 1
+	MaxPoolSize = 50
+	DefaultInitialPoolSize = 5
+)
+
+// Error definitions for pool operations
+var (
+	ErrPoolClosed = errors.New("connection pool is closed")
+	ErrPoolTimeout = errors.New("connection pool timeout")
+	ErrConnectionInvalid = errors.New("connection is invalid")
+	ErrMaxRetriesExceeded = errors.New("maximum retries exceeded")
+)
+
+// PoolMonitoring defines the interface for pool monitoring
+type PoolMonitoring interface {
+	RecordPoolOperation(server, poolType, operation string)
+	RecordPoolConnections(server, poolType, state string, count float64)
+	RecordPoolUtilization(server, poolType string, utilization float64)
+	RecordPoolWaitTime(server, poolType string, duration time.Duration)
+	RecordPoolWaitTimeout(server, poolType string)
+	RecordPoolConnectionCreated(server, poolType string)
+	RecordPoolConnectionClosed(server, poolType, reason string)
+	RecordPoolConnectionFailed(server, poolType, errorType string)
+	RecordPoolConnectionReused(server, poolType string)
+	RecordPoolGetRequest(server, poolType string)
+	RecordPoolGetFailure(server, poolType, reason string)
+	RecordPoolPutRequest(server, poolType string)
+	RecordPoolPutRejection(server, poolType, reason string)
+}
 
 // ConnectionPool manages a pool of LDAP connections for improved performance
 type ConnectionPool struct {
@@ -28,9 +73,12 @@ type ConnectionPool struct {
 	connTimeout    time.Duration
 	idleTimeout    time.Duration
 	maxIdleTime    time.Duration
-	closed         bool
-	shutdownChan   chan struct{} // Channel to signal shutdown
-	maintainWG     sync.WaitGroup // WaitGroup to track maintenance goroutine
+	closed         int32                  // Atomic flag for closed state
+	shutdownChan   chan struct{}          // Channel to signal shutdown
+	maintainWG     sync.WaitGroup         // WaitGroup to track maintenance goroutine
+	closeOnce      sync.Once              // Ensures Close() is called only once
+	monitoring     PoolMonitoring // Interface for monitoring integration
+	serverName     string // Server name for metrics labeling
 }
 
 // PooledConnection wraps an LDAP connection with pool metadata
@@ -44,6 +92,11 @@ type PooledConnection struct {
 
 // NewConnectionPool creates a new LDAP connection pool
 func NewConnectionPool(cfg *config.Config, maxConnections int) *ConnectionPool {
+	return NewConnectionPoolWithMonitoring(cfg, maxConnections, nil, "")
+}
+
+// NewConnectionPoolWithMonitoring creates a new LDAP connection pool with monitoring support
+func NewConnectionPoolWithMonitoring(cfg *config.Config, maxConnections int, monitoring PoolMonitoring, serverName string) *ConnectionPool {
 	pool := &ConnectionPool{
 		config:         cfg,
 		pool:           make(chan *PooledConnection, maxConnections),
@@ -52,6 +105,8 @@ func NewConnectionPool(cfg *config.Config, maxConnections int) *ConnectionPool {
 		idleTimeout:    5 * time.Minute,
 		maxIdleTime:    10 * time.Minute,
 		shutdownChan:   make(chan struct{}),
+		monitoring:     monitoring,
+		serverName:     serverName,
 	}
 
 	// Start connection maintenance goroutine with proper tracking
@@ -60,40 +115,89 @@ func NewConnectionPool(cfg *config.Config, maxConnections int) *ConnectionPool {
 
 	logger.SafeInfo("pool", "LDAP connection pool created", map[string]interface{}{
 		"max_connections": maxConnections,
-		"idle_timeout":    pool.idleTimeout.String(),
-		"max_idle_time":   pool.maxIdleTime.String(),
+		"idle_timeout":    pool.idleTimeout.Truncate(10 * time.Millisecond).String(),
+		"max_idle_time":   pool.maxIdleTime.Truncate(10 * time.Millisecond).String(),
 	})
 
 	return pool
 }
 
+// NewConnectionPoolWithMetrics creates a new LDAP connection pool (deprecated: use NewConnectionPool)
+func NewConnectionPoolWithMetrics(cfg *config.Config, maxConnections int, metrics interface{}) *ConnectionPool {
+	pool := NewConnectionPool(cfg, maxConnections)
+	// Note: metrics field removed, legacy support maintained through monitoring interface
+	return pool
+}
+
+// updateMetrics updates pool metrics if monitoring is enabled
+func (p *ConnectionPool) updateMetrics() {
+	if p.monitoring == nil || p.serverName == "" {
+		return
+	}
+
+	// Update basic pool metrics
+	activeConns := atomic.LoadInt64(&p.activeConns)
+	poolSize := atomic.LoadInt64(&p.poolSize)
+	idleConns := poolSize - activeConns
+	utilization := float64(activeConns) / float64(p.maxConnections)
+
+	p.monitoring.RecordPoolConnections(p.serverName, "ldap", "active", float64(activeConns))
+	p.monitoring.RecordPoolConnections(p.serverName, "ldap", "idle", float64(idleConns))
+	p.monitoring.RecordPoolConnections(p.serverName, "ldap", "total", float64(poolSize))
+	p.monitoring.RecordPoolUtilization(p.serverName, "ldap", utilization)
+}
+
+// recordOperation records a pool operation if monitoring is enabled
+func (p *ConnectionPool) recordOperation(operation string) {
+	if p.monitoring != nil && p.serverName != "" {
+		p.monitoring.RecordPoolOperation(p.serverName, "ldap", operation)
+	}
+}
+
 // Get retrieves a connection from the pool or creates a new one
 func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
+	// Record get request
+	p.recordGetRequest()
+
+	start := time.Now()
+
 	p.mutex.RLock()
-	if p.closed {
+	if atomic.LoadInt32(&p.closed) == 1 {
 		p.mutex.RUnlock()
-		return nil, errors.New("connection pool is closed")
+		p.recordGetFailure("pool_closed")
+		return nil, ErrPoolClosed
 	}
 	p.mutex.RUnlock()
 
-	const maxRetries = 3
+	const maxRetries = DefaultMaxRetries
+
+
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		// Try to get a connection from the pool
 		select {
 		case conn := <-p.pool:
-			atomic.AddInt64(&p.poolSize, -1)
-			// Lock before validation to prevent race condition
+			if conn == nil {
+				// Nil connection in pool, skip it
+				atomic.AddInt64(&p.poolSize, -1)
+				continue
+			}
+			// Immediately lock the connection before any checks to prevent race condition
 			conn.mutex.Lock()
+			// Decrement pool size after acquiring the lock
+			atomic.AddInt64(&p.poolSize, -1)
 			if p.isConnectionValidLocked(conn) {
 				conn.inUse = true
 				conn.lastUsed = time.Now()
 				conn.mutex.Unlock()
+				// Record connection reuse
+				p.recordConnectionReused()
+				p.recordWaitTime(time.Since(start))
 				return conn, nil
 			}
 			conn.mutex.Unlock()
 			// Connection is invalid, close it and try again
-			p.closeConnection(conn)
+			p.closeConnectionWithReason(conn, "error")
 			continue
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -113,11 +217,31 @@ func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 				conn, err := p.createConnection()
 				if err != nil {
 					atomic.AddInt64(&p.activeConns, -1)
+					// Record connection creation failure
+					if p.monitoring != nil && p.serverName != "" {
+						// Determine failure reason based on error
+						reason := "network_error"
+						if strings.Contains(strings.ToLower(err.Error()), "auth") || 
+						   strings.Contains(strings.ToLower(err.Error()), "invalid credentials") {
+							reason = "auth_error"
+						}
+						p.monitoring.RecordPoolConnectionFailed(p.serverName, "ldap", reason)
+						p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", "creation_failed")
+					}
 					// Don't retry on creation errors, return immediately
 					return nil, fmt.Errorf("failed to create new connection: %w", err)
 				}
 
 				conn.inUse = true
+				
+				// Record successful new connection creation and wait time
+				if p.monitoring != nil && p.serverName != "" {
+					p.monitoring.RecordPoolConnectionCreated(p.serverName, "ldap")
+					p.monitoring.RecordPoolWaitTime(p.serverName, "ldap", time.Since(start))
+				}
+				p.recordOperation("get")
+				p.updateMetrics()
+				
 				return conn, nil
 			}
 		}
@@ -126,19 +250,36 @@ func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 		if attempt == maxRetries-1 {
 			select {
 			case conn := <-p.pool:
-				atomic.AddInt64(&p.poolSize, -1)
-				// Lock before validation to prevent race condition
+				if conn == nil {
+					atomic.AddInt64(&p.poolSize, -1)
+					return nil, errors.New("nil connection in pool")
+				}
+				// Immediately lock the connection before any checks to prevent race condition
 				conn.mutex.Lock()
+				// Decrement pool size after acquiring the lock
+				atomic.AddInt64(&p.poolSize, -1)
 				if p.isConnectionValidLocked(conn) {
 					conn.inUse = true
 					conn.lastUsed = time.Now()
 					conn.mutex.Unlock()
+					// Record connection reuse
+					if p.monitoring != nil && p.serverName != "" {
+						p.monitoring.RecordPoolConnectionReused(p.serverName, "ldap")
+						p.monitoring.RecordPoolWaitTime(p.serverName, "ldap", time.Since(start))
+					}
 					return conn, nil
 				}
 				conn.mutex.Unlock()
-				p.closeConnection(conn)
+				p.closeConnectionWithReason(conn, "error")
 				return nil, errors.New("no valid connections available after retries")
 			case <-ctx.Done():
+				// Record timeout if monitoring is available
+				if p.monitoring != nil && p.serverName != "" {
+					if ctx.Err() == context.DeadlineExceeded {
+						p.monitoring.RecordPoolWaitTimeout(p.serverName, "ldap")
+						p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", "timeout")
+					}
+				}
 				return nil, ctx.Err()
 			}
 		}
@@ -147,10 +288,21 @@ func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 		select {
 		case <-time.After(10 * time.Millisecond):
 		case <-ctx.Done():
+			// Record timeout if monitoring is available
+			if p.monitoring != nil && p.serverName != "" {
+				if ctx.Err() == context.DeadlineExceeded {
+					p.monitoring.RecordPoolWaitTimeout(p.serverName, "ldap")
+					p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", "timeout")
+				}
+			}
 			return nil, ctx.Err()
 		}
 	}
 
+	// Record max attempts failure
+	if p.monitoring != nil && p.serverName != "" {
+		p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", "max_attempts")
+	}
 	return nil, errors.New("max connection attempts exceeded")
 }
 
@@ -160,17 +312,19 @@ func (p *ConnectionPool) Put(conn *PooledConnection) {
 		return
 	}
 
+	// Record put request
+	if p.monitoring != nil && p.serverName != "" {
+		p.monitoring.RecordPoolPutRequest(p.serverName, "ldap")
+	}
+
+
 	conn.mutex.Lock()
 	conn.inUse = false
 	conn.lastUsed = time.Now()
 	conn.mutex.Unlock()
 
-	p.mutex.RLock()
-	closed := p.closed
-	p.mutex.RUnlock()
-
-	if closed {
-		p.closeConnection(conn)
+	if atomic.LoadInt32(&p.closed) == 1 {
+		p.closeConnectionWithReason(conn, "shutdown")
 		return
 	}
 
@@ -180,7 +334,10 @@ func (p *ConnectionPool) Put(conn *PooledConnection) {
 	conn.mutex.Unlock()
 
 	if !valid {
-		p.closeConnection(conn)
+		if p.monitoring != nil && p.serverName != "" {
+			p.monitoring.RecordPoolPutRejection(p.serverName, "ldap", "invalid_connection")
+		}
+		p.closeConnectionWithReason(conn, "error")
 		return
 	}
 
@@ -188,41 +345,58 @@ func (p *ConnectionPool) Put(conn *PooledConnection) {
 	case p.pool <- conn:
 		// Successfully returned to pool
 		atomic.AddInt64(&p.poolSize, 1)
+		p.recordOperation("put")
+		p.updateMetrics()
 	default:
 		// Pool is full, close the connection
-		p.closeConnection(conn)
+		if p.monitoring != nil && p.serverName != "" {
+			p.monitoring.RecordPoolPutRejection(p.serverName, "ldap", "pool_full")
+		}
+		p.closeConnectionWithReason(conn, "normal")
 	}
 }
 
 // Close closes all connections in the pool and stops maintenance goroutine
+// Close gracefully shuts down the connection pool
 func (p *ConnectionPool) Close() {
-	p.mutex.Lock()
-	if p.closed {
-		p.mutex.Unlock()
-		return
-	}
-	p.closed = true
-	p.mutex.Unlock()
-
-	// Signal shutdown to maintenance goroutine
-	close(p.shutdownChan)
-
-	// Wait for maintenance goroutine to finish
-	p.maintainWG.Wait()
-
-	// Close all connections in the pool
-	for {
-		select {
-		case conn := <-p.pool:
-			atomic.AddInt64(&p.poolSize, -1)
-			p.closeConnection(conn)
-		default:
-			logger.SafeInfo("pool", "LDAP connection pool closed", map[string]interface{}{
-				"connections_closed": atomic.LoadInt64(&p.activeConns),
-			})
+	// Use sync.Once to ensure cleanup happens only once
+	p.closeOnce.Do(func() {
+		// Set the closed flag atomically first
+		if !atomic.CompareAndSwapInt32(&p.closed, 0, 1) {
+			// Already closed
 			return
 		}
-	}
+
+		logger.SafeInfo("pool", "Shutting down LDAP connection pool", map[string]interface{}{
+			"active_connections": atomic.LoadInt64(&p.activeConns),
+			"pool_size":         atomic.LoadInt64(&p.poolSize),
+		})
+
+		// Signal shutdown to maintenance goroutine
+		close(p.shutdownChan)
+
+		// Wait for maintenance goroutine to finish
+		p.maintainWG.Wait()
+
+		// Close all connections in the pool
+		connectionsClosed := int64(0)
+		for {
+			select {
+			case conn := <-p.pool:
+				if conn != nil {
+					atomic.AddInt64(&p.poolSize, -1)
+					p.closeConnectionWithReason(conn, "shutdown")
+					connectionsClosed++
+				}
+			default:
+				logger.SafeInfo("pool", "LDAP connection pool closed", map[string]interface{}{
+					"connections_closed": connectionsClosed,
+					"final_active_count": atomic.LoadInt64(&p.activeConns),
+				})
+				return
+			}
+		}
+	})
 }
 
 // createConnection creates a new LDAP connection
@@ -373,7 +547,7 @@ func (p *ConnectionPool) isConnectionValidLocked(conn *PooledConnection) bool {
 		if !p.pingConnection(conn) {
 			logger.SafeDebug("pool", "Connection failed health check", map[string]interface{}{
 				"server":   p.config.ServerName,
-				"conn_age": time.Since(conn.createdAt).String(),
+				"conn_age": time.Since(conn.createdAt).Truncate(10 * time.Millisecond).String(),
 			})
 			return false
 		}
@@ -413,8 +587,14 @@ func (p *ConnectionPool) pingConnection(conn *PooledConnection) bool {
 	return true
 }
 
-// closeConnection safely closes a pooled connection
+
+// closeConnection safely closes a pooled connection with a reason
 func (p *ConnectionPool) closeConnection(conn *PooledConnection) {
+	p.closeConnectionWithReason(conn, "normal")
+}
+
+// closeConnectionWithReason safely closes a pooled connection with a specific reason
+func (p *ConnectionPool) closeConnectionWithReason(conn *PooledConnection, reason string) {
 	if conn == nil {
 		return
 	}
@@ -422,6 +602,14 @@ func (p *ConnectionPool) closeConnection(conn *PooledConnection) {
 	if conn.conn != nil {
 		if err := conn.conn.Close(); err != nil {
 			logger.SafeError("pool", "Error closing LDAP connection", err)
+			if p.monitoring != nil && p.serverName != "" {
+				p.monitoring.RecordPoolConnectionClosed(p.serverName, "ldap", "error")
+			}
+		} else {
+			// Record successful close with the provided reason
+			if p.monitoring != nil && p.serverName != "" {
+				p.monitoring.RecordPoolConnectionClosed(p.serverName, "ldap", reason)
+			}
 		}
 		// Only decrement if we actually had a connection
 		atomic.AddInt64(&p.activeConns, -1)
@@ -433,10 +621,11 @@ func (p *ConnectionPool) closeConnection(conn *PooledConnection) {
 	})
 }
 
+
 // maintainConnections periodically cleans up old/invalid connections
 func (p *ConnectionPool) maintainConnections() {
 	defer p.maintainWG.Done()
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(DefaultMaintenanceInterval)
 	defer ticker.Stop()
 
 	for {
@@ -446,7 +635,7 @@ func (p *ConnectionPool) maintainConnections() {
 			return
 		case <-ticker.C:
 			p.mutex.RLock()
-			if p.closed {
+			if atomic.LoadInt32(&p.closed) == 1 {
 				p.mutex.RUnlock()
 				return
 			}
@@ -456,7 +645,8 @@ func (p *ConnectionPool) maintainConnections() {
 		var validConns []*PooledConnection
 
 		// Use context with timeout to prevent deadlock
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), DefaultHealthCheckInterval)
+		defer cancel() // Ensure context is always cancelled
 
 		// Drain the pool
 		for {
@@ -471,14 +661,13 @@ func (p *ConnectionPool) maintainConnections() {
 						p.closeConnection(c)
 					}
 				}
-				cancel()
 				return
 			case conn := <-p.pool:
 				atomic.AddInt64(&p.poolSize, -1)
 				if p.isConnectionValid(conn) {
 					validConns = append(validConns, conn)
 				} else {
-					p.closeConnection(conn)
+					p.closeConnectionWithReason(conn, "timeout")
 				}
 			default:
 				cancel()
@@ -494,7 +683,7 @@ func (p *ConnectionPool) maintainConnections() {
 				atomic.AddInt64(&p.poolSize, 1)
 			default:
 				// Pool is full, close excess connections
-				p.closeConnection(conn)
+				p.closeConnectionWithReason(conn, "normal")
 			}
 		}
 
@@ -515,7 +704,38 @@ func (p *ConnectionPool) Stats() map[string]interface{} {
 		"max_connections":    p.maxConnections,
 		"active_connections": atomic.LoadInt64(&p.activeConns),
 		"pool_size":          atomic.LoadInt64(&p.poolSize),
-		"closed":             p.closed,
+		"closed":             atomic.LoadInt32(&p.closed) == 1,
+	}
+}
+
+// Helper methods for monitoring to reduce code duplication
+func (p *ConnectionPool) recordGetRequest() {
+	if p.monitoring != nil && p.serverName != "" {
+		p.monitoring.RecordPoolGetRequest(p.serverName, "ldap")
+	}
+}
+
+func (p *ConnectionPool) recordGetFailure(reason string) {
+	if p.monitoring != nil && p.serverName != "" {
+		p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", reason)
+	}
+}
+
+func (p *ConnectionPool) recordConnectionReused() {
+	if p.monitoring != nil && p.serverName != "" {
+		p.monitoring.RecordPoolConnectionReused(p.serverName, "ldap")
+	}
+}
+
+func (p *ConnectionPool) recordWaitTime(duration time.Duration) {
+	if p.monitoring != nil && p.serverName != "" {
+		p.monitoring.RecordPoolWaitTime(p.serverName, "ldap", duration)
+	}
+}
+
+func (p *ConnectionPool) recordPutRequest() {
+	if p.monitoring != nil && p.serverName != "" {
+		p.monitoring.RecordPoolPutRequest(p.serverName, "ldap")
 	}
 }
 

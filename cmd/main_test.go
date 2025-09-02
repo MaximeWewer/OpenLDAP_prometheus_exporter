@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,15 @@ import (
 
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/config"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/exporter"
+)
+
+// Test configuration constants
+const (
+	testTimeout       = 5 * time.Second
+	testShortTimeout  = 100 * time.Millisecond
+	testServerTimeout = 50 * time.Millisecond
+	testConcurrency   = 10
+	testRequests      = 50
 )
 
 // setupTestEnv sets up required environment variables for testing
@@ -127,13 +137,25 @@ func TestHandleRoot(t *testing.T) {
 	}
 }
 
-
 // TestHandleHealth tests the health endpoint
 func TestHandleHealth(t *testing.T) {
+	setupTestEnv()
+	defer cleanupTestEnv()
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	defer cfg.Clear()
+
+	exp := exporter.NewOpenLDAPExporter(cfg)
+	defer exp.Close()
+
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 
-	handleHealth(w, req)
+	var _ *http.Request = req
+	handleHealth(w, exp)
 
 	resp := w.Result()
 	defer resp.Body.Close()
@@ -242,7 +264,7 @@ func TestHTTPServerConfiguration(t *testing.T) {
 			}()
 
 			// Give server time to start
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(testServerTimeout)
 
 			// Shutdown server
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -255,7 +277,7 @@ func TestHTTPServerConfiguration(t *testing.T) {
 				if !tc.expectError && err != http.ErrServerClosed {
 					t.Errorf("Expected server to start successfully, got error: %v", err)
 				}
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(testShortTimeout):
 				if tc.expectError {
 					t.Error("Expected server to fail to start, but it started successfully")
 				}
@@ -282,7 +304,7 @@ func TestGracefulShutdown(t *testing.T) {
 	go func() { _ = server.ListenAndServe() }()
 
 	// Give server time to start
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(testServerTimeout)
 
 	// Test graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -333,10 +355,24 @@ func TestEnvironmentVariableHandling(t *testing.T) {
 
 // TestConcurrentRequests tests handling of concurrent requests
 func TestConcurrentRequests(t *testing.T) {
+	setupTestEnv()
+	defer cleanupTestEnv()
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	defer cfg.Clear()
+
+	exp := exporter.NewOpenLDAPExporter(cfg)
+	defer exp.Close()
+
 	// Create test server
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRoot)
-	mux.HandleFunc("/health", handleHealth)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		handleHealth(w, exp)
+	})
 
 	// Wrap with security middleware
 	handler := securityHeadersMiddleware(mux)
@@ -344,9 +380,9 @@ func TestConcurrentRequests(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	// Number of concurrent requests
-	concurrency := 10
-	requests := 50
+	// Number of concurrent requests - using constants
+	concurrency := testConcurrency
+	requests := testRequests
 
 	// Channel to collect results
 	results := make(chan error, concurrency*requests)
@@ -354,7 +390,7 @@ func TestConcurrentRequests(t *testing.T) {
 	// Launch concurrent requests
 	for i := 0; i < concurrency; i++ {
 		go func() {
-			client := &http.Client{Timeout: 5 * time.Second}
+			client := &http.Client{Timeout: testTimeout}
 			for j := 0; j < requests; j++ {
 				resp, err := client.Get(server.URL + "/health")
 				if err != nil {
@@ -364,7 +400,7 @@ func TestConcurrentRequests(t *testing.T) {
 				resp.Body.Close()
 
 				if resp.StatusCode != http.StatusOK {
-					results <- err
+					results <- fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 					continue
 				}
 				results <- nil
@@ -398,12 +434,25 @@ func BenchmarkHandleRoot(b *testing.B) {
 }
 
 func BenchmarkHandleHealth(b *testing.B) {
+	setupTestEnv()
+	defer cleanupTestEnv()
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		b.Fatalf("Failed to load config: %v", err)
+	}
+	defer cfg.Clear()
+
+	exp := exporter.NewOpenLDAPExporter(cfg)
+	defer exp.Close()
+
 	req := httptest.NewRequest("GET", "/health", nil)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		w := httptest.NewRecorder()
-		handleHealth(w, req)
+		var _ *http.Request = req
+		handleHealth(w, exp)
 	}
 }
 
@@ -553,50 +602,6 @@ func TestHandleInternalMetrics(t *testing.T) {
 	}
 }
 
-// TestHandleInternalStatus tests the internal status handler
-func TestHandleInternalStatus(t *testing.T) {
-	setupTestEnv()
-	defer cleanupTestEnv()
-
-	// Create a test exporter
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		t.Fatalf("Failed to load config: %v", err)
-	}
-	defer cfg.Clear()
-
-	exp := exporter.NewOpenLDAPExporter(cfg)
-	defer exp.Close()
-
-	// Create test request
-	req := httptest.NewRequest("GET", "/internal/status", nil)
-	w := httptest.NewRecorder()
-
-	// Call handler
-	handleInternalStatus(w, req, exp)
-
-	// Check response
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %v", w.Code)
-	}
-
-	contentType := w.Header().Get("Content-Type")
-	if !strings.Contains(contentType, "application/json") {
-		t.Errorf("Expected application/json content type, got %v", contentType)
-	}
-
-	body := w.Body.String()
-	if body == "" {
-		t.Error("Expected non-empty response body")
-	}
-
-	// Check if it's valid JSON
-	var status map[string]interface{}
-	if err := json.Unmarshal([]byte(body), &status); err != nil {
-		t.Errorf("Expected valid JSON response, got error: %v", err)
-	}
-}
-
 func BenchmarkSecurityMiddleware(b *testing.B) {
 	handler := securityHeadersMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -689,7 +694,6 @@ func TestSetupHTTPRoutes(t *testing.T) {
 		{"/health", "GET", http.StatusOK},
 		{"/metrics", "GET", http.StatusOK},
 		{"/internal/metrics", "GET", http.StatusOK},
-		{"/internal/status", "GET", http.StatusOK},
 	}
 
 	for _, route := range testRoutes {
@@ -784,6 +788,15 @@ func TestErrorHandling(t *testing.T) {
 	setupTestEnv()
 	defer cleanupTestEnv()
 
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	defer cfg.Clear()
+
+	exp := exporter.NewOpenLDAPExporter(cfg)
+	defer exp.Close()
+
 	// Test version variable handling
 	originalVersion := Version
 	Version = "test-version-1.0.0"
@@ -822,7 +835,7 @@ func TestErrorHandling(t *testing.T) {
 	req.Header.Set("Accept-Encoding", "gzip")
 	w := httptest.NewRecorder()
 
-	handleHealth(w, req)
+	handleHealth(w, exp)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status 200 for health endpoint, got %d", w.Code)
@@ -862,31 +875,31 @@ func TestRateLimitConfiguration(t *testing.T) {
 
 	// Test various rate limit configurations
 	testCases := []struct {
-		name                  string
-		rateEnvVar           string
-		rateValue            string
-		burstEnvVar          string
-		burstValue           string
-		expectedRate         int
-		expectedBurst        int
+		name          string
+		rateEnvVar    string
+		rateValue     string
+		burstEnvVar   string
+		burstValue    string
+		expectedRate  int
+		expectedBurst int
 	}{
 		{
-			name:                 "Custom rate and burst",
-			rateEnvVar:          "RATE_LIMIT_REQUESTS",
-			rateValue:           "60",
-			burstEnvVar:         "RATE_LIMIT_BURST",
-			burstValue:          "20",
-			expectedRate:        60,
-			expectedBurst:       20,
+			name:          "Custom rate and burst",
+			rateEnvVar:    "RATE_LIMIT_REQUESTS",
+			rateValue:     "60",
+			burstEnvVar:   "RATE_LIMIT_BURST",
+			burstValue:    "20",
+			expectedRate:  60,
+			expectedBurst: 20,
 		},
 		{
-			name:                 "Invalid rate - should use default",
-			rateEnvVar:          "RATE_LIMIT_REQUESTS",
-			rateValue:           "invalid",
-			burstEnvVar:         "RATE_LIMIT_BURST",
-			burstValue:          "15",
-			expectedRate:        defaultRateLimitRequests,
-			expectedBurst:       15,
+			name:          "Invalid rate - should use default",
+			rateEnvVar:    "RATE_LIMIT_REQUESTS",
+			rateValue:     "invalid",
+			burstEnvVar:   "RATE_LIMIT_BURST",
+			burstValue:    "15",
+			expectedRate:  defaultRateLimitRequests,
+			expectedBurst: 15,
 		},
 	}
 
@@ -979,7 +992,7 @@ func TestMainFunctionComponents(t *testing.T) {
 		if value == nil {
 			t.Errorf("Constant %s should not be nil", name)
 		}
-		
+
 		// Check specific types and ranges
 		switch v := value.(type) {
 		case string:
@@ -995,5 +1008,242 @@ func TestMainFunctionComponents(t *testing.T) {
 				t.Errorf("Integer constant %s should be positive, got %v", name, v)
 			}
 		}
+	}
+}
+
+// TestHandleRootInvalidPath tests handleRoot with invalid paths
+func TestHandleRootInvalidPath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"invalid path", "/invalid"},
+		{"deep path", "/some/deep/path"},
+		{"path with query", "/test?query=1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", tt.path, nil)
+			w := httptest.NewRecorder()
+
+			handleRoot(w, req)
+
+			if w.Code != http.StatusNotFound {
+				t.Errorf("Expected status code %d, got %d", http.StatusNotFound, w.Code)
+			}
+		})
+	}
+}
+
+// TestHandleRootWithFilters tests handleRoot with various filter configurations
+func TestHandleRootWithFilters(t *testing.T) {
+	setupTestEnv()
+	defer cleanupTestEnv()
+
+	testCases := []struct {
+		name            string
+		metricsInclude  string
+		metricsExclude  string
+		expectedInclude string
+		expectedExclude string
+	}{
+		{
+			name:            "Both include and exclude filters",
+			metricsInclude:  "connections,health",
+			metricsExclude:  "statistics,operations",
+			expectedInclude: "[connections, health]",
+			expectedExclude: "[statistics, operations]",
+		},
+		{
+			name:            "Only include filter",
+			metricsInclude:  "health,statistics",
+			metricsExclude:  "",
+			expectedInclude: "[health, statistics]",
+			expectedExclude: "None",
+		},
+		{
+			name:            "Only exclude filter",
+			metricsInclude:  "",
+			metricsExclude:  "tls,overlays",
+			expectedInclude: "None (collect all metric groups)",
+			expectedExclude: "[tls, overlays]",
+		},
+		{
+			name:            "Single metric in include",
+			metricsInclude:  "connections",
+			metricsExclude:  "",
+			expectedInclude: "[connections]",
+			expectedExclude: "None",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Set filter environment variables
+			if tc.metricsInclude != "" {
+				os.Setenv("OPENLDAP_METRICS_INCLUDE", tc.metricsInclude)
+			}
+			if tc.metricsExclude != "" {
+				os.Setenv("OPENLDAP_METRICS_EXCLUDE", tc.metricsExclude)
+			}
+
+			// Clean up after test
+			defer func() {
+				os.Unsetenv("OPENLDAP_METRICS_INCLUDE")
+				os.Unsetenv("OPENLDAP_METRICS_EXCLUDE")
+			}()
+
+			req := httptest.NewRequest("GET", "/", nil)
+			w := httptest.NewRecorder()
+
+			handleRoot(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("Expected status 200, got %d", w.Code)
+			}
+
+			body := w.Body.String()
+
+			// Check that the expected filter text appears in the response
+			if !strings.Contains(body, tc.expectedInclude) {
+				t.Errorf("Expected include filter '%s' to appear in response, body: %s", tc.expectedInclude, body)
+			}
+
+			if !strings.Contains(body, tc.expectedExclude) {
+				t.Errorf("Expected exclude filter '%s' to appear in response, body: %s", tc.expectedExclude, body)
+			}
+		})
+	}
+}
+
+// TestHandleHealthMarshalError tests handleHealth when JSON marshaling fails
+func TestHandleHealthMarshalError(t *testing.T) {
+	setupTestEnv()
+	defer cleanupTestEnv()
+
+	// Create a test exporter
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	defer cfg.Clear()
+
+	exp := exporter.NewOpenLDAPExporter(cfg)
+	defer exp.Close()
+
+	// Create a custom version of handleHealth that forces a marshal error
+	// We'll use a struct that can't be marshaled to JSON
+	testHandleHealthWithError := func(w http.ResponseWriter, r *http.Request, exp *exporter.OpenLDAPExporter) {
+		w.Header().Set("Content-Type", "application/json")
+
+		monitoring := exp.GetInternalMonitoring()
+
+		// Create a response with a channel (which can't be marshaled to JSON)
+		response := map[string]interface{}{
+			"status":        "ok",
+			"version":       Version,
+			"timestamp":     time.Now().Format(time.RFC3339),
+			"uptime":        formatDuration(time.Since(monitoring.GetStartTime())),
+			"unmarshalable": make(chan int), // This will cause json.MarshalIndent to fail
+		}
+
+		jsonData, err := json.MarshalIndent(response, "", "  ")
+		if err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(jsonData)
+	}
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+
+	testHandleHealthWithError(w, req, exp)
+
+	// Should return 500 Internal Server Error due to JSON marshaling failure
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("Expected status 500, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Internal Server Error") {
+		t.Errorf("Expected error message in response body, got: %s", body)
+	}
+}
+
+// TestSecurityMiddlewareWithTLS tests security headers with TLS
+func TestSecurityMiddlewareWithTLS(t *testing.T) {
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("test response"))
+	})
+
+	handler := securityHeadersMiddleware(testHandler)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	// Simulate HTTPS request
+	req.TLS = &tls.ConnectionState{}
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	// Check if HSTS header is set for HTTPS requests
+	hsts := w.Header().Get("Strict-Transport-Security")
+	if hsts != "max-age=31536000; includeSubDomains" {
+		t.Errorf("Expected HSTS header to be set for HTTPS requests, got: %s", hsts)
+	}
+}
+
+// TestSetupHTTPRoutesConfiguration tests various aspects of HTTP route setup
+func TestSetupHTTPRoutesConfiguration(t *testing.T) {
+	setupTestEnv()
+	defer cleanupTestEnv()
+
+	// Test different rate limiting configurations
+	os.Setenv("RATE_LIMIT_REQUESTS", "50")
+	os.Setenv("RATE_LIMIT_BURST", "20")
+	os.Setenv("HEALTH_RATE_LIMIT_REQUESTS", "80")
+	os.Setenv("HEALTH_RATE_LIMIT_BURST", "30")
+
+	defer func() {
+		os.Unsetenv("RATE_LIMIT_REQUESTS")
+		os.Unsetenv("RATE_LIMIT_BURST")
+		os.Unsetenv("HEALTH_RATE_LIMIT_REQUESTS")
+		os.Unsetenv("HEALTH_RATE_LIMIT_BURST")
+	}()
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	defer cfg.Clear()
+
+	exp := exporter.NewOpenLDAPExporter(cfg)
+	defer exp.Close()
+
+	mux := setupHTTPRoutes(exp)
+
+	// Test that mux is properly configured
+	if mux == nil {
+		t.Fatal("setupHTTPRoutes returned nil")
+	}
+
+	// Test health endpoint
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200 for /health, got %d", w.Code)
+	}
+
+	// Verify it's JSON
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "application/json" {
+		t.Errorf("Expected Content-Type application/json, got %s", contentType)
 	}
 }

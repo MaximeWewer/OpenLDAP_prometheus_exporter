@@ -30,11 +30,6 @@ func TestInternalMonitoring(t *testing.T) {
 	monitoring.RecordCollectionSuccess(serverName, "connections")
 	monitoring.RecordCollectionFailure(serverName, "operations")
 
-	// Test cache metrics
-	monitoring.RecordCacheOperation(serverName, "hit")
-	monitoring.RecordCacheHitRatio(serverName, 0.85)
-	monitoring.RecordCacheSize(serverName, "metrics", 1024)
-
 	// Test rate limit metrics
 	monitoring.RecordRateLimitRequest("192.168.1.100", "/metrics")
 	monitoring.RecordRateLimitBlocked("192.168.1.101", "/metrics")
@@ -83,7 +78,7 @@ func TestRecordEventEdgeCases(t *testing.T) {
 
 	// Test first event (branch where event doesn't exist)
 	monitoring.RecordEvent("new_event")
-	
+
 	eventStats := monitoring.GetEventStats()
 	if stats, exists := eventStats["new_event"]; !exists {
 		t.Error("new_event should exist after first RecordEvent")
@@ -93,20 +88,20 @@ func TestRecordEventEdgeCases(t *testing.T) {
 
 	// Test immediate second event (duration will be very small, testing duration > 0 branch)
 	monitoring.RecordEvent("new_event")
-	
+
 	// Test multiple rapid events to trigger rate calculation
 	for i := 0; i < 5; i++ {
 		monitoring.RecordEvent("rapid_event")
 		time.Sleep(1 * time.Millisecond) // Small delay to ensure duration > 0
 	}
-	
+
 	eventStats = monitoring.GetEventStats()
 	if stats, exists := eventStats["rapid_event"]; !exists {
 		t.Error("rapid_event should exist")
 	} else if count := stats["count"]; count != int64(5) {
 		t.Errorf("Expected rapid_event count 5, got %v", count)
 	}
-	
+
 	// Test rate calculation
 	if stats, exists := eventStats["rapid_event"]; exists {
 		if rate, hasRate := stats["rate"]; hasRate && rate.(float64) <= 0 {
@@ -128,6 +123,38 @@ func TestGetStartTime(t *testing.T) {
 	if time.Since(startTime) > time.Second {
 		t.Error("Start time should be recent")
 	}
+}
+
+// TestRecordScrape tests the RecordScrape method
+func TestRecordScrape(t *testing.T) {
+	monitoring := NewInternalMonitoring()
+	serverName := "test-server"
+
+	// Test successful scrape
+	duration := 250 * time.Millisecond
+	monitoring.RecordScrape(serverName, duration, true)
+
+	// Test failed scrape
+	monitoring.RecordScrape(serverName, 500*time.Millisecond, false)
+
+	// Verify events were recorded
+	eventStats := monitoring.GetEventStats()
+
+	// Check for scrape_success event
+	if successStats, exists := eventStats["scrape_success"]; !exists {
+		t.Error("scrape_success event should exist")
+	} else if count := successStats["count"]; count != int64(1) {
+		t.Errorf("Expected scrape_success count 1, got %v", count)
+	}
+
+	// Check for scrape_failure event
+	if failureStats, exists := eventStats["scrape_failure"]; !exists {
+		t.Error("scrape_failure event should exist")
+	} else if count := failureStats["count"]; count != int64(1) {
+		t.Errorf("Expected scrape_failure count 1, got %v", count)
+	}
+
+	t.Log("RecordScrape test completed successfully")
 }
 
 // TestRegisterMetrics tests the RegisterMetrics method

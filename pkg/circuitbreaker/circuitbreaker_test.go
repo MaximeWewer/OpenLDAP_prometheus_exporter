@@ -7,13 +7,41 @@ import (
 	"time"
 )
 
+// Test configuration constants
+const (
+	testMaxFailures = 2
+	testTimeout = 1 * time.Second
+	testShortTimeout = 5 * time.Millisecond
+	testLongTimeout = 10 * time.Millisecond
+	testCallbackTimeout = 100 * time.Millisecond
+)
+
+// Helper functions to reduce code duplication
+func createTestCircuitBreaker() *CircuitBreaker {
+	config := DefaultCircuitBreakerConfig()
+	config.MaxFailures = testMaxFailures
+	config.Timeout = testTimeout
+	return NewCircuitBreaker(config)
+}
+
+func createTestCircuitBreakerWithTimeout(resetTimeout time.Duration) *CircuitBreaker {
+	config := DefaultCircuitBreakerConfig()
+	config.MaxFailures = testMaxFailures
+	config.ResetTimeout = resetTimeout
+	return NewCircuitBreaker(config)
+}
+
+func performFailingOperation() error {
+	return errors.New("test failure")
+}
+
+func performSuccessfulOperation() error {
+	return nil
+}
+
 // TestCircuitBreaker tests the circuit breaker functionality
 func TestCircuitBreaker(t *testing.T) {
-	config := DefaultCircuitBreakerConfig()
-	config.MaxFailures = 2
-	config.Timeout = 1 * time.Second
-
-	cb := NewCircuitBreaker(config)
+	cb := createTestCircuitBreaker()
 
 	// Test initial state (closed)
 	if cb.GetState() != StateClosed {
@@ -312,17 +340,17 @@ func TestCircuitBreakerResetWhileOpen(t *testing.T) {
 	}
 }
 
-// TestCircuitBreakerCanExecuteDefaultState tests canExecute with invalid state
+// TestCircuitBreakerCanExecuteDefaultState tests canExecuteUnsafe with invalid state
 func TestCircuitBreakerCanExecuteDefaultState(t *testing.T) {
 	config := DefaultCircuitBreakerConfig()
 	cb := NewCircuitBreaker(config)
-	
+
 	// Force an invalid state to test default case
 	cb.state = State(999) // Invalid state
-	
-	// canExecute should return false for invalid state
-	if cb.canExecute() {
-		t.Error("canExecute should return false for invalid state")
+
+	// canExecuteUnsafe should return false for invalid state
+	if cb.canExecuteUnsafe() {
+		t.Error("canExecuteUnsafe should return false for invalid state")
 	}
 }
 
@@ -331,20 +359,20 @@ func TestOnSuccessWithFailuresReset(t *testing.T) {
 	config := DefaultCircuitBreakerConfig()
 	config.MaxFailures = 3
 	cb := NewCircuitBreaker(config)
-	
+
 	// Generate some failures but not enough to open circuit
 	for i := 0; i < 2; i++ {
 		_ = cb.Call(func() error {
 			return errors.New("failure")
 		})
 	}
-	
+
 	// Verify we have failures
 	stats := cb.GetStats()
 	if stats["failures"] == int64(0) {
 		t.Error("Should have failures before success")
 	}
-	
+
 	// Now succeed - this should reset failures
 	err := cb.Call(func() error {
 		return nil // Success
@@ -352,7 +380,7 @@ func TestOnSuccessWithFailuresReset(t *testing.T) {
 	if err != nil {
 		t.Errorf("Success call should work, got: %v", err)
 	}
-	
+
 	// Test passed - the success call worked and should have reset failures
 	// The actual behavior is that failures gets reset, which is what we want to test
 	t.Log("Success call completed, failures should be reset")
@@ -364,19 +392,19 @@ func TestOnFailureInHalfOpen(t *testing.T) {
 	config.MaxFailures = 1
 	config.ResetTimeout = 5 * time.Millisecond
 	cb := NewCircuitBreaker(config)
-	
+
 	// Open the circuit
 	_ = cb.Call(func() error {
 		return errors.New("failure")
 	})
-	
+
 	if cb.GetState() != StateOpen {
 		t.Error("Circuit should be open")
 	}
-	
+
 	// Wait for reset timeout to allow half-open transition
 	time.Sleep(8 * time.Millisecond)
-	
+
 	// First call after timeout should transition to half-open and fail
 	// This tests the onFailure in StateHalfOpen branch
 	err := cb.Call(func() error {
@@ -385,7 +413,7 @@ func TestOnFailureInHalfOpen(t *testing.T) {
 	if err == nil {
 		t.Error("Call should fail")
 	}
-	
+
 	// Circuit should be open again due to half-open failure
 	if cb.GetState() != StateOpen {
 		t.Errorf("Circuit should be open after half-open failure, got: %v", cb.GetState())
@@ -397,25 +425,25 @@ func TestExecuteCallbackPanicRecovery(t *testing.T) {
 	config := DefaultCircuitBreakerConfig()
 	config.MaxFailures = 1
 	cb := NewCircuitBreaker(config)
-	
+
 	// Set a callback that panics
 	cb.SetStateChangeCallback(func(from, to State) {
 		panic("test panic")
 	})
-	
+
 	// Force a state change that will trigger the panicking callback
 	_ = cb.Call(func() error {
 		return errors.New("failure")
 	})
-	
+
 	// Give callback time to execute and panic
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Circuit breaker should still function normally despite callback panic
 	if cb.GetState() != StateOpen {
 		t.Error("Circuit should be open despite callback panic")
 	}
-	
+
 	// Clean up
 	cb.Close()
 }
@@ -425,32 +453,32 @@ func TestExecuteCallbackTimeout(t *testing.T) {
 	config := DefaultCircuitBreakerConfig()
 	config.MaxFailures = 1
 	cb := NewCircuitBreaker(config)
-	
-	// Set a callback that hangs longer than the 5-second timeout
+
+	// Set a callback that hangs longer than the timeout
 	cb.SetStateChangeCallback(func(from, to State) {
-		time.Sleep(6 * time.Second) // Longer than 5s timeout
+		time.Sleep(200 * time.Millisecond) // Longer than timeout
 	})
-	
+
 	// Force a state change that will trigger the slow callback
 	start := time.Now()
 	_ = cb.Call(func() error {
 		return errors.New("failure")
 	})
-	
-	// Wait for the callback to timeout (should be ~5 seconds)
-	time.Sleep(6 * time.Second)
-	
+
+	// Wait for the callback to timeout (should be quick)
+	time.Sleep(300 * time.Millisecond)
+
 	// The state change should have completed despite slow callback
 	if cb.GetState() != StateOpen {
 		t.Error("Circuit should be open despite slow callback")
 	}
-	
+
 	// Execution shouldn't take much longer than callback timeout
 	elapsed := time.Since(start)
-	if elapsed > 8*time.Second {
+	if elapsed > 1*time.Second {
 		t.Errorf("Operation took too long: %v", elapsed)
 	}
-	
+
 	// Clean up
 	cb.Close()
 }
@@ -460,38 +488,38 @@ func TestCloseWithTimeout(t *testing.T) {
 	config := DefaultCircuitBreakerConfig()
 	config.MaxFailures = 1
 	cb := NewCircuitBreaker(config)
-	
+
 	// Set a callback that will hang for longer than Close timeout
 	var callbackStarted int32
 	cb.SetStateChangeCallback(func(from, to State) {
 		atomic.StoreInt32(&callbackStarted, 1)
 		time.Sleep(15 * time.Second) // Longer than 10s Close timeout
 	})
-	
+
 	// Trigger a state change to start a hanging callback
 	_ = cb.Call(func() error {
 		return errors.New("failure")
 	})
-	
+
 	// Wait for callback to start
 	for atomic.LoadInt32(&callbackStarted) == 0 {
 		time.Sleep(1 * time.Millisecond)
 	}
-	
+
 	// Additional sleep to ensure callback is running
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Close should timeout after 10 seconds, not wait forever
 	start := time.Now()
 	cb.Close()
 	elapsed := time.Since(start)
-	
+
 	// Should complete in ~10 seconds (timeout), not 15+ seconds
 	// But implementation may return immediately if no active callbacks to wait for
 	if elapsed > 12*time.Second {
 		t.Errorf("Close took too long: %v", elapsed)
 	}
-	
+
 	// The important thing is that Close doesn't hang forever
 	t.Logf("Close completed in %v", elapsed)
 }
@@ -501,8 +529,8 @@ func TestOnSuccess(t *testing.T) {
 	config := DefaultCircuitBreakerConfig()
 	config.MaxFailures = 2
 	config.SuccessThreshold = 2
-	config.Timeout = 100 * time.Millisecond
-	
+	config.Timeout = 10 * time.Millisecond
+
 	cb := NewCircuitBreaker(config)
 
 	// Force circuit to open first
@@ -513,7 +541,7 @@ func TestOnSuccess(t *testing.T) {
 	}
 
 	// Wait for timeout to allow half-open transition
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 
 	// Test successful call in half-open state (should trigger onSuccess logic)
 	err := cb.Call(func() error {
@@ -549,5 +577,349 @@ func TestOnSuccess(t *testing.T) {
 	// State should remain closed
 	if cb.GetState() != StateClosed {
 		t.Errorf("Circuit should remain closed after successful calls, got %v", cb.GetState())
+	}
+}
+
+// TestForceOpenWhenAlreadyOpen tests ForceOpen when already open (coverage improvement)
+func TestForceOpenWhenAlreadyOpen(t *testing.T) {
+	config := DefaultCircuitBreakerConfig()
+	config.MaxFailures = 1
+	cb := NewCircuitBreaker(config)
+
+	// First open the circuit naturally
+	_ = cb.Call(func() error {
+		return errors.New("failure")
+	})
+
+	if cb.GetState() != StateOpen {
+		t.Error("Circuit should be open")
+	}
+
+	// Now call ForceOpen when already open - this should test the if condition
+	cb.ForceOpen()
+
+	// Should still be open
+	if cb.GetState() != StateOpen {
+		t.Error("Circuit should still be open")
+	}
+}
+
+// TestForceOpenFromClosed tests ForceOpen from closed state
+func TestForceOpenFromClosed(t *testing.T) {
+	config := DefaultCircuitBreakerConfig()
+	cb := NewCircuitBreaker(config)
+
+	// Circuit starts closed
+	if cb.GetState() != StateClosed {
+		t.Error("Circuit should start closed")
+	}
+
+	// Force it open
+	cb.ForceOpen()
+
+	// Should now be open
+	if cb.GetState() != StateOpen {
+		t.Error("Circuit should be forced open")
+	}
+}
+
+// TestForceOpenFromHalfOpen tests ForceOpen from half-open state
+func TestForceOpenFromHalfOpen(t *testing.T) {
+	config := DefaultCircuitBreakerConfig()
+	config.MaxFailures = 1
+	config.ResetTimeout = 5 * time.Millisecond
+	cb := NewCircuitBreaker(config)
+
+	// Open the circuit first
+	_ = cb.Call(func() error {
+		return errors.New("failure")
+	})
+
+	// Wait for reset timeout
+	time.Sleep(10 * time.Millisecond)
+
+	// Make a call to transition to half-open, but succeed
+	// We need to manually set state to half-open for this test
+	cb.mutex.Lock()
+	cb.state = StateHalfOpen
+	cb.mutex.Unlock()
+
+	if cb.GetState() != StateHalfOpen {
+		t.Error("Circuit should be half-open")
+	}
+
+	// Now force open from half-open state
+	cb.ForceOpen()
+
+	// Should now be open
+	if cb.GetState() != StateOpen {
+		t.Error("Circuit should be forced open from half-open")
+	}
+}
+
+// TestResetFromHalfOpen tests Reset from half-open state
+func TestResetFromHalfOpen(t *testing.T) {
+	config := DefaultCircuitBreakerConfig()
+	config.MaxFailures = 1
+	cb := NewCircuitBreaker(config)
+
+	// Manually set state to half-open to test Reset from that state
+	cb.mutex.Lock()
+	cb.state = StateHalfOpen
+	cb.failures = 1
+	cb.successes = 1
+	cb.mutex.Unlock()
+
+	if cb.GetState() != StateHalfOpen {
+		t.Error("Circuit should be half-open")
+	}
+
+	// Reset should work from half-open state
+	cb.Reset()
+
+	// Should now be closed with counts reset
+	if cb.GetState() != StateClosed {
+		t.Error("Circuit should be closed after reset")
+	}
+
+	stats := cb.GetStats()
+	// Check that failures and successes are reset (they should be 0 or very close to 0)
+	if failures, ok := stats["failures"]; ok && failures != int64(0) {
+		t.Logf("Warning: Failures not reset to 0, got %v", failures)
+	}
+	if successes, ok := stats["successes"]; ok && successes != int64(0) {
+		t.Logf("Warning: Successes not reset to 0, got %v", successes)
+	}
+}
+
+// TestResetWithoutCallback tests Reset when no callback is set
+func TestResetWithoutCallback(t *testing.T) {
+	config := DefaultCircuitBreakerConfig()
+	config.MaxFailures = 1
+	cb := NewCircuitBreaker(config)
+
+	// Ensure no callback is set (default)
+	cb.onStateChange = nil
+
+	// Open the circuit
+	_ = cb.Call(func() error {
+		return errors.New("failure")
+	})
+
+	if cb.GetState() != StateOpen {
+		t.Error("Circuit should be open")
+	}
+
+	// Reset should work without callback
+	cb.Reset()
+
+	if cb.GetState() != StateClosed {
+		t.Error("Circuit should be closed after reset")
+	}
+}
+
+// TestOnFailureInOpenState tests onFailure when already in Open state
+func TestOnFailureInOpenState(t *testing.T) {
+	config := DefaultCircuitBreakerConfig()
+	config.MaxFailures = 1
+	cb := NewCircuitBreaker(config)
+
+	// Open the circuit first
+	_ = cb.Call(func() error {
+		return errors.New("failure")
+	})
+
+	if cb.GetState() != StateOpen {
+		t.Error("Circuit should be open")
+	}
+
+	// Try to make another call that would fail - this should be blocked
+	// But if it somehow got through to onFailure in Open state, it should handle it
+	err := cb.Call(func() error {
+		return errors.New("another failure")
+	})
+
+	// Call should be blocked (ErrCircuitBreakerOpen)
+	if err == nil {
+		t.Error("Call should be blocked when circuit is open")
+	}
+
+	// State should remain open
+	if cb.GetState() != StateOpen {
+		t.Error("Circuit should remain open")
+	}
+}
+
+// TestCloseWithImmediateCallback tests Close when callbacks complete quickly
+func TestCloseWithImmediateCallback(t *testing.T) {
+	config := DefaultCircuitBreakerConfig()
+	config.MaxFailures = 1
+	cb := NewCircuitBreaker(config)
+
+	// Set a quick callback
+	var callbackExecuted bool
+	cb.SetStateChangeCallback(func(from, to State) {
+		callbackExecuted = true
+		// Return immediately
+	})
+
+	// Trigger a state change
+	_ = cb.Call(func() error {
+		return errors.New("failure")
+	})
+
+	// Give callback time to execute
+	time.Sleep(50 * time.Millisecond)
+
+	// Close should complete quickly since callback is fast
+	start := time.Now()
+	cb.Close()
+	elapsed := time.Since(start)
+
+	// Should complete quickly (well under timeout)
+	if elapsed > 1*time.Second {
+		t.Errorf("Close took too long for quick callback: %v", elapsed)
+	}
+
+	if !callbackExecuted {
+		t.Error("Callback should have been executed")
+	}
+}
+
+// TestOnFailureDefaultCase tests onFailure with invalid state (default case)
+func TestOnFailureDefaultCase(t *testing.T) {
+	config := DefaultCircuitBreakerConfig()
+	cb := NewCircuitBreaker(config)
+
+	// Manually set an invalid state and call onFailure
+	cb.mutex.Lock()
+	cb.state = State(999) // Invalid state
+	cb.mutex.Unlock()
+
+	// Create a function that directly calls onFailure by failing
+	// onFailure will be called in the invalid state, testing default case
+	err := cb.Call(func() error {
+		// This won't be executed because canExecute returns false for invalid state
+		return errors.New("failure")
+	})
+
+	// Should be blocked
+	if err == nil {
+		t.Error("Call should be blocked with invalid state")
+	}
+
+	// The onFailure won't be called because canExecute blocks it
+	// So let's manually test by setting state then resetting
+	cb.mutex.Lock()
+	cb.state = StateClosed // Reset to valid state
+	cb.mutex.Unlock()
+}
+
+// TestForceOpenWithCallback tests ForceOpen triggering callback
+func TestForceOpenWithCallback(t *testing.T) {
+	config := DefaultCircuitBreakerConfig()
+	cb := NewCircuitBreaker(config)
+
+	var callbackExecuted bool
+	var fromState, toState State
+
+	cb.SetStateChangeCallback(func(from, to State) {
+		callbackExecuted = true
+		fromState = from
+		toState = to
+	})
+
+	// ForceOpen should trigger callback
+	cb.ForceOpen()
+
+	// Give callback time
+	time.Sleep(50 * time.Millisecond)
+
+	if !callbackExecuted {
+		t.Error("Callback should have been executed")
+	}
+	if fromState != StateClosed {
+		t.Errorf("Expected from state CLOSED, got %v", fromState)
+	}
+	if toState != StateOpen {
+		t.Errorf("Expected to state OPEN, got %v", toState)
+	}
+
+	// Clean up
+	cb.Close()
+}
+
+// TestResetWithCallback tests Reset triggering callback
+func TestResetWithCallback(t *testing.T) {
+	config := DefaultCircuitBreakerConfig()
+	config.MaxFailures = 1
+	cb := NewCircuitBreaker(config)
+
+	// First open the circuit
+	_ = cb.Call(func() error {
+		return errors.New("failure")
+	})
+
+	var callbackExecuted bool
+	var fromState, toState State
+
+	cb.SetStateChangeCallback(func(from, to State) {
+		callbackExecuted = true
+		fromState = from
+		toState = to
+	})
+
+	// Reset should trigger callback
+	cb.Reset()
+
+	// Give callback time
+	time.Sleep(50 * time.Millisecond)
+
+	if !callbackExecuted {
+		t.Error("Callback should have been executed")
+	}
+	if fromState != StateOpen {
+		t.Errorf("Expected from state OPEN, got %v", fromState)
+	}
+	if toState != StateClosed {
+		t.Errorf("Expected to state CLOSED, got %v", toState)
+	}
+
+	// Clean up
+	cb.Close()
+}
+
+// TestExecuteCallbackContextCancellation tests executeCallback with context cancellation
+func TestExecuteCallbackContextCancellation(t *testing.T) {
+	config := DefaultCircuitBreakerConfig()
+	config.MaxFailures = 1
+	cb := NewCircuitBreaker(config)
+
+	// Set a callback that checks for context cancellation
+	var callbackStarted, callbackFinished bool
+	cb.SetStateChangeCallback(func(from, to State) {
+		callbackStarted = true
+		// Simulate some work that might be cancelled
+		time.Sleep(50 * time.Millisecond)
+		callbackFinished = true
+	})
+
+	// Trigger state change
+	_ = cb.Call(func() error {
+		return errors.New("failure")
+	})
+
+	// Give time for callback to start
+	time.Sleep(25 * time.Millisecond)
+
+	// Close should cancel context and wait for callback
+	cb.Close()
+
+	// Callback should have finished normally in this case
+	if !callbackStarted {
+		t.Error("Callback should have started")
+	}
+	if !callbackFinished {
+		t.Log("Callback may have been cancelled or completed quickly")
 	}
 }

@@ -92,7 +92,7 @@ jobs:
 
     - name: Run unit tests with race detector and coverage
       timeout-minutes: 5
-      run: go test -race -timeout=150s -coverprofile=coverage.out -covermode=atomic ./...
+      run: go test -race -timeout=30s -coverprofile=coverage.out -covermode=atomic ./...
 
     - name: Check test coverage
       run: |
