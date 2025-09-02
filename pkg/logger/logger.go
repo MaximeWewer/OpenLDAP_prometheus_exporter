@@ -102,7 +102,7 @@ var sensitiveFields = []string{
 var (
 	// URL patterns that might contain credentials
 	credentialURLPattern = regexp.MustCompile(`(ldap[s]?://)([^:]+):([^@]+)@(.+)`)
-	
+
 	// Compiled password patterns for error message sanitization
 	passwordPatterns = []*regexp.Regexp{
 		regexp.MustCompile(`(?i)password[=:]\s*\S+`),
@@ -112,7 +112,7 @@ var (
 		regexp.MustCompile(`(?i)secret[=:]\s*\S+`),
 		regexp.MustCompile(`(?i)key[=:]\s*\S+`),
 	}
-	
+
 	// Bind DN password pattern for LDAP error messages
 	bindPattern = regexp.MustCompile(`(?i)(bind\s+failed.*password:\s*)(\S+)`)
 )
@@ -133,7 +133,7 @@ func getMapFromPool() map[string]interface{} {
 	mapPoolMutex.RLock()
 	m := mapPool.Get().(map[string]interface{})
 	mapPoolMutex.RUnlock()
-	
+
 	// Clear the map in case it has leftover data
 	for k := range m {
 		delete(m, k)

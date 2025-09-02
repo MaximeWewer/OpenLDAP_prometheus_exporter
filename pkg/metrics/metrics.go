@@ -344,13 +344,13 @@ func (m *OpenLDAPMetrics) getAllMetrics() []prometheus.Collector {
 		// Connection metrics
 		m.ConnectionsCurrent,
 		m.ConnectionsTotal,
-		
+
 		// Statistics metrics
 		m.BytesTotal,
 		m.PduTotal,
 		m.ReferralsTotal,
 		m.EntriesTotal,
-		
+
 		// Thread metrics
 		m.ThreadsMax,
 		m.ThreadsMaxPending,
@@ -360,41 +360,41 @@ func (m *OpenLDAPMetrics) getAllMetrics() []prometheus.Collector {
 		m.ThreadsStarting,
 		m.ThreadsPending,
 		m.ThreadsState,
-		
+
 		// Operation metrics
 		m.OperationsInitiated,
 		m.OperationsCompleted,
-		
+
 		// Waiter metrics
 		m.WaitersRead,
 		m.WaitersWrite,
-		
+
 		// Overlay metrics
 		m.OverlaysInfo,
-		
+
 		// Time metrics
 		m.ServerTime,
 		m.ServerUptime,
-		
+
 		// TLS metrics
 		m.TlsInfo,
-		
+
 		// Backend metrics
 		m.BackendsInfo,
-		
+
 		// Listener metrics
 		m.ListenersInfo,
-		
+
 		// Database metrics
 		m.DatabaseEntries,
 		m.DatabaseInfo,
-		
+
 		// System health metrics
 		m.HealthStatus,
 		m.ResponseTime,
 		m.ScrapeErrors,
 		m.Up,
-		
+
 		// Additional metrics
 		m.ServerInfo,
 		m.LogLevels,

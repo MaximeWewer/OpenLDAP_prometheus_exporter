@@ -45,25 +45,25 @@ type collectionTask struct {
 
 // OpenLDAPExporter implements the Prometheus collector interface for OpenLDAP metrics
 type OpenLDAPExporter struct {
-	client           *pool.PooledLDAPClient
-	metricsRegistry  *metrics.OpenLDAPMetrics
-	config           *config.Config
-	monitoring       *monitoring.InternalMonitoring
-	counterValues    map[string]*sync.Map // Per-server counter tracking
-	counterMutex     sync.RWMutex         // Protects counterValues map
-	stopChan         chan struct{}        // Signal to stop background goroutines
-	stopped          int32                // Atomic flag to indicate if exporter is stopped
-	closeOnce        sync.Once            // Ensures Close() is called only once
-	totalScrapes     atomicFloat64
-	totalErrors      atomicFloat64
-	lastScrapeTime   atomicFloat64
+	client          *pool.PooledLDAPClient
+	metricsRegistry *metrics.OpenLDAPMetrics
+	config          *config.Config
+	monitoring      *monitoring.InternalMonitoring
+	counterValues   map[string]*sync.Map // Per-server counter tracking
+	counterMutex    sync.RWMutex         // Protects counterValues map
+	stopChan        chan struct{}        // Signal to stop background goroutines
+	stopped         int32                // Atomic flag to indicate if exporter is stopped
+	closeOnce       sync.Once            // Ensures Close() is called only once
+	totalScrapes    atomicFloat64
+	totalErrors     atomicFloat64
+	lastScrapeTime  atomicFloat64
 }
 
 // NewOpenLDAPExporter creates a new OpenLDAP exporter with the given configuration
 func NewOpenLDAPExporter(cfg *config.Config) *OpenLDAPExporter {
 	// Create internal monitoring first
 	internalMonitoring := monitoring.NewInternalMonitoring()
-	
+
 	// Initialize metrics with zero values for the server
 	internalMonitoring.InitializeMetricsForServer(cfg.ServerName)
 
@@ -144,7 +144,6 @@ func (e *OpenLDAPExporter) GetInternalMonitoring() *monitoring.InternalMonitorin
 func (e *OpenLDAPExporter) GetConfig() *config.Config {
 	return e.config
 }
-
 
 // Describe sends metric descriptions to Prometheus
 func (e *OpenLDAPExporter) Describe(ch chan<- *prometheus.Desc) {

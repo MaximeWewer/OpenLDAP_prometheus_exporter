@@ -9,7 +9,7 @@ import (
 
 // Test configuration constants
 const (
-	testURL = "ldap://test.example.com:389"
+	testURL      = "ldap://test.example.com:389"
 	testUsername = "testuser"
 	testPassword = "testpass"
 )
@@ -20,12 +20,12 @@ func setupTestEnvironment(additionalVars map[string]string) func() {
 	os.Setenv("LDAP_URL", testURL)
 	os.Setenv("LDAP_USERNAME", testUsername)
 	os.Setenv("LDAP_PASSWORD", testPassword)
-	
+
 	// Set additional variables
 	for key, value := range additionalVars {
 		os.Setenv(key, value)
 	}
-	
+
 	// Return cleanup function
 	return func() {
 		os.Unsetenv("LDAP_URL")
@@ -39,13 +39,13 @@ func setupTestEnvironment(additionalVars map[string]string) func() {
 
 func createTestConfig(t *testing.T, additionalVars map[string]string) (*Config, func()) {
 	cleanup := setupTestEnvironment(additionalVars)
-	
+
 	config, err := LoadConfig()
 	if err != nil {
 		cleanup()
 		t.Fatalf("Failed to load config: %v", err)
 	}
-	
+
 	return config, func() {
 		config.Clear()
 		cleanup()
@@ -141,10 +141,10 @@ func TestConfigurationValidation(t *testing.T) {
 // TestEnvironmentVariablesParsing tests environment variables parsing
 func TestEnvironmentVariablesParsing(t *testing.T) {
 	additionalVars := map[string]string{
-		"LDAP_TIMEOUT":     "30",
+		"LDAP_TIMEOUT":      "30",
 		"LDAP_UPDATE_EVERY": "45",
 	}
-	
+
 	config, cleanup := createTestConfig(t, additionalVars)
 	defer cleanup()
 
@@ -381,53 +381,53 @@ func TestInvalidMetricsLists(t *testing.T) {
 // TestTimeoutBoundaryValues tests timeout validation edge cases
 func TestTimeoutBoundaryValues(t *testing.T) {
 	tests := []struct {
-		name                 string
-		timeoutValue         string
-		updateEveryValue     string
-		expectedTimeout      time.Duration
-		expectedUpdateEvery  time.Duration
+		name                string
+		timeoutValue        string
+		updateEveryValue    string
+		expectedTimeout     time.Duration
+		expectedUpdateEvery time.Duration
 	}{
 		{
-			name:                 "Zero timeout",
-			timeoutValue:         "0",
-			updateEveryValue:     "15",
-			expectedTimeout:      10 * time.Second, // Should use default
-			expectedUpdateEvery:  15 * time.Second,
+			name:                "Zero timeout",
+			timeoutValue:        "0",
+			updateEveryValue:    "15",
+			expectedTimeout:     10 * time.Second, // Should use default
+			expectedUpdateEvery: 15 * time.Second,
 		},
 		{
-			name:                 "Negative timeout", 
-			timeoutValue:         "-5",
-			updateEveryValue:     "15",
-			expectedTimeout:      10 * time.Second, // Should use default
-			expectedUpdateEvery:  15 * time.Second,
+			name:                "Negative timeout",
+			timeoutValue:        "-5",
+			updateEveryValue:    "15",
+			expectedTimeout:     10 * time.Second, // Should use default
+			expectedUpdateEvery: 15 * time.Second,
 		},
 		{
-			name:                 "Very high timeout",
-			timeoutValue:         "600", // 10 minutes
-			updateEveryValue:     "15",
-			expectedTimeout:      5 * time.Minute, // Should be capped at 5 minutes
-			expectedUpdateEvery:  15 * time.Second,
+			name:                "Very high timeout",
+			timeoutValue:        "600", // 10 minutes
+			updateEveryValue:    "15",
+			expectedTimeout:     5 * time.Minute, // Should be capped at 5 minutes
+			expectedUpdateEvery: 15 * time.Second,
 		},
 		{
-			name:                 "Zero update_every",
-			timeoutValue:         "10",
-			updateEveryValue:     "0",
-			expectedTimeout:      10 * time.Second,
-			expectedUpdateEvery:  15 * time.Second, // Should use default
+			name:                "Zero update_every",
+			timeoutValue:        "10",
+			updateEveryValue:    "0",
+			expectedTimeout:     10 * time.Second,
+			expectedUpdateEvery: 15 * time.Second, // Should use default
 		},
 		{
-			name:                 "Very low update_every",
-			timeoutValue:         "10",
-			updateEveryValue:     "3",
-			expectedTimeout:      10 * time.Second,
-			expectedUpdateEvery:  5 * time.Second, // Should be capped at minimum
+			name:                "Very low update_every",
+			timeoutValue:        "10",
+			updateEveryValue:    "3",
+			expectedTimeout:     10 * time.Second,
+			expectedUpdateEvery: 5 * time.Second, // Should be capped at minimum
 		},
 		{
-			name:                 "Very high update_every",
-			timeoutValue:         "10",
-			updateEveryValue:     "700", // ~11.7 minutes
-			expectedTimeout:      10 * time.Second,
-			expectedUpdateEvery:  10 * time.Minute, // Should be capped at 10 minutes
+			name:                "Very high update_every",
+			timeoutValue:        "10",
+			updateEveryValue:    "700", // ~11.7 minutes
+			expectedTimeout:     10 * time.Second,
+			expectedUpdateEvery: 10 * time.Minute, // Should be capped at 10 minutes
 		},
 	}
 
@@ -466,7 +466,7 @@ func TestTimeoutBoundaryValues(t *testing.T) {
 // TestLongServerName tests server name length validation
 func TestLongServerName(t *testing.T) {
 	longName := strings.Repeat("a", 200) // Longer than 128 characters
-	
+
 	os.Setenv("LDAP_URL", "ldap://test.example.com:389")
 	os.Setenv("LDAP_USERNAME", "testuser")
 	os.Setenv("LDAP_PASSWORD", "testpass")
@@ -488,7 +488,7 @@ func TestLongServerName(t *testing.T) {
 	if len(config.ServerName) != 128 {
 		t.Errorf("Expected server name to be truncated to 128 characters, got %d", len(config.ServerName))
 	}
-	
+
 	expectedName := longName[:128]
 	if config.ServerName != expectedName {
 		t.Errorf("Server name not properly truncated")

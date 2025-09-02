@@ -46,7 +46,7 @@ type Config struct {
 	// DC filtering options
 	DCInclude []string // Only monitor these domain components
 	DCExclude []string // Exclude these domain components from monitoring
-	
+
 	// Rate limiting options
 	RateLimitEnabled bool // Enable/disable rate limiting (RATE_LIMIT_ENABLED)
 }
@@ -143,7 +143,7 @@ func LoadConfig() (*Config, error) {
 	// Load DC filtering configuration
 	config.DCInclude = parseMetricsList(getEnvOrDefault("OPENLDAP_DC_INCLUDE", ""))
 	config.DCExclude = parseMetricsList(getEnvOrDefault("OPENLDAP_DC_EXCLUDE", ""))
-	
+
 	// Load rate limiting configuration
 	config.RateLimitEnabled = getEnvBoolOrDefault("RATE_LIMIT_ENABLED", true)
 

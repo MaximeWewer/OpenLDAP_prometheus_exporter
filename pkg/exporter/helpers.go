@@ -17,7 +17,7 @@ import (
 const (
 	// Maximum allowed key length for counter entries
 	MaxKeyLength = 512
-	
+
 	// Jitter calculation constants
 	JitterOffset     = 0.5
 	JitterMultiplier = 2.0
@@ -220,17 +220,17 @@ func extractCNFromFirstComponent(dn string) string {
 	if !strings.Contains(dn, "cn=") {
 		return ""
 	}
-	
+
 	parts := strings.Split(dn, ",")
 	if len(parts) == 0 {
 		return ""
 	}
-	
+
 	cnPart := parts[0]
 	if strings.HasPrefix(cnPart, "cn=") {
 		return strings.TrimPrefix(cnPart, "cn=")
 	}
-	
+
 	return ""
 }
 
@@ -302,13 +302,13 @@ func (e *OpenLDAPExporter) getMonitorGroup(baseDN string) (map[string]float64, e
 	}
 
 	counters := make(map[string]float64)
-	
+
 	for _, entry := range result.Entries {
 		cnValue := extractCNFromFirstComponent(entry.DN)
 		if cnValue == "" {
 			continue
 		}
-		
+
 		// Get the counter value from either monitorCounter or monitoredInfo
 		for _, attr := range entry.Attributes {
 			if (attr.Name == "monitorCounter" || attr.Name == "monitoredInfo") && len(attr.Values) > 0 {

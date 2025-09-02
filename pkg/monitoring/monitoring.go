@@ -16,17 +16,17 @@ const (
 	// Event tracking limits
 	MaxEvents = 1000
 	EventTTL  = 24 * time.Hour
-	
+
 	// Rate calculation window
 	RateWindow = 60 * time.Second
-	
+
 	// Placeholder for unknown client IP
 	UnknownClientIP = "unknown"
 )
 
 // Histogram bucket definitions
 var (
-	DefaultLatencyBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5}
+	DefaultLatencyBuckets  = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5}
 	ExtendedLatencyBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 	ConnectionAgeBuckets   = []float64{1, 5, 10, 30, 60, 300, 600, 1800, 3600}
 	ConnectionIdleBuckets  = []float64{0.1, 0.5, 1, 5, 10, 30, 60, 300}
@@ -90,11 +90,11 @@ type InternalMonitoring struct {
 
 // EventCounter tracks events over time with cleanup capability
 type EventCounter struct {
-	Count     int64
-	LastEvent time.Time
+	Count      int64
+	LastEvent  time.Time
 	FirstEvent time.Time
-	Rate      float64 // Events per second
-	mutex     sync.RWMutex
+	Rate       float64 // Events per second
+	mutex      sync.RWMutex
 }
 
 // SystemStats holds system-level metrics data
@@ -713,7 +713,7 @@ func (im *InternalMonitoring) RegisterMetrics(registry *prometheus.Registry) err
 	}
 
 	var (
-		firstError                   error
+		firstError                 error
 		successCount, failureCount int
 	)
 
@@ -745,36 +745,36 @@ func (im *InternalMonitoring) RegisterMetrics(registry *prometheus.Registry) err
 // This ensures metrics appear in Prometheus even before any events occur
 func (im *InternalMonitoring) InitializeMetricsForServer(serverName string) {
 	const poolType = "ldap"
-	
+
 	// Initialize pool lifecycle metrics
 	im.poolConnectionsClosed.WithLabelValues(serverName, poolType, "normal").Add(0)
 	im.poolConnectionsClosed.WithLabelValues(serverName, poolType, "timeout").Add(0)
 	im.poolConnectionsClosed.WithLabelValues(serverName, poolType, "error").Add(0)
 	im.poolConnectionsClosed.WithLabelValues(serverName, poolType, "shutdown").Add(0)
-	
+
 	im.poolConnectionsFailed.WithLabelValues(serverName, poolType, "network_error").Add(0)
 	im.poolConnectionsFailed.WithLabelValues(serverName, poolType, "auth_error").Add(0)
-	
+
 	// Initialize pool operation metrics
 	im.poolGetFailures.WithLabelValues(serverName, poolType, "timeout").Add(0)
 	im.poolGetFailures.WithLabelValues(serverName, poolType, "creation_failed").Add(0)
 	im.poolGetFailures.WithLabelValues(serverName, poolType, "max_attempts").Add(0)
-	
+
 	im.poolPutRejections.WithLabelValues(serverName, poolType, "invalid_connection").Add(0)
 	im.poolPutRejections.WithLabelValues(serverName, poolType, "pool_full").Add(0)
-	
+
 	// Initialize pool quality metrics
 	im.poolWaitTimeouts.WithLabelValues(serverName, poolType).Add(0)
-	
+
 	// Initialize pool health metrics
 	im.poolHealthChecks.WithLabelValues(serverName, poolType, "success").Add(0)
 	im.poolHealthChecks.WithLabelValues(serverName, poolType, "failure").Add(0)
 	im.poolHealthCheckFailures.WithLabelValues(serverName, poolType).Add(0)
-	
+
 	// Initialize circuit breaker metrics
 	im.circuitBreakerFailures.WithLabelValues(serverName).Add(0)
 	im.circuitBreakerRequests.WithLabelValues(serverName, "blocked").Add(0)
-	
+
 	// Initialize collection failure metrics
 	im.collectionFailures.WithLabelValues(serverName, "scrape").Add(0)
 	im.collectionFailures.WithLabelValues(serverName, "connections").Add(0)
@@ -782,13 +782,13 @@ func (im *InternalMonitoring) InitializeMetricsForServer(serverName string) {
 	im.collectionFailures.WithLabelValues(serverName, "operations").Add(0)
 	im.collectionFailures.WithLabelValues(serverName, "threads").Add(0)
 	im.collectionFailures.WithLabelValues(serverName, "health").Add(0)
-	
+
 	// Initialize rate limiting metrics for common endpoints
 	commonEndpoints := []string{"/metrics", "/health", "/internal/metrics"}
 	for _, endpoint := range commonEndpoints {
 		im.rateLimitBlocked.WithLabelValues(UnknownClientIP, endpoint).Add(0)
 	}
-	
+
 	logger.SafeDebug("monitoring", "Initialized metrics for server", map[string]interface{}{
 		"server": serverName,
 	})
@@ -799,18 +799,18 @@ func (im *InternalMonitoring) InitializeMetricsForServer(serverName string) {
 func (im *InternalMonitoring) cleanupOldEventsUnsafe() {
 	now := time.Now()
 	cleanedCount := 0
-	
+
 	for eventType, counter := range im.events {
 		counter.mutex.RLock()
 		age := now.Sub(counter.LastEvent)
 		counter.mutex.RUnlock()
-		
+
 		if age > EventTTL {
 			delete(im.events, eventType)
 			cleanedCount++
 		}
 	}
-	
+
 	if cleanedCount > 0 {
 		logger.SafeDebug("monitoring", "Cleaned up old events", map[string]interface{}{
 			"events_removed": cleanedCount,
@@ -825,4 +825,3 @@ func (im *InternalMonitoring) CleanupEvents() {
 	defer im.eventMutex.Unlock()
 	im.cleanupOldEventsUnsafe()
 }
-

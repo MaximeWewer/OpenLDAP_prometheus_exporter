@@ -11,7 +11,7 @@ import (
 
 // Error definitions for circuit breaker
 var (
-	ErrCircuitBreakerOpen = errors.New("circuit breaker is open")
+	ErrCircuitBreakerOpen  = errors.New("circuit breaker is open")
 	ErrFunctionCannotBeNil = errors.New("function cannot be nil")
 )
 
@@ -152,7 +152,7 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 func (cb *CircuitBreaker) checkCanExecute() error {
 	cb.mutex.Lock()
 	defer cb.mutex.Unlock()
-	
+
 	cb.totalRequests++
 
 	if !cb.canExecuteUnsafe() {

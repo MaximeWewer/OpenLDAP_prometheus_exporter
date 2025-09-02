@@ -9,10 +9,10 @@ import (
 
 // Test configuration constants
 const (
-	testMaxFailures = 2
-	testTimeout = 1 * time.Second
-	testShortTimeout = 5 * time.Millisecond
-	testLongTimeout = 10 * time.Millisecond
+	testMaxFailures     = 2
+	testTimeout         = 1 * time.Second
+	testShortTimeout    = 5 * time.Millisecond
+	testLongTimeout     = 10 * time.Millisecond
 	testCallbackTimeout = 100 * time.Millisecond
 )
 

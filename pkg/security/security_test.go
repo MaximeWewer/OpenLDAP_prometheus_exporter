@@ -306,7 +306,7 @@ func TestCleanupClients(t *testing.T) {
 	// Use reflection to call the private cleanupClients method
 	v := reflect.ValueOf(rateLimiter)
 	method := v.MethodByName("cleanupClients")
-	
+
 	// Check if method exists (it might be unexported)
 	if !method.IsValid() {
 		// Try to access unexported method
@@ -331,7 +331,7 @@ func TestCleanupClients(t *testing.T) {
 	if method.IsValid() && method.Type().NumIn() == 0 {
 		// Call cleanupClients
 		method.Call(nil)
-		
+
 		// Verify that the cleanup was successful (rate limiter should still work)
 		if !rateLimiter.Allow("192.168.1.4") {
 			t.Error("Rate limiter should still work after cleanup")
@@ -454,7 +454,7 @@ func TestGetClientIPAddresses(t *testing.T) {
 // TestRateLimiterBucketNotCreated tests the branch where bucket doesn't exist
 func TestRateLimiterBucketNotCreated(t *testing.T) {
 	rateLimiter := NewRateLimiter(1, 1)
-	
+
 	// First call should create bucket
 	if !rateLimiter.Allow("192.168.1.1") {
 		t.Error("First call should be allowed and create bucket")
@@ -466,22 +466,22 @@ func TestCleanupClientsDirectCall(t *testing.T) {
 	// This is tricky since cleanupClients is private
 	// We'll test it indirectly by creating many clients and letting cleanup run
 	rateLimiter := NewRateLimiter(100, 10)
-	
+
 	// Create many clients to trigger cleanup conditions
 	for i := 0; i < 100; i++ {
 		ip := "192.168.1." + string(rune(i))
 		rateLimiter.Allow(ip)
 	}
-	
+
 	// Use reflection to call cleanupClients if possible
 	v := reflect.ValueOf(rateLimiter).Elem()
 	cleanupMethod := v.MethodByName("cleanupClients")
-	
+
 	if cleanupMethod.IsValid() && cleanupMethod.CanInterface() {
 		// Call the cleanup method
 		cleanupMethod.Call(nil)
 	}
-	
+
 	// Test that the rate limiter still works after cleanup
 	if !rateLimiter.Allow("192.168.1.200") {
 		t.Error("Rate limiter should still work after cleanup")
@@ -502,7 +502,7 @@ func TestValidateLDAPDNEdgeCases(t *testing.T) {
 		},
 		{
 			name:     "DN with invalid escaping",
-			dn:       "cn=test\\invalid,ou=users", 
+			dn:       "cn=test\\invalid,ou=users",
 			expected: true, // Actually allowed - validation is basic
 		},
 		{
@@ -582,7 +582,7 @@ func TestValidateLDAPAttributeEdgeCases(t *testing.T) {
 		},
 		{
 			name:      "Valid wildcard *",
-			attribute: "*", 
+			attribute: "*",
 			expected:  false, // Based on regex, this should fail
 		},
 	}
@@ -723,4 +723,3 @@ func TestGetClientIPEdgeCases(t *testing.T) {
 		})
 	}
 }
-

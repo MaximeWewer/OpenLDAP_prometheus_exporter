@@ -15,11 +15,11 @@ import (
 
 // Test configuration constants
 const (
-	testTimeout = 30 * time.Second
-	testShortTimeout = 1 * time.Millisecond
-	testIdleTimeout = 5 * time.Minute
-	testMaxIdleTime = 10 * time.Minute
-	testMaxConnections = 5
+	testTimeout             = 30 * time.Second
+	testShortTimeout        = 1 * time.Millisecond
+	testIdleTimeout         = 5 * time.Minute
+	testMaxIdleTime         = 10 * time.Minute
+	testMaxConnections      = 5
 	testSmallMaxConnections = 2
 )
 
@@ -32,7 +32,6 @@ func createTestPoolWithCleanup(t *testing.T, maxConnections int) (*ConnectionPoo
 		cleanup()
 	}
 }
-
 
 // newTestConnectionPool creates a connection pool without maintenance goroutine for testing
 func newTestConnectionPool(cfg *config.Config, maxConnections int) *ConnectionPool {
@@ -110,8 +109,6 @@ func TestPoolGet(t *testing.T) {
 
 	pool := NewConnectionPool(cfg, 2)
 	defer pool.Close()
-
-	ctx := context.Background()
 
 	// Test getting connection (will fail quickly with static config)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
@@ -1323,7 +1320,6 @@ func TestPoolGetRetryLogic(t *testing.T) {
 	t.Logf("Pool size after Get: %d (was %d)", finalPoolSize, initialPoolSize)
 }
 
-
 // TestNewConnectionPoolWithMetrics tests pool creation with metrics (deprecated function)
 func TestNewConnectionPoolWithMetrics(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
@@ -1452,8 +1448,8 @@ func TestConnectionValidationDetail(t *testing.T) {
 		expectValid bool
 	}{
 		{
-			name: "nil_connection",
-			conn: nil,
+			name:        "nil_connection",
+			conn:        nil,
 			expectValid: false,
 		},
 		{
@@ -1510,7 +1506,7 @@ func TestConnectionValidationDetail(t *testing.T) {
 				tc.conn.mutex.Lock()
 				lockedResult := pool.isConnectionValidLocked(tc.conn)
 				tc.conn.mutex.Unlock()
-				
+
 				if lockedResult != tc.expectValid {
 					t.Errorf("Expected %v for locked version of %s, got %v", tc.expectValid, tc.name, lockedResult)
 				}
@@ -1519,16 +1515,14 @@ func TestConnectionValidationDetail(t *testing.T) {
 	}
 }
 
-
-
 // TestIsConnectionValidLockedComprehensive tests connection validation with locking
 func TestIsConnectionValidLockedComprehensive(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	pool := newTestConnectionPool(cfg, 2)
 	defer pool.Close()
-	
+
 	tests := []struct {
 		name     string
 		setup    func() *PooledConnection
@@ -1571,17 +1565,17 @@ func TestIsConnectionValidLockedComprehensive(t *testing.T) {
 			expected: false, // Should be false when too old
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			conn := tt.setup()
-			
+
 			// Test both versions of validation
 			validUnlocked := pool.isConnectionValid(conn)
 			validLocked := pool.isConnectionValidLocked(conn)
-			
+
 			t.Logf("Connection valid (unlocked): %v, (locked): %v", validUnlocked, validLocked)
-			
+
 			// In static environment, both should typically be false
 			if validUnlocked != validLocked {
 				t.Logf("Validation results differ between locked/unlocked versions")
@@ -1594,53 +1588,53 @@ func TestIsConnectionValidLockedComprehensive(t *testing.T) {
 func TestMaintainConnectionsLifecycle(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	// Create pool (maintenance goroutine starts automatically)
 	pool := NewConnectionPool(cfg, 2)
-	
+
 	// Verify maintenance goroutine is tracked
 	if pool.shutdownChan == nil {
 		t.Error("Shutdown channel should be initialized")
 	}
-	
+
 	// Give some time for maintenance goroutine to start
 	time.Sleep(10 * time.Millisecond)
-	
+
 	// Close the pool (should shut down maintenance goroutine gracefully)
 	start := time.Now()
 	pool.Close()
 	elapsed := time.Since(start)
-	
+
 	// Verify pool is closed
 	if atomic.LoadInt32(&pool.closed) == 0 {
 		t.Error("Pool should be marked as closed")
 	}
-	
+
 	// Close should complete reasonably quickly
 	if elapsed > 5*time.Second {
 		t.Errorf("Pool close took too long: %v", elapsed)
 	}
-	
+
 	t.Logf("Pool closed in %v", elapsed)
 }
 
-// TestGetConnectionRetryLogic tests Get method retry mechanisms  
+// TestGetConnectionRetryLogic tests Get method retry mechanisms
 func TestGetConnectionRetryLogic(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	pool := newTestConnectionPool(cfg, 1) // Small pool for testing
 	defer pool.Close()
-	
+
 	// Test with immediate timeout to trigger timeout path
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 	defer cancel()
-	
+
 	// Wait for context to expire
 	time.Sleep(1 * time.Millisecond)
-	
+
 	conn, err := pool.Get(ctx)
-	
+
 	// Should get timeout or context error
 	if err == nil {
 		if conn != nil {
@@ -1656,7 +1650,7 @@ func TestGetConnectionRetryLogic(t *testing.T) {
 func TestEstablishConnectionComprehensive(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	tests := []struct {
 		name      string
 		setupCfg  func(*config.Config)
@@ -1695,17 +1689,17 @@ func TestEstablishConnectionComprehensive(t *testing.T) {
 			expectErr: true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testCfg := *cfg // Copy config
 			tt.setupCfg(&testCfg)
-			
+
 			pool := newTestConnectionPool(&testCfg, 2)
 			defer pool.Close()
-			
+
 			conn, err := pool.establishConnection()
-			
+
 			if tt.expectErr {
 				if err == nil {
 					if conn != nil {
@@ -1731,13 +1725,13 @@ func TestEstablishConnectionComprehensive(t *testing.T) {
 func TestCreateConnectionComprehensive(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	pool := newTestConnectionPool(cfg, 2)
 	defer pool.Close()
-	
+
 	// Track metrics before and after
 	initialActiveConns := atomic.LoadInt64(&pool.activeConns)
-	
+
 	// Test connection creation
 	conn, err := pool.createConnection()
 	if err != nil {
@@ -1768,7 +1762,7 @@ func TestCreateConnectionComprehensive(t *testing.T) {
 func TestMaintainConnectionsAdvanced(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	// Create pool without automatic maintenance
 	pool := &ConnectionPool{
 		config:         cfg,
@@ -1779,7 +1773,7 @@ func TestMaintainConnectionsAdvanced(t *testing.T) {
 		maxIdleTime:    200 * time.Millisecond, // Short for testing
 		shutdownChan:   make(chan struct{}),
 	}
-	
+
 	// Add an old connection to the pool
 	oldConn := &PooledConnection{
 		conn:      nil,
@@ -1787,14 +1781,14 @@ func TestMaintainConnectionsAdvanced(t *testing.T) {
 		lastUsed:  time.Now().Add(-1 * time.Hour), // Very old
 		inUse:     false,
 	}
-	
+
 	select {
 	case pool.pool <- oldConn:
 		atomic.AddInt64(&pool.poolSize, 1)
 	default:
 		t.Fatal("Failed to add test connection to pool")
 	}
-	
+
 	// Start maintenance in controlled manner
 	pool.maintainWG.Add(1)
 	go func() {
@@ -1808,20 +1802,20 @@ func TestMaintainConnectionsAdvanced(t *testing.T) {
 			// In real implementation, this is done in maintainConnections
 		}
 	}()
-	
+
 	// Give maintenance time to run
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Signal shutdown
 	close(pool.shutdownChan)
-	
+
 	// Wait for maintenance to complete
 	done := make(chan struct{})
 	go func() {
 		pool.maintainWG.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		t.Log("Maintenance goroutine shut down successfully")
@@ -1834,10 +1828,10 @@ func TestMaintainConnectionsAdvanced(t *testing.T) {
 func TestPingConnectionAdvanced(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	pool := newTestConnectionPool(cfg, 2)
 	defer pool.Close()
-	
+
 	tests := []struct {
 		name     string
 		conn     *PooledConnection
@@ -1869,7 +1863,7 @@ func TestPingConnectionAdvanced(t *testing.T) {
 			expected: false, // Will be false due to nil conn
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := pool.pingConnection(tt.conn)
@@ -1884,13 +1878,13 @@ func TestPingConnectionAdvanced(t *testing.T) {
 func TestIsConnectionValidAdvanced(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	pool := newTestConnectionPool(cfg, 2)
 	defer pool.Close()
-	
+
 	// Test time boundaries
 	now := time.Now()
-	
+
 	tests := []struct {
 		name     string
 		conn     *PooledConnection
@@ -1942,20 +1936,20 @@ func TestIsConnectionValidAdvanced(t *testing.T) {
 			expected: false, // False due to nil conn
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := pool.isConnectionValid(tt.conn)
 			if result != tt.expected {
 				t.Errorf("isConnectionValid() = %v, want %v", result, tt.expected)
 			}
-			
+
 			// Also test locked version
 			if tt.conn != nil {
 				tt.conn.mutex.Lock()
 				resultLocked := pool.isConnectionValidLocked(tt.conn)
 				tt.conn.mutex.Unlock()
-				
+
 				if resultLocked != tt.expected {
 					t.Errorf("isConnectionValidLocked() = %v, want %v", resultLocked, tt.expected)
 				}
@@ -1968,13 +1962,13 @@ func TestIsConnectionValidAdvanced(t *testing.T) {
 func TestCloseConnectionAdvanced(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	pool := newTestConnectionPool(cfg, 2)
 	defer pool.Close()
-	
+
 	// Test closing nil connection
 	pool.closeConnection(nil)
-	
+
 	// Test closing connection with nil conn field
 	pooledConn := &PooledConnection{
 		conn:      nil,
@@ -1988,10 +1982,10 @@ func TestCloseConnectionAdvanced(t *testing.T) {
 func TestConnectionMethodsCoverage(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	pool := newTestConnectionPool(cfg, 2)
 	defer pool.Close()
-	
+
 	// Test ping connection method
 	t.Run("ping_connection", func(t *testing.T) {
 		conn := &PooledConnection{
@@ -2000,7 +1994,7 @@ func TestConnectionMethodsCoverage(t *testing.T) {
 			lastUsed:  time.Now(),
 			inUse:     false,
 		}
-		
+
 		result := pool.pingConnection(conn)
 		if !result {
 			t.Log("Expected ping failure in static test")
@@ -2008,8 +2002,8 @@ func TestConnectionMethodsCoverage(t *testing.T) {
 			t.Log("Ping succeeded unexpectedly")
 		}
 	})
-	
-	// Test close connection method  
+
+	// Test close connection method
 	t.Run("close_connection", func(t *testing.T) {
 		conn := &PooledConnection{
 			conn:      nil,
@@ -2017,11 +2011,11 @@ func TestConnectionMethodsCoverage(t *testing.T) {
 			lastUsed:  time.Now(),
 			inUse:     false,
 		}
-		
+
 		pool.closeConnection(conn)
 		t.Log("Close connection method executed")
 	})
-	
+
 	// Test establish connection method
 	t.Run("establish_connection", func(t *testing.T) {
 		conn, err := pool.establishConnection()
@@ -2033,7 +2027,7 @@ func TestConnectionMethodsCoverage(t *testing.T) {
 			conn.Close()
 		}
 	})
-	
+
 	// Test create connection method
 	t.Run("create_connection", func(t *testing.T) {
 		conn, err := pool.createConnection()
@@ -2045,7 +2039,7 @@ func TestConnectionMethodsCoverage(t *testing.T) {
 			pool.closeConnection(conn)
 		}
 	})
-	
+
 	// Test build TLS config method
 	t.Run("build_tls_config", func(t *testing.T) {
 		// Test with TLS enabled
@@ -2056,7 +2050,7 @@ func TestConnectionMethodsCoverage(t *testing.T) {
 		} else {
 			t.Logf("TLS config built successfully: %v", tlsConfig != nil)
 		}
-		
+
 		// Test with TLS disabled
 		cfg.TLS = false
 		tlsConfig, err = pool.buildTLSConfig()
@@ -2073,7 +2067,7 @@ func TestConnectionMethodsCoverage(t *testing.T) {
 func TestMaintainConnectionsComprehensive(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	// Test different scenarios for connection maintenance
 	tests := []struct {
 		name        string
@@ -2088,7 +2082,7 @@ func TestMaintainConnectionsComprehensive(t *testing.T) {
 			description: "Test maintenance with minimal pool",
 		},
 		{
-			name:        "medium_pool", 
+			name:        "medium_pool",
 			maxConns:    3,
 			testTimeout: 150 * time.Millisecond,
 			description: "Test maintenance with medium pool",
@@ -2100,22 +2094,22 @@ func TestMaintainConnectionsComprehensive(t *testing.T) {
 			description: "Test maintenance with larger pool",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pool := NewConnectionPool(cfg, tt.maxConns)
 			defer pool.Close()
-			
+
 			// Allow maintenance goroutine to start
 			time.Sleep(10 * time.Millisecond)
-			
+
 			// Test that maintenance goroutine is running
 			// (it should handle shutdown signals properly)
 			t.Logf("Testing %s: %s", tt.name, tt.description)
-			
+
 			// Wait for a short period to let maintenance potentially run
 			time.Sleep(tt.testTimeout)
-			
+
 			// Verify pool can still be closed properly (tests maintenance cleanup)
 			// The maintenance goroutine should exit cleanly
 		})
@@ -2126,18 +2120,18 @@ func TestMaintainConnectionsComprehensive(t *testing.T) {
 func TestMaintainConnectionsShutdownHandling(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	pool := NewConnectionPool(cfg, 2)
-	
+
 	// Give maintenance goroutine time to start
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Close the pool - this should signal shutdown to maintenance goroutine
 	pool.Close()
-	
+
 	// Give time for cleanup
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Verify maintenance goroutine has stopped by ensuring close completed
 	t.Log("Maintenance goroutine should have stopped on shutdown signal")
 }
@@ -2146,16 +2140,16 @@ func TestMaintainConnectionsShutdownHandling(t *testing.T) {
 func TestMaintainConnectionsTickerHandling(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	// Create pool and let it initialize
 	pool := NewConnectionPool(cfg, 5)
 	defer pool.Close()
-	
+
 	// Wait for maintenance to potentially run once
 	// Note: In real usage, maintenance runs every minute, but in tests
 	// we just verify the goroutine is properly set up
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Test that the pool is still functional after maintenance initialization
 	ctx := context.Background()
 	conn, err := pool.Get(ctx)
@@ -2173,10 +2167,10 @@ func TestMaintainConnectionsTickerHandling(t *testing.T) {
 func TestMaintainConnectionsContextTimeout(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	pool := NewConnectionPool(cfg, 3)
 	defer pool.Close()
-	
+
 	// Add some mock connections to test cleanup logic
 	mockConn1 := &PooledConnection{
 		conn:      nil,
@@ -2184,20 +2178,20 @@ func TestMaintainConnectionsContextTimeout(t *testing.T) {
 		lastUsed:  time.Now().Add(-2 * time.Hour),
 		inUse:     false,
 	}
-	
+
 	mockConn2 := &PooledConnection{
 		conn:      nil,
 		createdAt: time.Now(),
 		lastUsed:  time.Now(),
 		inUse:     false,
 	}
-	
+
 	// In a real scenario, these would be added to the pool's connection channel
 	// Here we just verify the structs can be created (tests struct initialization)
 	if mockConn1.createdAt.Before(mockConn2.createdAt) {
 		t.Log("Mock connection age verification successful")
 	}
-	
+
 	// Test maintenance can handle different connection states
 	t.Log("Connection maintenance logic structure verified")
 }
@@ -2206,10 +2200,10 @@ func TestMaintainConnectionsContextTimeout(t *testing.T) {
 func TestMaintainConnectionsValidConnection(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	pool := NewConnectionPool(cfg, 2)
 	defer pool.Close()
-	
+
 	// Create connections with different validity states
 	validConn := &PooledConnection{
 		conn:      nil,
@@ -2217,28 +2211,28 @@ func TestMaintainConnectionsValidConnection(t *testing.T) {
 		lastUsed:  time.Now(),
 		inUse:     false,
 	}
-	
+
 	invalidConn := &PooledConnection{
 		conn:      nil,
 		createdAt: time.Now().Add(-25 * time.Hour), // Older than max idle time
 		lastUsed:  time.Now().Add(-25 * time.Hour),
 		inUse:     false,
 	}
-	
+
 	// Test the validation logic that maintenance uses
 	// In maintenance, connections older than maxIdleTime are removed
 	maxIdleTime := 24 * time.Hour
-	
+
 	validAge := time.Since(validConn.createdAt) < maxIdleTime
 	invalidAge := time.Since(invalidConn.createdAt) >= maxIdleTime
-	
+
 	if !validAge {
 		t.Error("Valid connection should be within max idle time")
 	}
 	if !invalidAge {
-		t.Error("Invalid connection should exceed max idle time") 
+		t.Error("Invalid connection should exceed max idle time")
 	}
-	
+
 	t.Log("Connection age validation logic tested successfully")
 }
 
@@ -2246,40 +2240,40 @@ func TestMaintainConnectionsValidConnection(t *testing.T) {
 func TestMaintainConnectionsPoolClosedCheck(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	pool := NewConnectionPool(cfg, 1)
-	
+
 	// Let maintenance start
 	time.Sleep(25 * time.Millisecond)
-	
+
 	// Close the pool - this should set the closed flag
 	pool.Close()
-	
+
 	// Give maintenance time to detect the closed state and exit
 	time.Sleep(25 * time.Millisecond)
-	
+
 	// Verify the pool is actually closed
 	// Check closed state using atomic operation
-	
+
 	if atomic.LoadInt32(&pool.closed) == 0 {
 		t.Error("Pool should be marked as closed")
 	}
-	
+
 	t.Log("Pool closed state detection tested successfully")
 }
 
-// TestMaintainConnectionsDrainLogic tests the pool draining logic  
+// TestMaintainConnectionsDrainLogic tests the pool draining logic
 func TestMaintainConnectionsDrainLogic(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	pool := NewConnectionPool(cfg, 5)
 	defer pool.Close()
-	
+
 	// Test the conceptual draining logic that maintenance uses
 	// In real maintenance, connections are drained from the pool channel,
 	// validated, and valid ones are put back
-	
+
 	// Simulate different connection states for drain testing
 	connections := []*PooledConnection{
 		{
@@ -2301,12 +2295,12 @@ func TestMaintainConnectionsDrainLogic(t *testing.T) {
 			inUse:     true, // In use, should be handled differently
 		},
 	}
-	
+
 	// Test connection filtering logic (what maintenance does)
 	validConnections := 0
 	invalidConnections := 0
 	inUseConnections := 0
-	
+
 	maxIdleTime := 24 * time.Hour
 	for _, conn := range connections {
 		if conn.inUse {
@@ -2317,7 +2311,7 @@ func TestMaintainConnectionsDrainLogic(t *testing.T) {
 			invalidConnections++
 		}
 	}
-	
+
 	if validConnections != 1 {
 		t.Errorf("Expected 1 valid connection, got %d", validConnections)
 	}
@@ -2327,7 +2321,7 @@ func TestMaintainConnectionsDrainLogic(t *testing.T) {
 	if inUseConnections != 1 {
 		t.Errorf("Expected 1 in-use connection, got %d", inUseConnections)
 	}
-	
+
 	t.Log("Connection drain filtering logic tested successfully")
 }
 
@@ -2335,7 +2329,7 @@ func TestMaintainConnectionsDrainLogic(t *testing.T) {
 func TestMaintainConnectionsSelectLoop(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	// Test that we can create and close pool quickly
 	// This exercises the select loop's shutdown case
 	for i := 0; i < 3; i++ {
@@ -2344,7 +2338,7 @@ func TestMaintainConnectionsSelectLoop(t *testing.T) {
 		pool.Close()                      // Trigger shutdown case in select
 		time.Sleep(10 * time.Millisecond) // Let cleanup complete
 	}
-	
+
 	t.Log("Select loop shutdown behavior tested successfully")
 }
 
@@ -2352,44 +2346,43 @@ func TestMaintainConnectionsSelectLoop(t *testing.T) {
 func TestMaintainConnectionsWaitGroupHandling(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	// Create multiple pools to test waitgroup handling
 	pools := make([]*ConnectionPool, 3)
-	
+
 	// Start multiple maintenance routines
 	for i := 0; i < 3; i++ {
 		pools[i] = NewConnectionPool(cfg, 1)
 		time.Sleep(10 * time.Millisecond) // Let each maintenance start
 	}
-	
+
 	// Close all pools - each should properly signal its maintenance to stop
 	for i := 0; i < 3; i++ {
 		pools[i].Close()
 	}
-	
+
 	// Give time for all waitgroups to complete
 	time.Sleep(100 * time.Millisecond)
-	
+
 	t.Log("Waitgroup handling for multiple maintenance routines tested successfully")
 }
 
-
-// TestMaintainConnectionsConcurrentAccess tests concurrent access during maintenance  
+// TestMaintainConnectionsConcurrentAccess tests concurrent access during maintenance
 func TestMaintainConnectionsConcurrentAccess(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	pool := NewConnectionPool(cfg, 5)
 	defer pool.Close()
-	
+
 	// Start multiple goroutines trying to get/put connections
 	// while maintenance is potentially running
 	done := make(chan bool)
-	
+
 	for i := 0; i < 3; i++ {
 		go func(id int) {
 			defer func() { done <- true }()
-			
+
 			for j := 0; j < 5; j++ {
 				// Try to get connection
 				ctx := context.Background()
@@ -2406,11 +2399,11 @@ func TestMaintainConnectionsConcurrentAccess(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	// Wait for all goroutines to complete
 	for i := 0; i < 3; i++ {
 		<-done
 	}
-	
+
 	t.Log("Concurrent access during maintenance completed without deadlock")
 }

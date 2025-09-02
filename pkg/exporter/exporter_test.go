@@ -18,16 +18,16 @@ import (
 func setupTestConfig(t *testing.T) (*config.Config, func()) {
 	// Set up test environment
 	testEnvVars := map[string]string{
-		"LDAP_URL":      "ldap://127.0.0.1:1", // Use localhost:1 for immediate connection refused
-		"LDAP_USERNAME": "testuser",
-		"LDAP_PASSWORD": "testpass", 
-		"LDAP_TIMEOUT":  "1", // Very short timeout for tests (1 second)
-		"LDAP_CONNECTION_TIMEOUT": "1", // Connection timeout (1 second)
-		"LOG_LEVEL":     "ERROR", // Reduce noise in tests
-		"OPENLDAP_RETRY_MAX_ATTEMPTS": "1", // Only 1 attempt for faster test failure
-		"OPENLDAP_RETRY_INITIAL_DELAY": "100", // 100ms initial delay
-		"OPENLDAP_RETRY_MAX_DELAY": "100", // 100ms max delay
-		"POOL_INITIAL_CONNECTIONS": "0", // No initial connections
+		"LDAP_URL":                     "ldap://127.0.0.1:1", // Use localhost:1 for immediate connection refused
+		"LDAP_USERNAME":                "testuser",
+		"LDAP_PASSWORD":                "testpass",
+		"LDAP_TIMEOUT":                 "1",     // Very short timeout for tests (1 second)
+		"LDAP_CONNECTION_TIMEOUT":      "1",     // Connection timeout (1 second)
+		"LOG_LEVEL":                    "ERROR", // Reduce noise in tests
+		"OPENLDAP_RETRY_MAX_ATTEMPTS":  "1",     // Only 1 attempt for faster test failure
+		"OPENLDAP_RETRY_INITIAL_DELAY": "100",   // 100ms initial delay
+		"OPENLDAP_RETRY_MAX_DELAY":     "100",   // 100ms max delay
+		"POOL_INITIAL_CONNECTIONS":     "0",     // No initial connections
 	}
 
 	// Set environment variables
@@ -652,7 +652,7 @@ func TestConnectionErrors(t *testing.T) {
 	if exporter.config == nil {
 		t.Error("Exporter should have config even with invalid URL")
 	}
-	
+
 	if exporter.metricsRegistry == nil {
 		t.Error("Exporter should have metrics registry even with invalid URL")
 	}
@@ -1141,7 +1141,7 @@ func TestCleanupOldCountersSync(t *testing.T) {
 	t.Log("cleanupOldCountersSync completed without panic")
 }
 
-// TestEnsureConnectionEdgeCases tests ensureConnection method structure  
+// TestEnsureConnectionEdgeCases tests ensureConnection method structure
 func TestEnsureConnectionEdgeCases(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
@@ -1192,7 +1192,7 @@ func TestCollectAllMetricsIndividual(t *testing.T) {
 
 	for _, collectFunc := range collectFunctions {
 		t.Run(collectFunc.name, func(t *testing.T) {
-			// Test that each function exists and handles connection failures gracefully  
+			// Test that each function exists and handles connection failures gracefully
 			collectFunc.fn(server)
 			t.Logf("%s completed without panic", collectFunc.name)
 		})
@@ -1203,12 +1203,12 @@ func TestCollectAllMetricsIndividual(t *testing.T) {
 func TestMetricsFilteringInclude(t *testing.T) {
 	// Set up environment for INCLUDE filtering
 	testEnvVars := map[string]string{
-		"LDAP_URL":                    "ldap://127.0.0.1:1",
-		"LDAP_USERNAME":               "testuser",
-		"LDAP_PASSWORD":               "testpass",
-		"LOG_LEVEL":                   "ERROR",
-		"OPENLDAP_METRICS_INCLUDE":    "connections,statistics,health",
-		"OPENLDAP_METRICS_EXCLUDE":    "", // Should be ignored when INCLUDE is set
+		"LDAP_URL":                 "ldap://127.0.0.1:1",
+		"LDAP_USERNAME":            "testuser",
+		"LDAP_PASSWORD":            "testpass",
+		"LOG_LEVEL":                "ERROR",
+		"OPENLDAP_METRICS_INCLUDE": "connections,statistics,health",
+		"OPENLDAP_METRICS_EXCLUDE": "", // Should be ignored when INCLUDE is set
 	}
 
 	for key, value := range testEnvVars {
@@ -1264,12 +1264,12 @@ func TestMetricsFilteringInclude(t *testing.T) {
 func TestMetricsFilteringExclude(t *testing.T) {
 	// Set up environment for EXCLUDE filtering
 	testEnvVars := map[string]string{
-		"LDAP_URL":                    "ldap://127.0.0.1:1",
-		"LDAP_USERNAME":               "testuser",
-		"LDAP_PASSWORD":               "testpass",
-		"LOG_LEVEL":                   "ERROR",
-		"OPENLDAP_METRICS_INCLUDE":    "", // No include filter
-		"OPENLDAP_METRICS_EXCLUDE":    "overlays,tls,backends",
+		"LDAP_URL":                 "ldap://127.0.0.1:1",
+		"LDAP_USERNAME":            "testuser",
+		"LDAP_PASSWORD":            "testpass",
+		"LOG_LEVEL":                "ERROR",
+		"OPENLDAP_METRICS_INCLUDE": "", // No include filter
+		"OPENLDAP_METRICS_EXCLUDE": "overlays,tls,backends",
 	}
 
 	for key, value := range testEnvVars {
@@ -1325,12 +1325,12 @@ func TestMetricsFilteringExclude(t *testing.T) {
 func TestMetricsFilteringDefault(t *testing.T) {
 	// Set up environment with no filtering
 	testEnvVars := map[string]string{
-		"LDAP_URL":                    "ldap://127.0.0.1:1",
-		"LDAP_USERNAME":               "testuser",
-		"LDAP_PASSWORD":               "testpass",
-		"LOG_LEVEL":                   "ERROR",
-		"OPENLDAP_METRICS_INCLUDE":    "",
-		"OPENLDAP_METRICS_EXCLUDE":    "",
+		"LDAP_URL":                 "ldap://127.0.0.1:1",
+		"LDAP_USERNAME":            "testuser",
+		"LDAP_PASSWORD":            "testpass",
+		"LOG_LEVEL":                "ERROR",
+		"OPENLDAP_METRICS_INCLUDE": "",
+		"OPENLDAP_METRICS_EXCLUDE": "",
 	}
 
 	for key, value := range testEnvVars {
@@ -1380,12 +1380,12 @@ func TestMetricsFilteringDefault(t *testing.T) {
 func TestMetricsFilteringPriority(t *testing.T) {
 	// Set up environment with both INCLUDE and EXCLUDE (INCLUDE should take priority)
 	testEnvVars := map[string]string{
-		"LDAP_URL":                    "ldap://127.0.0.1:1",
-		"LDAP_USERNAME":               "testuser",
-		"LDAP_PASSWORD":               "testpass",
-		"LOG_LEVEL":                   "ERROR",
-		"OPENLDAP_METRICS_INCLUDE":    "connections,statistics",
-		"OPENLDAP_METRICS_EXCLUDE":    "connections,health", // Should be ignored
+		"LDAP_URL":                 "ldap://127.0.0.1:1",
+		"LDAP_USERNAME":            "testuser",
+		"LDAP_PASSWORD":            "testpass",
+		"LOG_LEVEL":                "ERROR",
+		"OPENLDAP_METRICS_INCLUDE": "connections,statistics",
+		"OPENLDAP_METRICS_EXCLUDE": "connections,health", // Should be ignored
 	}
 
 	for key, value := range testEnvVars {
@@ -1434,11 +1434,11 @@ func TestMetricsFilteringPriority(t *testing.T) {
 func TestMetricsFilteringIntegration(t *testing.T) {
 	// Set up environment for filtering integration test
 	testEnvVars := map[string]string{
-		"LDAP_URL":                    "ldap://127.0.0.1:1",
-		"LDAP_USERNAME":               "testuser",
-		"LDAP_PASSWORD":               "testpass",
-		"LOG_LEVEL":                   "ERROR",
-		"OPENLDAP_METRICS_INCLUDE":    "connections,health", // Only these should be collected
+		"LDAP_URL":                 "ldap://127.0.0.1:1",
+		"LDAP_USERNAME":            "testuser",
+		"LDAP_PASSWORD":            "testpass",
+		"LOG_LEVEL":                "ERROR",
+		"OPENLDAP_METRICS_INCLUDE": "connections,health", // Only these should be collected
 	}
 
 	for key, value := range testEnvVars {
@@ -1466,7 +1466,7 @@ func TestMetricsFilteringIntegration(t *testing.T) {
 	// Test that collectAllMetricsWithContext respects filtering
 	// This will fail to connect but should still test the filtering logic
 	err = exporter.collectAllMetricsWithContext(ctx)
-	
+
 	// Error is expected due to no LDAP connection, but filtering should work
 	if err == nil {
 		t.Log("Collection unexpectedly succeeded (LDAP server might be running)")
@@ -1676,9 +1676,9 @@ func TestRetryConfigCalculateDelay(t *testing.T) {
 		minDelay time.Duration
 		maxDelay time.Duration
 	}{
-		{0, 90 * time.Millisecond, 110 * time.Millisecond},   // ~100ms with jitter
-		{1, 180 * time.Millisecond, 220 * time.Millisecond}, // ~200ms with jitter  
-		{2, 360 * time.Millisecond, 440 * time.Millisecond}, // ~400ms with jitter
+		{0, 90 * time.Millisecond, 110 * time.Millisecond},     // ~100ms with jitter
+		{1, 180 * time.Millisecond, 220 * time.Millisecond},    // ~200ms with jitter
+		{2, 360 * time.Millisecond, 440 * time.Millisecond},    // ~400ms with jitter
 		{10, 1800 * time.Millisecond, 2200 * time.Millisecond}, // Should be capped at max (2s) with jitter
 	}
 
@@ -1701,7 +1701,7 @@ func TestRetryConfigCalculateDelay(t *testing.T) {
 // TestShouldIncludeDomainWithFilters tests domain filtering with actual filters configured
 func TestShouldIncludeDomainWithFilters(t *testing.T) {
 	// Test with DC include filter
-	cfg, cleanup := setupTestConfig(t)
+	_, cleanup := setupTestConfig(t)
 	defer cleanup()
 
 	// Set up DC filters in environment
@@ -1725,7 +1725,7 @@ func TestShouldIncludeDomainWithFilters(t *testing.T) {
 		{"included_domain", []string{"example", "com"}, true},
 		{"excluded_domain", []string{"notallowed", "com"}, false},
 		{"mixed_domains", []string{"example", "notallowed"}, true}, // Contains allowed domain
-		{"empty_domains", []string{}, false}, // No domains to check
+		{"empty_domains", []string{}, false},                       // No domains to check
 	}
 
 	for _, tc := range testCases {
@@ -1741,10 +1741,10 @@ func TestShouldIncludeDomainWithFilters(t *testing.T) {
 // TestCollectAllMetricsWithContext tests the core metric collection function
 func TestCollectAllMetricsWithContext(t *testing.T) {
 	tests := []struct {
-		name        string
+		name          string
 		setupExporter func() *OpenLDAPExporter
-		expectError bool
-		description string
+		expectError   bool
+		description   string
 	}{
 		{
 			name: "successful_collection_no_filters",
@@ -1790,13 +1790,13 @@ func TestCollectAllMetricsWithContext(t *testing.T) {
 			defer cancel()
 
 			err := exporter.collectAllMetricsWithContext(ctx)
-			
+
 			if tt.expectError && err == nil {
 				t.Log("Expected error in static test environment - this is normal")
 			} else if !tt.expectError && err != nil {
 				t.Errorf("Unexpected error: %v", err)
 			}
-			
+
 			// Verify that internal monitoring is available
 			monitoring := exporter.GetInternalMonitoring()
 			if monitoring != nil {
@@ -1811,7 +1811,7 @@ func TestCollectAllMetricsWithCancelledContext(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
 	cfg.ServerName = "test"
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
 
@@ -1830,7 +1830,7 @@ func TestGetMonitorGroupComprehensive(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
 	cfg.ServerName = "test"
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
 
@@ -1845,7 +1845,7 @@ func TestGetMonitorGroupComprehensive(t *testing.T) {
 			wantErr: true, // Expected in static testing
 		},
 		{
-			name:    "invalid_monitor_dn", 
+			name:    "invalid_monitor_dn",
 			baseDN:  "cn=Invalid,cn=Monitor",
 			wantErr: true,
 		},
@@ -1864,7 +1864,7 @@ func TestGetMonitorGroupComprehensive(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := exporter.getMonitorGroup(tt.baseDN)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Log("Expected error in static test environment")
@@ -1890,7 +1890,7 @@ func TestCollectorFunctionsComprehensive(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
 	cfg.ServerName = "test"
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
 
@@ -1931,7 +1931,7 @@ func TestGetMonitorCounterComprehensive(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
 	cfg.ServerName = "test"
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
 
@@ -1965,7 +1965,7 @@ func TestGetMonitorCounterComprehensive(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			value, err := exporter.getMonitorCounter(tt.dn)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Log("Expected error in static test environment")
@@ -2038,10 +2038,10 @@ func TestShouldCollectMetricFiltering(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg, cleanup := setupTestConfig(t)
 			defer cleanup()
-			
+
 			cfg.MetricsInclude = tt.include
 			cfg.MetricsExclude = tt.exclude
-			
+
 			exporter := NewOpenLDAPExporter(cfg)
 			defer exporter.Close()
 
@@ -2057,16 +2057,16 @@ func TestShouldCollectMetricFiltering(t *testing.T) {
 func TestCollectBackendsMetricsDetailed(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
-	
+
 	// Test with metric disabled
 	cfg.MetricsExclude = []string{"backends"}
 	exporter = NewOpenLDAPExporter(cfg)
 	exporter.collectBackendsMetrics("test-server")
 	// Should return early when disabled
-	
+
 	// Test with metric enabled
 	cfg.MetricsExclude = nil
 	cfg.MetricsInclude = []string{"backends"}
@@ -2079,16 +2079,16 @@ func TestCollectBackendsMetricsDetailed(t *testing.T) {
 func TestCollectDatabaseMetricsDetailed(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
-	
+
 	// Test with metric disabled
 	cfg.MetricsExclude = []string{"database"}
 	exporter = NewOpenLDAPExporter(cfg)
 	exporter.collectDatabaseMetrics("test-server")
 	// Should return early when disabled
-	
+
 	// Test with metric enabled
 	cfg.MetricsExclude = nil
 	cfg.MetricsInclude = []string{"database"}
@@ -2101,17 +2101,17 @@ func TestCollectDatabaseMetricsDetailed(t *testing.T) {
 func TestCollectOperationsMetricsDetailed(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
-	
+
 	// Test with metric disabled
 	cfg.MetricsExclude = []string{"operations"}
 	exporter = NewOpenLDAPExporter(cfg)
 	exporter.collectOperationsMetrics("test-server")
 	// Should return early when disabled
-	
-	// Test with metric enabled 
+
+	// Test with metric enabled
 	cfg.MetricsExclude = nil
 	cfg.MetricsInclude = []string{"operations"}
 	exporter = NewOpenLDAPExporter(cfg)
@@ -2123,16 +2123,16 @@ func TestCollectOperationsMetricsDetailed(t *testing.T) {
 func TestCollectStatisticsMetricsDetailed(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
-	
+
 	// Test with metric disabled
 	cfg.MetricsExclude = []string{"statistics"}
 	exporter = NewOpenLDAPExporter(cfg)
 	exporter.collectStatisticsMetrics("test-server")
 	// Should return early when disabled
-	
+
 	// Test with metric enabled
 	cfg.MetricsExclude = nil
 	cfg.MetricsInclude = []string{"statistics"}
@@ -2145,16 +2145,16 @@ func TestCollectStatisticsMetricsDetailed(t *testing.T) {
 func TestCollectListenersMetricsDetailed(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
-	
+
 	// Test with metric disabled
 	cfg.MetricsExclude = []string{"listeners"}
 	exporter = NewOpenLDAPExporter(cfg)
 	exporter.collectListenersMetrics("test-server")
 	// Should return early when disabled
-	
+
 	// Test with metric enabled
 	cfg.MetricsExclude = nil
 	cfg.MetricsInclude = []string{"listeners"}
@@ -2167,16 +2167,16 @@ func TestCollectListenersMetricsDetailed(t *testing.T) {
 func TestCollectServerInfoMetricsDetailed(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
-	
+
 	// Test with metric disabled
 	cfg.MetricsExclude = []string{"server"}
 	exporter = NewOpenLDAPExporter(cfg)
 	exporter.collectServerInfoMetrics("test-server")
 	// Should return early when disabled
-	
+
 	// Test with metric enabled
 	cfg.MetricsExclude = nil
 	cfg.MetricsInclude = []string{"server"}
@@ -2189,10 +2189,10 @@ func TestCollectServerInfoMetricsDetailed(t *testing.T) {
 func TestGetMonitorGroupAdvanced(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
-	
+
 	testCases := []struct {
 		name   string
 		baseDN string
@@ -2206,7 +2206,7 @@ func TestGetMonitorGroupAdvanced(t *testing.T) {
 		{"backends", "cn=Backends,cn=Monitor"},
 		{"databases", "cn=Databases,cn=Monitor"},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result, err := exporter.getMonitorGroup(tc.baseDN)
@@ -2224,10 +2224,10 @@ func TestGetMonitorGroupAdvanced(t *testing.T) {
 func TestGetMonitorCounterAdvanced(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
-	
+
 	testCases := []struct {
 		name string
 		dn   string
@@ -2242,7 +2242,7 @@ func TestGetMonitorCounterAdvanced(t *testing.T) {
 		{"add_operations", "cn=Add,cn=Operations,cn=Monitor"},
 		{"delete_operations", "cn=Delete,cn=Operations,cn=Monitor"},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			value, err := exporter.getMonitorCounter(tc.dn)
@@ -2292,7 +2292,7 @@ func TestExtractDomainComponentsAdvanced(t *testing.T) {
 
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
 
@@ -2318,11 +2318,11 @@ func TestCollectAllMetricsWithContextAdvanced(t *testing.T) {
 	defer cleanup()
 
 	tests := []struct {
-		name           string
-		setupExporter  func() *OpenLDAPExporter
-		setupContext   func() (context.Context, context.CancelFunc)
-		expectError    bool
-		expectTimeout  bool
+		name          string
+		setupExporter func() *OpenLDAPExporter
+		setupContext  func() (context.Context, context.CancelFunc)
+		expectError   bool
+		expectTimeout bool
 	}{
 		{
 			name: "include_metrics_filtering",
@@ -2380,12 +2380,12 @@ func TestCollectAllMetricsWithContextAdvanced(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			exporter := tt.setupExporter()
 			defer exporter.Close()
-			
+
 			ctx, cancel := tt.setupContext()
 			defer cancel()
 
 			err := exporter.collectAllMetricsWithContext(ctx)
-			
+
 			if tt.expectError && err == nil {
 				t.Log("Expected error in static test environment - this is normal")
 			} else if !tt.expectError && err != nil {
@@ -2403,20 +2403,20 @@ func TestCollectAllMetricsWithContextAdvanced(t *testing.T) {
 func TestCollectAllMetricsParallelExecution(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	// Test with all metrics enabled to maximize parallel execution
 	cfg.MetricsInclude = nil
 	cfg.MetricsExclude = nil
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	// This should test the parallel execution path, error handling, and waitgroup logic
 	err := exporter.collectAllMetricsWithContext(ctx)
-	
+
 	// Expected to fail due to connection issues, but tests the execution paths
 	if err != nil {
 		t.Logf("Expected connection error in static environment: %v", err)
@@ -2427,16 +2427,16 @@ func TestCollectAllMetricsParallelExecution(t *testing.T) {
 func TestCollectAllMetricsErrorHandling(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
-	
+
 	// Test with very short timeout to force timeout handling
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 	defer cancel()
-	
+
 	err := exporter.collectAllMetricsWithContext(ctx)
-	
+
 	// Should get context deadline exceeded or similar
 	if err != nil {
 		t.Logf("Got expected timeout/context error: %v", err)
@@ -2453,23 +2453,23 @@ func TestCollectAllMetricsErrorHandling(t *testing.T) {
 func TestCollectAllMetricsTimeout(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
-	
+
 	// Test context cancellation during collection
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	// Start collection in goroutine
 	errChan := make(chan error, 1)
 	go func() {
 		errChan <- exporter.collectAllMetricsWithContext(ctx)
 	}()
-	
+
 	// Cancel context after short delay
 	time.Sleep(10 * time.Millisecond)
 	cancel()
-	
+
 	// Wait for completion
 	select {
 	case err := <-errChan:
@@ -2485,19 +2485,19 @@ func TestCollectAllMetricsTimeout(t *testing.T) {
 func TestCollectAllMetricsAllTasksSkipped(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
-	
+
 	// Set include filter to non-existent metrics so all tasks are skipped
 	cfg.MetricsInclude = []string{"nonexistent1", "nonexistent2"}
 	cfg.MetricsExclude = nil
-	
+
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	
+
 	err := exporter.collectAllMetricsWithContext(ctx)
-	
+
 	// Should complete without error since all tasks are skipped
 	if err != nil {
 		// Still might fail on ensureConnection

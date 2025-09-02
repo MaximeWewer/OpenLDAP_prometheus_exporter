@@ -193,7 +193,6 @@ func (e *OpenLDAPExporter) updateCounterCommon(
 	updateFunc(delta, labels)
 }
 
-
 // cleanupOldCounters runs periodically to clean up old counter entries
 func (e *OpenLDAPExporter) cleanupOldCounters() {
 	ticker := time.NewTicker(CounterCleanupInterval)

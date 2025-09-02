@@ -144,24 +144,24 @@ func TestSanitizeError(t *testing.T) {
 func TestFatal(t *testing.T) {
 	// We can't actually test Fatal directly because it calls os.Exit()
 	// But we can test that the function exists and compiles correctly
-	
+
 	// Create a test that would call Fatal but skip it for safety
 	if os.Getenv("TEST_FATAL") == "1" {
 		// This will actually call Fatal and exit - only run if explicitly requested
 		Fatal("logger_test", "Test fatal message", nil, map[string]interface{}{"test": "fatal"})
 		return
 	}
-	
+
 	// Test Fatal using subprocess pattern - this is the standard way to test os.Exit() functions
 	if testing.Short() {
 		t.Skip("Skipping Fatal test in short mode")
 	}
-	
+
 	// Run the test in a subprocess
 	cmd := exec.Command(os.Args[0], "-test.run=TestFatalSubprocess")
 	cmd.Env = append(os.Environ(), "TEST_FATAL=1")
 	err := cmd.Run()
-	
+
 	// Fatal should exit with code 1
 	if exitError, ok := err.(*exec.ExitError); ok {
 		if exitError.ExitCode() != 1 {
@@ -177,10 +177,10 @@ func TestFatalSubprocess(t *testing.T) {
 	if os.Getenv("TEST_FATAL") != "1" {
 		t.Skip("Not in subprocess mode")
 	}
-	
+
 	// Initialize logger
 	InitLogger("test-fatal", "DEBUG")
-	
+
 	// This will call os.Exit(1)
 	Fatal("logger_test", "Test fatal message", errors.New("test error"), map[string]interface{}{"test": "fatal"})
 }
@@ -189,17 +189,17 @@ func TestFatalSubprocess(t *testing.T) {
 func TestInitLoggerAllLevels(t *testing.T) {
 	// Test all supported log levels
 	levels := []string{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"}
-	
+
 	for _, level := range levels {
 		t.Run(level, func(t *testing.T) {
 			// This should not panic and should set the appropriate level
 			InitLogger("test-component-"+level, level)
-			
+
 			// Verify logger was initialized (no easy way to check level, but no panic means success)
 			t.Logf("Successfully initialized logger with level: %s", level)
 		})
 	}
-	
+
 	// Test lowercase levels
 	lowerLevels := []string{"debug", "info", "warn", "error", "fatal"}
 	for _, level := range lowerLevels {
@@ -208,7 +208,7 @@ func TestInitLoggerAllLevels(t *testing.T) {
 			t.Logf("Successfully initialized logger with lowercase level: %s", level)
 		})
 	}
-	
+
 	// Test mixed case
 	InitLogger("test-mixed", "WaRn")
 }
@@ -220,14 +220,14 @@ func TestSanitizeFieldsWithNil(t *testing.T) {
 	if result != nil {
 		t.Error("sanitizeFields(nil) should return nil")
 	}
-	
+
 	// Test empty fields
 	emptyFields := make(map[string]interface{})
 	result = sanitizeFields(emptyFields)
 	if result == nil {
 		t.Error("sanitizeFields with empty map should not return nil")
 	}
-	
+
 	// Clean up the returned map
 	if result != nil {
 		putMapToPool(result)
@@ -273,7 +273,7 @@ func TestSanitizeValueDNBranch(t *testing.T) {
 			expected: 389, // unchanged
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := sanitizeValue(tt.key, tt.value)
@@ -291,22 +291,22 @@ func TestMapPoolFunctionality(t *testing.T) {
 	if m1 == nil {
 		t.Error("getMapFromPool should return non-nil map")
 	}
-	
+
 	// Add some data
 	m1["test"] = "value"
-	
+
 	// Return to pool
 	putMapToPool(m1)
-	
+
 	// Get another map (might be the same one, but should be clean)
 	m2 := getMapFromPool()
 	if len(m2) != 0 {
 		t.Error("Map from pool should be empty")
 	}
-	
+
 	// Test putting nil map (should not panic)
 	putMapToPool(nil)
-	
+
 	// Clean up
 	putMapToPool(m2)
 }
@@ -356,7 +356,7 @@ func TestSanitizeValueEdgeCases(t *testing.T) {
 			expected: "server.example.com",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := sanitizeValue(tt.key, tt.value)

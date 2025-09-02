@@ -16,13 +16,13 @@ import (
 
 // Configuration constants
 const (
-	DefaultPoolSize = 5
+	DefaultPoolSize      = 5
 	DefaultSearchTimeout = 30 * time.Second
-	
+
 	// Circuit breaker defaults
-	DefaultMaxFailures = 3
-	DefaultTimeout = 60 * time.Second
-	DefaultResetTimeout = 15 * time.Second
+	DefaultMaxFailures      = 3
+	DefaultTimeout          = 60 * time.Second
+	DefaultResetTimeout     = 15 * time.Second
 	DefaultSuccessThreshold = 2
 )
 
@@ -70,7 +70,7 @@ func NewPooledLDAPClient(cfg *config.Config) *PooledLDAPClient {
 func NewPooledLDAPClientWithMonitoring(cfg *config.Config, monitoring PoolMonitoring, serverName string) *PooledLDAPClient {
 	// Create pool with monitoring support
 	pool := NewConnectionPoolWithMonitoring(cfg, DefaultPoolSize, monitoring, serverName)
-	
+
 	// Create circuit breaker with standard configuration
 	cb := circuitbreaker.NewCircuitBreaker(createCircuitBreakerConfig())
 
@@ -84,7 +84,7 @@ func NewPooledLDAPClientWithMonitoring(cfg *config.Config, monitoring PoolMonito
 	if cbMonitoring != nil {
 		// Record initial state
 		cbMonitoring.RecordCircuitBreakerState(serverName, cb.GetState())
-		
+
 		// Set up state change callback
 		cb.SetStateChangeCallback(func(from, to circuitbreaker.State) {
 			cbMonitoring.RecordCircuitBreakerState(serverName, to)
@@ -175,7 +175,7 @@ func (c *PooledLDAPClient) Search(baseDN, filter string, attributes []string) (*
 
 	// Use circuit breaker to protect against cascading failures
 	var result *ldap.SearchResult
-	
+
 	err := c.circuitBreaker.Call(func() error {
 		// Get connection from pool with timeout
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultSearchTimeout)

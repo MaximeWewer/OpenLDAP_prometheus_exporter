@@ -14,8 +14,8 @@ import (
 const (
 	// Rate limiting constants
 	DefaultCleanupInterval = 10 * time.Minute
-	DefaultRetryAfter     = 60
-	
+	DefaultRetryAfter      = 60
+
 	// Validation constants
 	MaxDNLength        = 8192
 	MaxFilterLength    = 2048
@@ -142,7 +142,7 @@ func (rl *RateLimiter) cleanupRoutine() {
 func (rl *RateLimiter) cleanupClients() {
 	cutoff := time.Now().Add(-rl.cleanupInterval)
 	var toDelete []string
-	
+
 	// First pass: identify clients to delete (avoid nested locks)
 	rl.mutex.RLock()
 	for ip, bucket := range rl.clients {
@@ -153,7 +153,7 @@ func (rl *RateLimiter) cleanupClients() {
 		bucket.mutex.Unlock()
 	}
 	rl.mutex.RUnlock()
-	
+
 	// Second pass: delete identified clients
 	if len(toDelete) > 0 {
 		rl.mutex.Lock()

@@ -21,27 +21,27 @@ import (
 // Constants for pool configuration
 const (
 	// Connection management
-	DefaultMaxRetries = 3
-	DefaultGetTimeout = 30 * time.Second
-	DefaultPoolTimeout = 30 * time.Second
+	DefaultMaxRetries          = 3
+	DefaultGetTimeout          = 30 * time.Second
+	DefaultPoolTimeout         = 30 * time.Second
 	DefaultMaintenanceInterval = 1 * time.Minute
 	DefaultHealthCheckInterval = 30 * time.Second
-	
+
 	// Connection validation
 	ConnectionValidationTimeout = 5 * time.Second
-	MaxIdleTime = 10 * time.Minute
-	
+	MaxIdleTime                 = 10 * time.Minute
+
 	// Pool sizing
-	MinPoolSize = 1
-	MaxPoolSize = 50
+	MinPoolSize            = 1
+	MaxPoolSize            = 50
 	DefaultInitialPoolSize = 5
 )
 
 // Error definitions for pool operations
 var (
-	ErrPoolClosed = errors.New("connection pool is closed")
-	ErrPoolTimeout = errors.New("connection pool timeout")
-	ErrConnectionInvalid = errors.New("connection is invalid")
+	ErrPoolClosed         = errors.New("connection pool is closed")
+	ErrPoolTimeout        = errors.New("connection pool timeout")
+	ErrConnectionInvalid  = errors.New("connection is invalid")
 	ErrMaxRetriesExceeded = errors.New("maximum retries exceeded")
 )
 
@@ -73,12 +73,12 @@ type ConnectionPool struct {
 	connTimeout    time.Duration
 	idleTimeout    time.Duration
 	maxIdleTime    time.Duration
-	closed         int32                  // Atomic flag for closed state
-	shutdownChan   chan struct{}          // Channel to signal shutdown
-	maintainWG     sync.WaitGroup         // WaitGroup to track maintenance goroutine
-	closeOnce      sync.Once              // Ensures Close() is called only once
+	closed         int32          // Atomic flag for closed state
+	shutdownChan   chan struct{}  // Channel to signal shutdown
+	maintainWG     sync.WaitGroup // WaitGroup to track maintenance goroutine
+	closeOnce      sync.Once      // Ensures Close() is called only once
 	monitoring     PoolMonitoring // Interface for monitoring integration
-	serverName     string // Server name for metrics labeling
+	serverName     string         // Server name for metrics labeling
 }
 
 // PooledConnection wraps an LDAP connection with pool metadata
@@ -171,8 +171,6 @@ func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 
 	const maxRetries = DefaultMaxRetries
 
-
-
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		// Try to get a connection from the pool
 		select {
@@ -221,8 +219,8 @@ func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 					if p.monitoring != nil && p.serverName != "" {
 						// Determine failure reason based on error
 						reason := "network_error"
-						if strings.Contains(strings.ToLower(err.Error()), "auth") || 
-						   strings.Contains(strings.ToLower(err.Error()), "invalid credentials") {
+						if strings.Contains(strings.ToLower(err.Error()), "auth") ||
+							strings.Contains(strings.ToLower(err.Error()), "invalid credentials") {
 							reason = "auth_error"
 						}
 						p.monitoring.RecordPoolConnectionFailed(p.serverName, "ldap", reason)
@@ -233,7 +231,7 @@ func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 				}
 
 				conn.inUse = true
-				
+
 				// Record successful new connection creation and wait time
 				if p.monitoring != nil && p.serverName != "" {
 					p.monitoring.RecordPoolConnectionCreated(p.serverName, "ldap")
@@ -241,7 +239,7 @@ func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 				}
 				p.recordOperation("get")
 				p.updateMetrics()
-				
+
 				return conn, nil
 			}
 		}
@@ -317,7 +315,6 @@ func (p *ConnectionPool) Put(conn *PooledConnection) {
 		p.monitoring.RecordPoolPutRequest(p.serverName, "ldap")
 	}
 
-
 	conn.mutex.Lock()
 	conn.inUse = false
 	conn.lastUsed = time.Now()
@@ -369,7 +366,7 @@ func (p *ConnectionPool) Close() {
 
 		logger.SafeInfo("pool", "Shutting down LDAP connection pool", map[string]interface{}{
 			"active_connections": atomic.LoadInt64(&p.activeConns),
-			"pool_size":         atomic.LoadInt64(&p.poolSize),
+			"pool_size":          atomic.LoadInt64(&p.poolSize),
 		})
 
 		// Signal shutdown to maintenance goroutine
@@ -587,7 +584,6 @@ func (p *ConnectionPool) pingConnection(conn *PooledConnection) bool {
 	return true
 }
 
-
 // closeConnection safely closes a pooled connection with a reason
 func (p *ConnectionPool) closeConnection(conn *PooledConnection) {
 	p.closeConnectionWithReason(conn, "normal")
@@ -621,7 +617,6 @@ func (p *ConnectionPool) closeConnectionWithReason(conn *PooledConnection, reaso
 	})
 }
 
-
 // maintainConnections periodically cleans up old/invalid connections
 func (p *ConnectionPool) maintainConnections() {
 	defer p.maintainWG.Done()
@@ -641,51 +636,51 @@ func (p *ConnectionPool) maintainConnections() {
 			}
 			p.mutex.RUnlock()
 
-		// Clean up invalid connections
-		var validConns []*PooledConnection
+			// Clean up invalid connections
+			var validConns []*PooledConnection
 
-		// Use context with timeout to prevent deadlock
-		ctx, cancel := context.WithTimeout(context.Background(), DefaultHealthCheckInterval)
-		defer cancel() // Ensure context is always cancelled
+			// Use context with timeout to prevent deadlock
+			ctx, cancel := context.WithTimeout(context.Background(), DefaultHealthCheckInterval)
+			defer cancel() // Ensure context is always cancelled
 
-		// Drain the pool
-		for {
-			select {
-			case <-ctx.Done():
-				// Timeout reached, put back valid connections
-				for _, c := range validConns {
-					select {
-					case p.pool <- c:
-						atomic.AddInt64(&p.poolSize, 1)
-					default:
-						p.closeConnection(c)
+			// Drain the pool
+			for {
+				select {
+				case <-ctx.Done():
+					// Timeout reached, put back valid connections
+					for _, c := range validConns {
+						select {
+						case p.pool <- c:
+							atomic.AddInt64(&p.poolSize, 1)
+						default:
+							p.closeConnection(c)
+						}
 					}
+					return
+				case conn := <-p.pool:
+					atomic.AddInt64(&p.poolSize, -1)
+					if p.isConnectionValid(conn) {
+						validConns = append(validConns, conn)
+					} else {
+						p.closeConnectionWithReason(conn, "timeout")
+					}
+				default:
+					cancel()
+					goto done
 				}
-				return
-			case conn := <-p.pool:
-				atomic.AddInt64(&p.poolSize, -1)
-				if p.isConnectionValid(conn) {
-					validConns = append(validConns, conn)
-				} else {
-					p.closeConnectionWithReason(conn, "timeout")
-				}
-			default:
-				cancel()
-				goto done
 			}
-		}
 
-	done:
-		// Put valid connections back
-		for _, conn := range validConns {
-			select {
-			case p.pool <- conn:
-				atomic.AddInt64(&p.poolSize, 1)
-			default:
-				// Pool is full, close excess connections
-				p.closeConnectionWithReason(conn, "normal")
+		done:
+			// Put valid connections back
+			for _, conn := range validConns {
+				select {
+				case p.pool <- conn:
+					atomic.AddInt64(&p.poolSize, 1)
+				default:
+					// Pool is full, close excess connections
+					p.closeConnectionWithReason(conn, "normal")
+				}
 			}
-		}
 
 			logger.SafeDebug("pool", "Connection pool maintenance completed", map[string]interface{}{
 				"active_connections": atomic.LoadInt64(&p.activeConns),
@@ -738,4 +733,3 @@ func (p *ConnectionPool) recordPutRequest() {
 		p.monitoring.RecordPoolPutRequest(p.serverName, "ldap")
 	}
 }
-

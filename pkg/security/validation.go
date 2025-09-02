@@ -15,7 +15,7 @@ var (
 
 // dangerousAttributes contains sensitive LDAP attributes (all lowercase for consistent comparison)
 var dangerousAttributes = []string{
-	"userpassword", "unicodepwd", "sambalmpassword", "sambapassword", 
+	"userpassword", "unicodepwd", "sambalmpassword", "sambapassword",
 	"krb5key", "usersmimecertificate", "usercertificate", "cACertificate",
 }
 
