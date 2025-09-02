@@ -2,6 +2,7 @@ package circuitbreaker
 
 import (
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -806,10 +807,13 @@ func TestForceOpenWithCallback(t *testing.T) {
 	config := DefaultCircuitBreakerConfig()
 	cb := NewCircuitBreaker(config)
 
+	var mu sync.Mutex
 	var callbackExecuted bool
 	var fromState, toState State
 
 	cb.SetStateChangeCallback(func(from, to State) {
+		mu.Lock()
+		defer mu.Unlock()
 		callbackExecuted = true
 		fromState = from
 		toState = to
@@ -821,14 +825,20 @@ func TestForceOpenWithCallback(t *testing.T) {
 	// Give callback time
 	time.Sleep(50 * time.Millisecond)
 
-	if !callbackExecuted {
+	mu.Lock()
+	executed := callbackExecuted
+	from := fromState
+	to := toState
+	mu.Unlock()
+
+	if !executed {
 		t.Error("Callback should have been executed")
 	}
-	if fromState != StateClosed {
-		t.Errorf("Expected from state CLOSED, got %v", fromState)
+	if from != StateClosed {
+		t.Errorf("Expected from state CLOSED, got %v", from)
 	}
-	if toState != StateOpen {
-		t.Errorf("Expected to state OPEN, got %v", toState)
+	if to != StateOpen {
+		t.Errorf("Expected to state OPEN, got %v", to)
 	}
 
 	// Clean up
@@ -846,10 +856,13 @@ func TestResetWithCallback(t *testing.T) {
 		return errors.New("failure")
 	})
 
+	var mu sync.Mutex
 	var callbackExecuted bool
 	var fromState, toState State
 
 	cb.SetStateChangeCallback(func(from, to State) {
+		mu.Lock()
+		defer mu.Unlock()
 		callbackExecuted = true
 		fromState = from
 		toState = to
@@ -861,14 +874,20 @@ func TestResetWithCallback(t *testing.T) {
 	// Give callback time
 	time.Sleep(50 * time.Millisecond)
 
-	if !callbackExecuted {
+	mu.Lock()
+	executed := callbackExecuted
+	from := fromState
+	to := toState
+	mu.Unlock()
+
+	if !executed {
 		t.Error("Callback should have been executed")
 	}
-	if fromState != StateOpen {
-		t.Errorf("Expected from state OPEN, got %v", fromState)
+	if from != StateOpen {
+		t.Errorf("Expected from state OPEN, got %v", from)
 	}
-	if toState != StateClosed {
-		t.Errorf("Expected to state CLOSED, got %v", toState)
+	if to != StateClosed {
+		t.Errorf("Expected to state CLOSED, got %v", to)
 	}
 
 	// Clean up
@@ -882,12 +901,17 @@ func TestExecuteCallbackContextCancellation(t *testing.T) {
 	cb := NewCircuitBreaker(config)
 
 	// Set a callback that checks for context cancellation
+	var mu sync.Mutex
 	var callbackStarted, callbackFinished bool
 	cb.SetStateChangeCallback(func(from, to State) {
+		mu.Lock()
 		callbackStarted = true
+		mu.Unlock()
 		// Simulate some work that might be cancelled
 		time.Sleep(50 * time.Millisecond)
+		mu.Lock()
 		callbackFinished = true
+		mu.Unlock()
 	})
 
 	// Trigger state change
@@ -902,10 +926,15 @@ func TestExecuteCallbackContextCancellation(t *testing.T) {
 	cb.Close()
 
 	// Callback should have finished normally in this case
-	if !callbackStarted {
+	mu.Lock()
+	started := callbackStarted
+	finished := callbackFinished
+	mu.Unlock()
+
+	if !started {
 		t.Error("Callback should have started")
 	}
-	if !callbackFinished {
+	if !finished {
 		t.Log("Callback may have been cancelled or completed quickly")
 	}
 }

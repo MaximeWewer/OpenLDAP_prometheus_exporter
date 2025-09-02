@@ -156,154 +156,196 @@ func (p *ConnectionPool) recordOperation(operation string) {
 
 // Get retrieves a connection from the pool or creates a new one
 func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
-	// Record get request
 	p.recordGetRequest()
-
 	start := time.Now()
 
-	p.mutex.RLock()
-	if atomic.LoadInt32(&p.closed) == 1 {
-		p.mutex.RUnlock()
+	// Check if pool is closed
+	if err := p.checkPoolClosed(); err != nil {
 		p.recordGetFailure("pool_closed")
-		return nil, ErrPoolClosed
+		return nil, err
 	}
-	p.mutex.RUnlock()
 
 	const maxRetries = DefaultMaxRetries
-
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		// Try to get a connection from the pool
-		select {
-		case conn := <-p.pool:
-			if conn == nil {
-				// Nil connection in pool, skip it
-				atomic.AddInt64(&p.poolSize, -1)
-				continue
-			}
-			// Immediately lock the connection before any checks to prevent race condition
-			conn.mutex.Lock()
-			// Decrement pool size after acquiring the lock
-			atomic.AddInt64(&p.poolSize, -1)
-			if p.isConnectionValidLocked(conn) {
-				conn.inUse = true
-				conn.lastUsed = time.Now()
-				conn.mutex.Unlock()
-				// Record connection reuse
-				p.recordConnectionReused()
-				p.recordWaitTime(time.Since(start))
-				return conn, nil
-			}
-			conn.mutex.Unlock()
-			// Connection is invalid, close it and try again
-			p.closeConnectionWithReason(conn, "error")
-			continue
-		case <-ctx.Done():
+		// Try to get existing connection
+		if conn := p.tryGetExistingConnection(ctx, start); conn != nil {
+			return conn, nil
+		}
+
+		// Check context cancellation
+		if ctx.Err() != nil {
 			return nil, ctx.Err()
-		default:
-			// Pool is empty, try to create a new connection
 		}
 
-		// Create new connection if we haven't reached the limit
-		// Use atomic compare-and-swap to avoid race condition
-		for {
-			currentActive := atomic.LoadInt64(&p.activeConns)
-			if int(currentActive) >= p.maxConnections {
-				break
-			}
-			if atomic.CompareAndSwapInt64(&p.activeConns, currentActive, currentActive+1) {
-
-				conn, err := p.createConnection()
-				if err != nil {
-					atomic.AddInt64(&p.activeConns, -1)
-					// Record connection creation failure
-					if p.monitoring != nil && p.serverName != "" {
-						// Determine failure reason based on error
-						reason := "network_error"
-						if strings.Contains(strings.ToLower(err.Error()), "auth") ||
-							strings.Contains(strings.ToLower(err.Error()), "invalid credentials") {
-							reason = "auth_error"
-						}
-						p.monitoring.RecordPoolConnectionFailed(p.serverName, "ldap", reason)
-						p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", "creation_failed")
-					}
-					// Don't retry on creation errors, return immediately
-					return nil, fmt.Errorf("failed to create new connection: %w", err)
-				}
-
-				conn.inUse = true
-
-				// Record successful new connection creation and wait time
-				if p.monitoring != nil && p.serverName != "" {
-					p.monitoring.RecordPoolConnectionCreated(p.serverName, "ldap")
-					p.monitoring.RecordPoolWaitTime(p.serverName, "ldap", time.Since(start))
-				}
-				p.recordOperation("get")
-				p.updateMetrics()
-
-				return conn, nil
-			}
+		// Try to create new connection
+		if conn, err := p.tryCreateNewConnection(start); conn != nil || err != nil {
+			return conn, err
 		}
 
-		// Wait for a connection to become available (only on final attempt)
+		// On final attempt, wait for connection
 		if attempt == maxRetries-1 {
-			select {
-			case conn := <-p.pool:
-				if conn == nil {
-					atomic.AddInt64(&p.poolSize, -1)
-					return nil, errors.New("nil connection in pool")
-				}
-				// Immediately lock the connection before any checks to prevent race condition
-				conn.mutex.Lock()
-				// Decrement pool size after acquiring the lock
-				atomic.AddInt64(&p.poolSize, -1)
-				if p.isConnectionValidLocked(conn) {
-					conn.inUse = true
-					conn.lastUsed = time.Now()
-					conn.mutex.Unlock()
-					// Record connection reuse
-					if p.monitoring != nil && p.serverName != "" {
-						p.monitoring.RecordPoolConnectionReused(p.serverName, "ldap")
-						p.monitoring.RecordPoolWaitTime(p.serverName, "ldap", time.Since(start))
-					}
-					return conn, nil
-				}
-				conn.mutex.Unlock()
-				p.closeConnectionWithReason(conn, "error")
-				return nil, errors.New("no valid connections available after retries")
-			case <-ctx.Done():
-				// Record timeout if monitoring is available
-				if p.monitoring != nil && p.serverName != "" {
-					if ctx.Err() == context.DeadlineExceeded {
-						p.monitoring.RecordPoolWaitTimeout(p.serverName, "ldap")
-						p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", "timeout")
-					}
-				}
-				return nil, ctx.Err()
+			if conn, err := p.waitForConnection(ctx, start); conn != nil || err != nil {
+				return conn, err
 			}
 		}
 
-		// Small delay before retry to avoid tight loop
-		select {
-		case <-time.After(10 * time.Millisecond):
-		case <-ctx.Done():
-			// Record timeout if monitoring is available
-			if p.monitoring != nil && p.serverName != "" {
-				if ctx.Err() == context.DeadlineExceeded {
-					p.monitoring.RecordPoolWaitTimeout(p.serverName, "ldap")
-					p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", "timeout")
-				}
-			}
-			return nil, ctx.Err()
+		// Small delay before retry
+		if err := p.retryDelay(ctx); err != nil {
+			return nil, err
 		}
 	}
 
-	// Record max attempts failure
-	if p.monitoring != nil && p.serverName != "" {
-		p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", "max_attempts")
-	}
-	return nil, errors.New("max connection attempts exceeded")
+	// Max attempts reached
+	p.recordGetFailure("max_attempts")
+	return nil, errors.New("no available connections after max retries")
 }
 
+// checkPoolClosed checks if the pool is closed
+func (p *ConnectionPool) checkPoolClosed() error {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	if atomic.LoadInt32(&p.closed) == 1 {
+		return ErrPoolClosed
+	}
+	return nil
+}
+
+// tryGetExistingConnection attempts to get a connection from the pool
+func (p *ConnectionPool) tryGetExistingConnection(ctx context.Context, start time.Time) *PooledConnection {
+	select {
+	case conn := <-p.pool:
+		if conn == nil {
+			atomic.AddInt64(&p.poolSize, -1)
+			return nil
+		}
+		return p.validateAndPrepareConnection(conn, start)
+	case <-ctx.Done():
+		return nil
+	default:
+		return nil
+	}
+}
+
+// validateAndPrepareConnection validates and prepares a connection for use
+func (p *ConnectionPool) validateAndPrepareConnection(conn *PooledConnection, start time.Time) *PooledConnection {
+	conn.mutex.Lock()
+	defer conn.mutex.Unlock()
+	
+	atomic.AddInt64(&p.poolSize, -1)
+	
+	if !p.isConnectionValidLocked(conn) {
+		p.closeConnectionWithReason(conn, "error")
+		return nil
+	}
+	
+	conn.inUse = true
+	conn.lastUsed = time.Now()
+	p.recordConnectionReused()
+	p.recordWaitTime(time.Since(start))
+	return conn
+}
+
+// tryCreateNewConnection attempts to create a new connection
+func (p *ConnectionPool) tryCreateNewConnection(start time.Time) (*PooledConnection, error) {
+	currentActive := atomic.LoadInt64(&p.activeConns)
+	if int(currentActive) >= p.maxConnections {
+		return nil, nil
+	}
+	
+	if !atomic.CompareAndSwapInt64(&p.activeConns, currentActive, currentActive+1) {
+		return nil, nil
+	}
+	
+	return p.createAndRecordConnection(start)
+}
+
+// createAndRecordConnection creates a new connection and records metrics
+func (p *ConnectionPool) createAndRecordConnection(start time.Time) (*PooledConnection, error) {
+	conn, err := p.createConnection()
+	if err != nil {
+		atomic.AddInt64(&p.activeConns, -1)
+		p.recordConnectionCreationFailure(err)
+		return nil, fmt.Errorf("failed to create new connection: %w", err)
+	}
+	
+	conn.inUse = true
+	p.recordConnectionCreationSuccess(start)
+	return conn, nil
+}
+
+// recordConnectionCreationFailure records metrics for connection creation failure
+func (p *ConnectionPool) recordConnectionCreationFailure(err error) {
+	if p.monitoring == nil || p.serverName == "" {
+		return
+	}
+	
+	reason := "network_error"
+	errStr := strings.ToLower(err.Error())
+	if strings.Contains(errStr, "auth") || strings.Contains(errStr, "invalid credentials") {
+		reason = "auth_error"
+	}
+	
+	p.monitoring.RecordPoolConnectionFailed(p.serverName, "ldap", reason)
+	p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", "creation_failed")
+}
+
+// recordConnectionCreationSuccess records metrics for successful connection creation
+func (p *ConnectionPool) recordConnectionCreationSuccess(start time.Time) {
+	if p.monitoring != nil && p.serverName != "" {
+		p.monitoring.RecordPoolConnectionCreated(p.serverName, "ldap")
+		p.monitoring.RecordPoolWaitTime(p.serverName, "ldap", time.Since(start))
+	}
+	p.recordOperation("get")
+	p.updateMetrics()
+}
+
+// waitForConnection waits for a connection to become available
+func (p *ConnectionPool) waitForConnection(ctx context.Context, start time.Time) (*PooledConnection, error) {
+	select {
+	case conn := <-p.pool:
+		if conn == nil {
+			atomic.AddInt64(&p.poolSize, -1)
+			return nil, errors.New("nil connection in pool")
+		}
+		
+		validConn := p.validateAndPrepareConnection(conn, start)
+		if validConn != nil {
+			if p.monitoring != nil && p.serverName != "" {
+				p.monitoring.RecordPoolConnectionReused(p.serverName, "ldap")
+				p.monitoring.RecordPoolWaitTime(p.serverName, "ldap", time.Since(start))
+			}
+			return validConn, nil
+		}
+		return nil, errors.New("no valid connections available after retries")
+		
+	case <-ctx.Done():
+		p.recordContextTimeout(ctx)
+		return nil, ctx.Err()
+	}
+}
+
+// recordContextTimeout records timeout metrics
+func (p *ConnectionPool) recordContextTimeout(ctx context.Context) {
+	if p.monitoring == nil || p.serverName == "" {
+		return
+	}
+	
+	if ctx.Err() == context.DeadlineExceeded {
+		p.monitoring.RecordPoolWaitTimeout(p.serverName, "ldap")
+		p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", "timeout")
+	}
+}
+
+// retryDelay implements a small delay before retry
+func (p *ConnectionPool) retryDelay(ctx context.Context) error {
+	select {
+	case <-time.After(10 * time.Millisecond):
+		return nil
+	case <-ctx.Done():
+		p.recordContextTimeout(ctx)
+		return ctx.Err()
+	}
+}
 // Put returns a connection to the pool
 func (p *ConnectionPool) Put(conn *PooledConnection) {
 	if conn == nil {
