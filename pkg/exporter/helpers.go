@@ -2,9 +2,10 @@ package exporter
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"math"
-	"math/rand"
+	"math/big"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -136,7 +137,9 @@ func (rc *RetryConfig) calculateDelay(attempt int) time.Duration {
 	}
 
 	// Add jitter to prevent thundering herd
-	jitter := (rand.Float64() - JitterOffset) * JitterMultiplier * rc.JitterFactor * delay
+	randomFloat, _ := rand.Int(rand.Reader, big.NewInt(1000000))
+	random := float64(randomFloat.Int64()) / 1000000.0
+	jitter := (random - JitterOffset) * JitterMultiplier * rc.JitterFactor * delay
 	finalDelay := time.Duration(delay + jitter)
 
 	// Ensure we don't go below initial delay
