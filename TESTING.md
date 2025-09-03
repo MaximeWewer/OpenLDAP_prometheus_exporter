@@ -1,6 +1,6 @@
 # Tests
 
-Test directory contains comprehensive tests for the OpenLDAP Prometheus Exporter.
+Tests directory contains comprehensive tests for the OpenLDAP Prometheus Exporter.
 
 ## Structure
 
