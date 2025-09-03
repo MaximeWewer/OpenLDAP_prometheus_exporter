@@ -26,6 +26,55 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 - Compatible with OpenLDAP 2.4+
 - Tested with Bitnami OpenLDAP container
 
+---
+
+## Grafana Dashboards
+
+This project includes two pre-built Grafana dashboards for comprehensive monitoring:
+
+### OpenLDAP metrics dashboard
+
+Monitor your OpenLDAP server performance with key metrics including operations, connections, threads, and database statistics.
+
+![OpenLDAP Dashboard](./grafana/img/openldap_dash.png)
+
+**Dashboard JSON**: [`grafana/dashboards/openldap-metrics.json`](./grafana/dashboards/openldap-metrics.json)
+
+**Features:**
+
+- Server status indicators (health, uptime, database entries, response time)
+- LDAP operations rate and totals
+- Connection monitoring
+- Thread pool status
+- Network traffic statistics
+- Database and backend information tables
+
+### OpenLDAP exporter internal metrics dashboard
+
+Monitor the exporter itself with detailed performance and health metrics.
+
+![Exporter Dashboard](./grafana/img/openldap_exporter_dash.png)
+
+**Dashboard JSON**: [`grafana/dashboards/exporter-internal-metrics.json`](./grafana/dashboards/exporter-internal-metrics.json)
+
+**Features:**
+
+- Exporter status and collection statistics
+- Connection pool monitoring
+- Circuit breaker state and requests
+- Collection latency percentiles
+- Performance metrics and failure tracking
+
+### Quick Setup
+
+1. Import the dashboard JSON files into your Grafana instance
+2. Configure Prometheus as a data source
+3. Update the data source variable in each dashboard to match your Prometheus instance
+
+Both dashboards are designed to work with the metrics exposed by this exporter and provide comprehensive monitoring capabilities for production environments.
+
+---
+
 ## Quick Start
 
 ### Docker compose (recommended)
@@ -76,13 +125,29 @@ docker run -p 9330:9330 \
 ## Prometheus configuration
 
 ```yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
 scrape_configs:
   - job_name: 'openldap'
     static_configs:
       - targets: ['openldap-exporter:9330']
-    scrape_interval: 15s
+        labels:
+          ldap_server: 'openldap-dev'
+    metrics_path: '/metrics'
+    scrape_interval: 30s
     scrape_timeout: 10s
-    metrics_path: /metrics
+
+  - job_name: 'openldap-exporter'
+    static_configs:
+      - targets: ['openldap-exporter:9330']
+        labels:
+          instance: 'openldap-exporter'
+    metrics_path: '/internal/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 5s
 ```
 
 ## Required OpenLDAP configuration
