@@ -25,10 +25,16 @@ on:
 env:
   GO_VERSION: "1.24.6"
 
+# Default permissions for all jobs
+permissions:
+  contents: read
+
 jobs:
   pre-check:
     name: Pre-Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     steps:
     - name: Checkout code
@@ -81,6 +87,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: pre-check
     if: ${{ contains(inputs.test_selection, 'all') || contains(inputs.test_selection, 'unit') || inputs.test_selection == 'coverage-only' }}
+    permissions:
+      contents: read
 
     steps:
     - name: Checkout code
@@ -120,6 +128,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: pre-check
     if: ${{ contains(inputs.test_selection, 'all') || contains(inputs.test_selection, 'integration') || inputs.test_selection == 'coverage-only' }}
+    permissions:
+      contents: read
 
     services:
       openldap:
@@ -210,6 +220,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: pre-check
     if: ${{ contains(inputs.test_selection, 'all') || contains(inputs.test_selection, 'static-analysis') || contains(inputs.test_selection, 'analysis') && inputs.test_selection != 'coverage-only' }}
+    permissions:
+      contents: read
 
     steps:
     - name: Checkout code
@@ -348,6 +360,8 @@ jobs:
       always() && 
       !cancelled() && 
       (needs.unit-tests.result == 'success' || needs.integration-tests.result == 'success')
+    permissions:
+      contents: read
 
     steps:
     - name: Checkout code
@@ -448,6 +462,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [ unit-tests, integration-tests, static-analysis, security, coverage-report ]
     if: always() && !cancelled()
+    permissions:
+      contents: read
 
     steps:
     - name: Pipeline Results Summary
