@@ -14,9 +14,15 @@ env:
   IMAGE_NAME: ${{ github.repository }}
   IMAGE_DESCRIPTION: Prometheus exporter for OpenLDAP
 
+# Default permissions for all jobs
+permissions:
+  contents: read
+
 jobs:
   prepare-build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     outputs:
       version: ${{ steps.version.outputs.version }}
