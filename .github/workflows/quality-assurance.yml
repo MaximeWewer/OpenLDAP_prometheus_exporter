@@ -155,7 +155,7 @@ jobs:
         TEST_LDAP_URL: ldap://localhost:1389
         TEST_LDAP_USERNAME: cn=adminconfig,cn=config
         TEST_LDAP_PASSWORD: configpassword
-      run: go test -tags=integration -v -coverprofile=integration-coverage.out -covermode=atomic ./tests/...
+      run: go test -tags=integration -v -coverprofile=integration-coverage.out -covermode=atomic -coverpkg=./... ./tests/...
 
     - name: Display integration test coverage
       run: |
