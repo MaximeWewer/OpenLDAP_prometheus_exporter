@@ -19,6 +19,7 @@ on:
           - 'static-analysis-only'
           - 'security-only'
           - 'unit-integration'
+          - 'coverage-only'
           - 'analysis-security'
 
 env:
@@ -79,7 +80,7 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     needs: pre-check
-    if: ${{ contains(inputs.test_selection, 'all') || contains(inputs.test_selection, 'unit') }}
+    if: ${{ contains(inputs.test_selection, 'all') || contains(inputs.test_selection, 'unit') || inputs.test_selection == 'coverage-only' }}
 
     steps:
     - name: Checkout code
@@ -92,29 +93,33 @@ jobs:
 
     - name: Run unit tests with race detector and coverage
       timeout-minutes: 5
-      run: go test -race -timeout=30s -coverprofile=coverage.out -covermode=atomic ./...
+      run: go test -race -timeout=30s -coverprofile=unit-coverage.out -covermode=atomic ./...
 
-    - name: Check test coverage
+    - name: Display unit test coverage
       run: |
-        go tool cover -func=coverage.out
-        COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-        echo "Coverage: $COVERAGE%"
-        if (( $(echo "$COVERAGE < 65" | bc -l) )); then
-          echo "Coverage is below 65%"
-          exit 1
-        fi
+        go tool cover -func=unit-coverage.out
+        COVERAGE=$(go tool cover -func=unit-coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+        echo "Unit Test Coverage: $COVERAGE%"
+        echo "UNIT_COVERAGE=$COVERAGE" >> $GITHUB_ENV
+
+    - name: Upload unit test coverage artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: unit-coverage
+        path: unit-coverage.out
+        retention-days: 1
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
       with:
-        file: ./coverage.out
+        file: ./unit-coverage.out
         flags: unittests
 
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
     needs: pre-check
-    if: ${{ contains(inputs.test_selection, 'all') || contains(inputs.test_selection, 'integration') }}
+    if: ${{ contains(inputs.test_selection, 'all') || contains(inputs.test_selection, 'integration') || inputs.test_selection == 'coverage-only' }}
 
     services:
       openldap:
@@ -145,12 +150,32 @@ jobs:
     - name: Setup LDAP test environment
       uses: ./.github/actions/setup-ldap-test
 
-    - name: Run integration tests
+    - name: Run integration tests with coverage
       env:
         TEST_LDAP_URL: ldap://localhost:1389
         TEST_LDAP_USERNAME: cn=adminconfig,cn=config
         TEST_LDAP_PASSWORD: configpassword
-      run: go test -tags=integration -v ./tests/...
+      run: go test -tags=integration -v -coverprofile=integration-coverage.out -covermode=atomic ./tests/...
+
+    - name: Display integration test coverage
+      run: |
+        go tool cover -func=integration-coverage.out
+        COVERAGE=$(go tool cover -func=integration-coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+        echo "Integration Test Coverage: $COVERAGE%"
+        echo "INTEGRATION_COVERAGE=$COVERAGE" >> $GITHUB_ENV
+
+    - name: Upload integration test coverage artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: integration-coverage
+        path: integration-coverage.out
+        retention-days: 1
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./integration-coverage.out
+        flags: integrationtests
 
     - name: Install LDAP tools for operation tests
       run: sudo apt-get update && sudo apt-get install -y ldap-utils
@@ -184,7 +209,7 @@ jobs:
     name: Static Analysis
     runs-on: ubuntu-latest
     needs: pre-check
-    if: ${{ contains(inputs.test_selection, 'all') || contains(inputs.test_selection, 'static-analysis') || contains(inputs.test_selection, 'analysis') }}
+    if: ${{ contains(inputs.test_selection, 'all') || contains(inputs.test_selection, 'static-analysis') || contains(inputs.test_selection, 'analysis') && inputs.test_selection != 'coverage-only' }}
 
     steps:
     - name: Checkout code
@@ -272,7 +297,7 @@ jobs:
     name: Security Analysis
     runs-on: ubuntu-latest
     needs: pre-check
-    if: ${{ contains(inputs.test_selection, 'all') || contains(inputs.test_selection, 'security') || contains(inputs.test_selection, 'analysis') }}
+    if: ${{ contains(inputs.test_selection, 'all') || contains(inputs.test_selection, 'security') || contains(inputs.test_selection, 'analysis') && inputs.test_selection != 'coverage-only' }}
     
     permissions:
       actions: read
@@ -315,10 +340,113 @@ jobs:
         echo "Verifying module integrity..."
         go mod verify
 
+  coverage-report:
+    name: Combined Coverage Report
+    runs-on: ubuntu-latest
+    needs: [ unit-tests, integration-tests ]
+    if: |
+      always() && 
+      !cancelled() && 
+      (needs.unit-tests.result == 'success' || needs.integration-tests.result == 'success')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go environment
+      uses: ./.github/actions/setup-go-environment
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Download unit test coverage
+      if: needs.unit-tests.result == 'success'
+      uses: actions/download-artifact@v4
+      with:
+        name: unit-coverage
+        path: ./coverage-reports/
+
+    - name: Download integration test coverage
+      if: needs.integration-tests.result == 'success' 
+      uses: actions/download-artifact@v4
+      with:
+        name: integration-coverage
+        path: ./coverage-reports/
+
+    - name: Merge coverage reports
+      run: |
+        echo "Merging coverage reports..."
+        
+        # Install gocovmerge tool
+        go install github.com/wadey/gocovmerge@latest
+        
+        # List available coverage files
+        echo "Available coverage files:"
+        ls -la ./coverage-reports/ || echo "No coverage reports found"
+        
+        # Merge coverage files if they exist
+        if [ -f "./coverage-reports/unit-coverage.out" ] && [ -f "./coverage-reports/integration-coverage.out" ]; then
+          echo "Merging unit and integration test coverage..."
+          gocovmerge ./coverage-reports/unit-coverage.out ./coverage-reports/integration-coverage.out > combined-coverage.out
+        elif [ -f "./coverage-reports/unit-coverage.out" ]; then
+          echo "Only unit test coverage available..."
+          cp ./coverage-reports/unit-coverage.out combined-coverage.out
+        elif [ -f "./coverage-reports/integration-coverage.out" ]; then
+          echo "Only integration test coverage available..."
+          cp ./coverage-reports/integration-coverage.out combined-coverage.out
+        else
+          echo "No coverage reports found to merge"
+          exit 1
+        fi
+
+    - name: Generate combined coverage report
+      run: |
+        echo "## Combined Coverage Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        go tool cover -func=combined-coverage.out | tee coverage-summary.txt
+        
+        TOTAL_COVERAGE=$(go tool cover -func=combined-coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Total Coverage: ${TOTAL_COVERAGE}%**" >> $GITHUB_STEP_SUMMARY
+        
+        # Coverage threshold check
+        THRESHOLD=70
+        if (( $(echo "$TOTAL_COVERAGE < $THRESHOLD" | bc -l) )); then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Coverage is below ${THRESHOLD}% threshold" >> $GITHUB_STEP_SUMMARY
+          echo "Coverage ${TOTAL_COVERAGE}% is below the ${THRESHOLD}% threshold"
+          exit 1
+        else
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Coverage meets the ${THRESHOLD}% threshold" >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: Generate HTML coverage report
+      run: |
+        go tool cover -html=combined-coverage.out -o coverage-report.html
+        echo "HTML coverage report generated"
+
+    - name: Upload combined coverage artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: combined-coverage-report
+        path: |
+          combined-coverage.out
+          coverage-report.html
+          coverage-summary.txt
+        retention-days: 7
+
+    - name: Upload to Codecov (combined)
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./combined-coverage.out
+        flags: combined
+        name: combined-coverage
+
   test-summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
-    needs: [ unit-tests, integration-tests, static-analysis, security ]
+    needs: [ unit-tests, integration-tests, static-analysis, security, coverage-report ]
     if: always() && !cancelled()
 
     steps:
@@ -330,6 +458,7 @@ jobs:
         echo "| Unit Tests | ${{ needs.unit-tests.result == 'success' && '✅ Passed' || (needs.unit-tests.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
         
         echo "| Integration Tests | ${{ needs.integration-tests.result == 'success' && '✅ Passed' || (needs.integration-tests.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Coverage Report | ${{ needs.coverage-report.result == 'success' && '✅ Passed' || (needs.coverage-report.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Static Analysis | ${{ needs.static-analysis.result == 'success' && '✅ Passed' || (needs.static-analysis.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Security Analysis | ${{ needs.security.result == 'success' && '✅ Passed' || (needs.security.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
         
