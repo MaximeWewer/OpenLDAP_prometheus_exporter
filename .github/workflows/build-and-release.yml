@@ -239,69 +239,40 @@ jobs:
           COMPARISON_RANGE="${LATEST_TAG}...v${{ needs.prepare-build.outputs.version }}"
         fi
 
-        # Always get the last 10 merged PRs regardless of tag
-        echo "Fetching last 10 merged PRs..."
-        PR_LIST=$(gh pr list --state merged --limit 10 --json number,title,url,mergedAt --jq 'sort_by(.mergedAt) | reverse | .[:10] | .[] | "- **PR [#\(.number)](\(.url))**: \(.title)"')
-        
-        # Alternative: If gh pr list doesn't work well, try from git log
-        if [ -z "$PR_LIST" ]; then
-          echo "Trying alternative PR fetch method..."
-          PR_NUMBERS=$(git log --oneline --all --grep="Merge pull request" -n 50 | grep -o "#[0-9]\+" | sed 's/#//' | sort -u | head -10)
-          PR_LIST=""
-          for pr_num in $PR_NUMBERS; do
-            pr_info=$(gh pr view $pr_num --json number,title,url --jq '"- **PR [#" + (.number|tostring) + "](" + .url + ")**: " + .title' 2>/dev/null || echo "")
-            [ -n "$pr_info" ] && PR_LIST="$PR_LIST$pr_info"$'\n'
-          done
-        fi
-
-        # Always get the last 10 commits (excluding PR merges)
-        echo "Fetching last 10 direct commits..."
-        COMMITS_LIST=$(git log --oneline --all --grep="Merge pull request\|Merge branch" --invert-grep -n 10 --format='%h %s' | sed 's/^/- **Commit** /')
-        
-        # If we want to show what's new since last tag separately
-        if [ -n "$LATEST_TAG" ]; then
-          echo ""
-          echo "### Changes since $LATEST_TAG:"
-          NEW_COMMITS=$(git log ${LATEST_TAG}..HEAD --oneline --grep="Merge pull request\|Merge branch" --invert-grep --format='%h %s')
-          if [ -n "$NEW_COMMITS" ]; then
-            echo "New commits in this release:"
-            echo "$NEW_COMMITS"
-          else
-            echo "No new direct commits since last release"
-          fi
-        fi
-
         # Build changelog content
+        echo "Building changelog..."
         CHANGELOG_CONTENT=""
         
-        # Add section for new changes if there's a previous tag
-        if [ -n "$LATEST_TAG" ]; then
-          NEW_CHANGES=""
-          # Get new PRs since last tag
-          NEW_PR_NUMBERS=$(git log ${LATEST_TAG}..HEAD --oneline --grep="Merge pull request" 2>/dev/null | grep -o "#[0-9]\+" | sed 's/#//' | sort -u)
-          if [ -n "$NEW_PR_NUMBERS" ]; then
-            NEW_PR_LIST=""
-            for pr_num in $NEW_PR_NUMBERS; do
-              pr_info=$(gh pr view $pr_num --json number,title,url --jq '"- **PR [#" + (.number|tostring) + "](" + .url + ")**: " + .title' 2>/dev/null || echo "")
-              [ -n "$pr_info" ] && NEW_PR_LIST="$NEW_PR_LIST$pr_info"$'\n'
-            done
-            [ -n "$NEW_PR_LIST" ] && NEW_CHANGES="#### New in this release"$'\n'"$NEW_PR_LIST"
-          fi
-          
-          # Get new commits since last tag
-          NEW_COMMITS=$(git log ${LATEST_TAG}..HEAD --oneline --grep="Merge pull request\|Merge branch" --invert-grep --format='- **Commit** %h: %s')
-          if [ -n "$NEW_COMMITS" ]; then
-            [ -n "$NEW_CHANGES" ] && NEW_CHANGES="$NEW_CHANGES"$'\n'
-            NEW_CHANGES="${NEW_CHANGES}#### New commits in this release"$'\n'"$NEW_COMMITS"
-          fi
-          
-          [ -n "$NEW_CHANGES" ] && CHANGELOG_CONTENT="$NEW_CHANGES"$'\n\n'
-        fi
+        # Get last 10 events (commits and PRs combined)
+        echo "Fetching last 10 events (commits and pull requests)..."
         
-        # Add recent activity sections
-        [ -n "$PR_LIST" ] && CHANGELOG_CONTENT="${CHANGELOG_CONTENT}#### Recent pull requests (last 10)"$'\n'"$PR_LIST"
-        [ -n "$COMMITS_LIST" ] && CHANGELOG_CONTENT="${CHANGELOG_CONTENT:+$CHANGELOG_CONTENT$'\n\n'}#### Recent commits (last 10)"$'\n'"$COMMITS_LIST"
-        [ -z "$CHANGELOG_CONTENT" ] && CHANGELOG_CONTENT="No changes found."
+        # Create a temporary file to store all events with timestamps
+        TEMP_EVENTS=$(mktemp)
+        
+        # Get all commits with their timestamps (excluding merge commits)
+        git log --all --pretty=format:"%at|commit|%h|%s" --grep="Merge pull request\|Merge branch" --invert-grep -n 20 > "$TEMP_EVENTS"
+        
+        # Get merged PRs with timestamps
+        gh pr list --state merged --limit 20 --json number,title,url,mergedAt --jq '.[] | "\(.mergedAt | fromdateiso8601)|pr|#\(.number)|\(.title)|\(.url)"' >> "$TEMP_EVENTS" 2>/dev/null || true
+        
+        # Sort by timestamp (newest first) and take only the first 10
+        EVENTS_LIST=$(sort -t'|' -k1 -rn "$TEMP_EVENTS" | head -10 | while IFS='|' read -r timestamp type id title url; do
+          if [ "$type" = "commit" ]; then
+            echo "- **Commit** $id: $title"
+          elif [ "$type" = "pr" ]; then
+            echo "- **Pull request** [#${id}](${url}): ${title}"
+          fi
+        done)
+        
+        # Clean up temp file
+        rm -f "$TEMP_EVENTS"
+        
+        # Build the changelog content
+        if [ -n "$EVENTS_LIST" ]; then
+          CHANGELOG_CONTENT="#### New in this release (last 10 events)"$'\n'"$EVENTS_LIST"
+        else
+          CHANGELOG_CONTENT="No changes found."
+        fi
 
         # Save outputs
         echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
