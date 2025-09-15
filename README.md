@@ -156,20 +156,48 @@ scrape_configs:
 
 The Monitor backend must be enabled on your OpenLDAP server.
 
+```ldif
+# This LDIF ensures the Monitor backend is properly configured
+# Note: Bitnami OpenLDAP already has Monitor backend enabled, so we just modify existing configuration
+
+# Ensure Monitor backend is enabled for monitoring
+dn: olcDatabase={1}monitor,cn=config
+changetype: modify
+replace: olcMonitoring
+olcMonitoring: TRUE
+```
+
 ### 2. Base DN monitoring activation
 
 **Important:** You must manually activate monitoring for each **Base DN** you want to monitor. The exporter automatically detects configured bases but cannot activate them.
+
+```ldif
+# This configures monitoring for the main database
+# Note: Bitnami OpenLDAP structure: {0}config, {1}monitor, {2}mdb
+
+# Configure main database monitoring
+dn: olcDatabase={2}mdb,cn=config
+changetype: modify
+replace: olcMonitoring
+olcMonitoring: TRUE
+```
 
 ### 3. ACL configuration
 
 The account used (recommended: `adminconfig`. `LDAP_CONFIG_ADMIN` is used) must have read access to the Monitor backend:
 
 ```ldif
-# Example ACL for adminconfig
+# This file configures access control lists to allow adminconfig to read Monitor & Backend
+
 dn: olcDatabase={1}monitor,cn=config
 changetype: modify
 replace: olcAccess
 olcAccess: to dn.subtree="cn=Monitor" by dn.exact="cn=adminconfig,cn=config" read by * none
+
+dn: olcDatabase={0}config,cn=config
+changetype: modify
+replace: olcAccess
+olcAccess: to * by dn.exact="cn=adminconfig,cn=config" manage by * none
 ```
 
 ## Configuration
