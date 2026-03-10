@@ -165,7 +165,7 @@ func (e *OpenLDAPExporter) collectHealthMetrics(server string) {
 	)
 
 	responseTime := time.Since(start).Seconds()
-	e.metricsRegistry.ResponseTime.With(prometheus.Labels{"server": server}).Set(responseTime)
+	e.metricsRegistry.ResponseTime.With(prometheus.Labels{"server": server}).Observe(responseTime)
 
 	if err == nil {
 		e.metricsRegistry.HealthStatus.With(prometheus.Labels{"server": server}).Set(1)

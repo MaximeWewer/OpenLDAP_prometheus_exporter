@@ -322,11 +322,14 @@ func TestHealthMetrics(t *testing.T) {
 		t.Errorf("Expected HealthStatus to be 1, got %f", health)
 	}
 
-	// Test response time
-	metrics.ResponseTime.WithLabelValues("test-server").Set(0.5)
-	responseTime := testutil.ToFloat64(metrics.ResponseTime.WithLabelValues("test-server"))
-	if responseTime != 0.5 {
-		t.Errorf("Expected ResponseTime to be 0.5, got %f", responseTime)
+	// Test response time histogram
+	metrics.ResponseTime.WithLabelValues("test-server").Observe(0.5)
+	metrics.ResponseTime.WithLabelValues("test-server").Observe(0.1)
+	// Histogram doesn't support ToFloat64 on the observer directly, verify via collection
+	ch := make(chan prometheus.Metric, 100)
+	metrics.ResponseTime.Collect(ch)
+	if len(ch) == 0 {
+		t.Error("Expected ResponseTime histogram to produce metrics")
 	}
 
 	// Test scrape errors

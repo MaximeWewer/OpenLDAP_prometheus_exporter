@@ -115,6 +115,9 @@ func main() {
 	}
 	defer configData.Clear()
 
+	// Pass version to exporter package for server_info metric
+	exporter.ExporterVersion = Version
+
 	exp := exporter.NewOpenLDAPExporter(configData)
 	defer exp.Close()
 	prometheus.MustRegister(exp)

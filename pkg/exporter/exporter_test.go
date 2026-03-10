@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -287,51 +286,45 @@ func TestCleanupOldCounters(t *testing.T) {
 
 	// Initialize server map
 	exporter.counterMutex.Lock()
-	exporter.counterValues[serverName] = &sync.Map{}
-	serverMap := exporter.counterValues[serverName]
-	exporter.counterMutex.Unlock()
-
-	// Add test entries
-	recentEntry := &counterEntry{
+	serverMap := make(map[string]*counterEntry)
+	serverMap["recent-key"] = &counterEntry{
 		value:    100,
 		lastSeen: now.Add(-1 * time.Minute), // Recent
 	}
-	oldEntry := &counterEntry{
+	serverMap["old-key"] = &counterEntry{
 		value:    200,
 		lastSeen: now.Add(-CounterEntryRetentionPeriod - 1*time.Minute), // Old
 	}
+	exporter.counterValues[serverName] = serverMap
+	exporter.counterMutex.Unlock()
 
-	serverMap.Store("recent-key", recentEntry)
-	serverMap.Store("old-key", oldEntry)
-
-	// Count initial entries
-	initialCount := 0
-	serverMap.Range(func(key, value interface{}) bool {
-		initialCount++
-		return true
-	})
-	if initialCount != 2 {
-		t.Fatalf("Expected 2 initial entries, got %d", initialCount)
+	if len(serverMap) != 2 {
+		t.Fatalf("Expected 2 initial entries, got %d", len(serverMap))
 	}
 
 	// Run cleanup
 	exporter.cleanupOldCountersSync()
 
 	// Count final entries
-	finalCount := 0
-	serverMap.Range(func(key, value interface{}) bool {
-		finalCount++
-		return true
-	})
+	exporter.counterMutex.RLock()
+	finalMap := exporter.counterValues[serverName]
+	finalCount := len(finalMap)
+	exporter.counterMutex.RUnlock()
+
 	if finalCount != 1 {
 		t.Errorf("Expected 1 entry after cleanup, got %d", finalCount)
 	}
 
 	// Check that the correct entry remains
-	if _, exists := serverMap.Load("recent-key"); !exists {
+	exporter.counterMutex.RLock()
+	_, recentExists := finalMap["recent-key"]
+	_, oldExists := finalMap["old-key"]
+	exporter.counterMutex.RUnlock()
+
+	if !recentExists {
 		t.Error("Recent entry should not be removed")
 	}
-	if _, exists := serverMap.Load("old-key"); exists {
+	if oldExists {
 		t.Error("Old entry should be removed")
 	}
 }
@@ -573,45 +566,32 @@ func TestCleanupOldCountersWithMany(t *testing.T) {
 
 	// Initialize server map
 	exporter.counterMutex.Lock()
-	exporter.counterValues[serverName] = &sync.Map{}
-	serverMap := exporter.counterValues[serverName]
-	exporter.counterMutex.Unlock()
-
+	serverMap := make(map[string]*counterEntry)
 	for i := 0; i < 10; i++ {
-		// Old entries
-		oldEntry := &counterEntry{
+		serverMap[fmt.Sprintf("old-key-%d", i)] = &counterEntry{
 			value:    float64(i),
 			lastSeen: now.Add(-CounterEntryRetentionPeriod - time.Hour),
 		}
-		serverMap.Store(fmt.Sprintf("old-key-%d", i), oldEntry)
-
-		// Recent entries
-		recentEntry := &counterEntry{
+		serverMap[fmt.Sprintf("recent-key-%d", i)] = &counterEntry{
 			value:    float64(i + 100),
 			lastSeen: now.Add(-time.Minute),
 		}
-		serverMap.Store(fmt.Sprintf("recent-key-%d", i), recentEntry)
 	}
+	exporter.counterValues[serverName] = serverMap
+	exporter.counterMutex.Unlock()
 
-	// Count initial entries
-	initialCount := 0
-	serverMap.Range(func(key, value interface{}) bool {
-		initialCount++
-		return true
-	})
-	if initialCount != 20 {
-		t.Fatalf("Expected 20 initial entries, got %d", initialCount)
+	if len(serverMap) != 20 {
+		t.Fatalf("Expected 20 initial entries, got %d", len(serverMap))
 	}
 
 	// Run cleanup
 	exporter.cleanupOldCountersSync()
 
 	// Count final entries - should have removed 10 old entries
-	finalCount := 0
-	serverMap.Range(func(key, value interface{}) bool {
-		finalCount++
-		return true
-	})
+	exporter.counterMutex.RLock()
+	finalCount := len(exporter.counterValues[serverName])
+	exporter.counterMutex.RUnlock()
+
 	if finalCount != 10 {
 		t.Errorf("Expected 10 entries after cleanup, got %d", finalCount)
 	}

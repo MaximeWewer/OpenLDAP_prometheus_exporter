@@ -52,8 +52,8 @@ type OpenLDAPExporter struct {
 	metricsRegistry *metrics.OpenLDAPMetrics
 	config          *config.Config
 	monitoring      *monitoring.InternalMonitoring
-	counterValues   map[string]*sync.Map // Per-server counter tracking
-	counterMutex    sync.RWMutex         // Protects counterValues map
+	counterValues   map[string]map[string]*counterEntry // Per-server counter tracking (typed map)
+	counterMutex    sync.RWMutex                       // Protects counterValues map
 	stopChan        chan struct{}        // Signal to stop background goroutines
 	stopped         int32                // Atomic flag to indicate if exporter is stopped
 	closeOnce       sync.Once            // Ensures Close() is called only once
@@ -78,7 +78,7 @@ func NewOpenLDAPExporter(cfg *config.Config) *OpenLDAPExporter {
 		metricsRegistry: metrics.NewOpenLDAPMetrics(),
 		config:          cfg,
 		monitoring:      internalMonitoring,
-		counterValues:   make(map[string]*sync.Map),
+		counterValues:   make(map[string]map[string]*counterEntry),
 		stopChan:        make(chan struct{}),
 	}
 

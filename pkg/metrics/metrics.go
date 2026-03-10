@@ -33,7 +33,7 @@ type OpenLDAPMetrics struct {
 	DatabaseEntries     *prometheus.GaugeVec
 	DatabaseInfo        *prometheus.GaugeVec
 	HealthStatus        *prometheus.GaugeVec
-	ResponseTime        *prometheus.GaugeVec
+	ResponseTime        *prometheus.HistogramVec
 	ScrapeErrors        *prometheus.CounterVec
 	Up                  *prometheus.GaugeVec
 	ServerInfo          *prometheus.GaugeVec
@@ -160,7 +160,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "threads_state",
-				Help:      "Thread pool state (cn=State,cn=Threads,cn=Monitor)",
+				Help:      "Number of threads in each state (cn=State,cn=Threads,cn=Monitor)",
 			},
 			[]string{"server", "state"},
 		),
@@ -206,7 +206,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "overlays_info",
-				Help:      "Information about loaded overlays (cn=Overlays,cn=Monitor)",
+				Help:      "Loaded overlay modules (value is always 1, cn=Overlays,cn=Monitor)",
 			},
 			[]string{"server", "overlay", "status"},
 		),
@@ -234,7 +234,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "tls_info",
-				Help:      "TLS configuration information (cn=TLS,cn=Monitor)",
+				Help:      "TLS configuration components (value is always 1, cn=TLS,cn=Monitor)",
 			},
 			[]string{"server", "component", "status"},
 		),
@@ -244,7 +244,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "backends_info",
-				Help:      "Information about available backends (cn=Backends,cn=Monitor)",
+				Help:      "Available database backends (value is always 1, cn=Backends,cn=Monitor)",
 			},
 			[]string{"server", "backend", "type"},
 		),
@@ -254,7 +254,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "listeners_info",
-				Help:      "Information about active listeners (cn=Listeners,cn=Monitor)",
+				Help:      "Active network listeners with bind address (value is always 1, cn=Listeners,cn=Monitor)",
 			},
 			[]string{"server", "listener", "address"},
 		),
@@ -278,11 +278,12 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server"},
 		),
-		ResponseTime: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
+		ResponseTime: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
 				Namespace: "openldap",
 				Name:      "response_time_seconds",
-				Help:      "Response time for health checks in seconds",
+				Help:      "Histogram of LDAP health check response times in seconds",
+				Buckets:   []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
 			},
 			[]string{"server"},
 		),
@@ -299,7 +300,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "up",
-				Help:      "Whether the OpenLDAP exporter is up (1) or down (0)",
+				Help:      "Whether the OpenLDAP server is reachable (1=up, 0=down)",
 			},
 			[]string{"server"},
 		),
@@ -309,9 +310,9 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
 				Name:      "server_info",
-				Help:      "Information about the OpenLDAP server (cn=Monitor)",
+				Help:      "OpenLDAP server and exporter version information (value is always 1)",
 			},
-			[]string{"server", "version", "description"},
+			[]string{"server", "version", "exporter_version", "description"},
 		),
 
 		DatabaseInfo: prometheus.NewGaugeVec(

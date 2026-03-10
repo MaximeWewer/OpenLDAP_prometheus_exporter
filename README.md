@@ -477,7 +477,7 @@ These metrics are collected in different configurable groups. Use `OPENLDAP_METR
 
 | Metric | Type | Labels | Description | LDAP Source |
 |----------|------|---------|-------------|-------------|
-| `openldap_server_info` | Gauge | `server`, `version`, `description` | OpenLDAP server version and description | `cn=Monitor` |
+| `openldap_server_info` | Gauge | `server`, `version`, `exporter_version`, `description` | OpenLDAP server and exporter version info | `cn=Monitor` |
 | `openldap_supported_control_info` | Gauge | `server`, `oid` | LDAP controls supported by the server | RootDSE `supportedControl` |
 
 ### Log (`log`)
@@ -508,7 +508,7 @@ These metrics are only populated when `contextCSN` is present on database suffix
 | Metric | Type | Labels | Description | Source |
 |----------|------|---------|-------------|--------|
 | `openldap_health_status` | Gauge | `server` | Server health status (1=healthy, 0=unhealthy) | Calculated |
-| `openldap_response_time_seconds` | Gauge | `server` | Health check response time | Calculated |
+| `openldap_response_time_seconds` | Histogram | `server` | Health check response time distribution | Calculated |
 | `openldap_scrape_errors_total` | Counter | `server` | Total number of scrape errors | Internal |
 | `openldap_up` | Gauge | `server` | Whether the OpenLDAP exporter is up (1) or not (0) | Internal |
 

@@ -8,6 +8,9 @@ import (
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
 
+// ExporterVersion is set at build time via ldflags or defaults to "dev"
+var ExporterVersion = "dev"
+
 // collectOverlaysMetrics collects overlay information metrics
 func (e *OpenLDAPExporter) collectOverlaysMetrics(server string) {
 	if !e.shouldCollectMetric("overlays") {
@@ -177,9 +180,10 @@ func (e *OpenLDAPExporter) collectServerInfoMetrics(server string) {
 			}
 
 			e.metricsRegistry.ServerInfo.With(prometheus.Labels{
-				"server":      server,
-				"version":     version,
-				"description": description,
+				"server":           server,
+				"version":          version,
+				"exporter_version": ExporterVersion,
+				"description":      description,
 			}).Set(1)
 		}
 	}
@@ -207,7 +211,9 @@ func (e *OpenLDAPExporter) collectLogMetrics(server string) {
 	)
 
 	if err != nil {
-		logger.SafeError("exporter", "Failed to search log info", err)
+		logger.SafeWarn("exporter", "Log subtree not available (optional)", map[string]interface{}{
+			"error": err.Error(),
+		})
 		return
 	}
 
@@ -281,7 +287,9 @@ func (e *OpenLDAPExporter) collectSASLMetrics(server string) {
 	)
 
 	if err != nil {
-		logger.SafeError("exporter", "Failed to search SASL info", err)
+		logger.SafeWarn("exporter", "SASL subtree not available (optional)", map[string]interface{}{
+			"error": err.Error(),
+		})
 		return
 	}
 

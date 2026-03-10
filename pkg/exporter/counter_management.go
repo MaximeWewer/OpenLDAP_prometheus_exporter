@@ -1,7 +1,6 @@
 package exporter
 
 import (
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -82,28 +81,22 @@ func (e *OpenLDAPExporter) updateCounterCommon(
 		logger.SafeWarn("exporter", "Unreasonably large counter value detected", logFields)
 	}
 
-	// Get the map for this server
-	e.counterMutex.RLock()
+	// Get or create the map for this server and the entry for this key
+	e.counterMutex.Lock()
 	serverMap, exists := e.counterValues[server]
-	e.counterMutex.RUnlock()
-
 	if !exists {
-		// Create new server map if it doesn't exist
-		e.counterMutex.Lock()
-		// Double-check after acquiring write lock
-		if serverMap, exists = e.counterValues[server]; !exists {
-			serverMap = &sync.Map{}
-			e.counterValues[server] = serverMap
-		}
-		e.counterMutex.Unlock()
+		serverMap = make(map[string]*counterEntry)
+		e.counterValues[server] = serverMap
 	}
-
-	// Load or create counter entry
-	entryInterface, _ := serverMap.LoadOrStore(key, &counterEntry{
-		value:    0,
-		lastSeen: time.Now(),
-	})
-	entry := entryInterface.(*counterEntry)
+	entry, entryExists := serverMap[key]
+	if !entryExists {
+		entry = &counterEntry{
+			value:    0,
+			lastSeen: time.Now(),
+		}
+		serverMap[key] = entry
+	}
+	e.counterMutex.Unlock()
 
 	// Try to acquire modification lock
 	if !atomic.CompareAndSwapInt32(&entry.modifying, 0, 1) {
@@ -215,32 +208,17 @@ func (e *OpenLDAPExporter) cleanupOldCountersSync() {
 	cutoff := time.Now().Add(-CounterEntryRetentionPeriod)
 	totalCleaned := 0
 
-	e.counterMutex.RLock()
-	servers := make([]string, 0, len(e.counterValues))
-	for server := range e.counterValues {
-		servers = append(servers, server)
-	}
-	e.counterMutex.RUnlock()
+	e.counterMutex.Lock()
+	defer e.counterMutex.Unlock()
 
-	for _, server := range servers {
-		e.counterMutex.RLock()
-		serverMap, exists := e.counterValues[server]
-		e.counterMutex.RUnlock()
-
-		if !exists {
-			continue
-		}
-
+	for server, serverMap := range e.counterValues {
 		keysToDelete := []string{}
 
-		// Find entries to delete
-		serverMap.Range(func(key, value interface{}) bool {
-			entry := value.(*counterEntry)
-
+		for key, entry := range serverMap {
 			// Try to acquire modification lock
 			if atomic.CompareAndSwapInt32(&entry.modifying, 0, 1) {
 				if entry.lastSeen.Before(cutoff) {
-					keysToDelete = append(keysToDelete, key.(string))
+					keysToDelete = append(keysToDelete, key)
 				}
 				atomic.StoreInt32(&entry.modifying, 0)
 			}
@@ -251,15 +229,13 @@ func (e *OpenLDAPExporter) cleanupOldCountersSync() {
 					"server":  server,
 					"entries": len(keysToDelete),
 				})
-				return false // Stop iteration
+				break
 			}
-
-			return true
-		})
+		}
 
 		// Delete old entries
 		for _, key := range keysToDelete {
-			serverMap.Delete(key)
+			delete(serverMap, key)
 			totalCleaned++
 		}
 	}
@@ -285,11 +261,7 @@ func (e *OpenLDAPExporter) GetAtomicCounterStats() map[string]float64 {
 	defer e.counterMutex.RUnlock()
 
 	for server, serverMap := range e.counterValues {
-		serverEntries := 0
-		serverMap.Range(func(_, _ interface{}) bool {
-			serverEntries++
-			return true
-		})
+		serverEntries := len(serverMap)
 		stats["counter_entries_"+server] = float64(serverEntries)
 		totalEntries += serverEntries
 	}
