@@ -4,8 +4,8 @@
 # Build arguments for version information
 ARG VERSION="dev"
 
-# Build stage with Go 1.24.6
-FROM --platform=$BUILDPLATFORM golang:1.24.6-alpine AS builder
+# Build stage with Go 1.26
+FROM --platform=$BUILDPLATFORM golang:1.26.0-alpine AS builder
 
 # Declare build arguments for cross-compilation
 ARG TARGETOS
@@ -58,19 +58,15 @@ RUN ls -la openldap-exporter && \
     echo "Binary size: $(du -h openldap-exporter | cut -f1)" && \
     ./openldap-exporter --version || echo "Binary verification complete"
 
-# Runtime stage - using distroless base for minimal attack surface and security
-FROM gcr.io/distroless/base-debian12:nonroot
+# Runtime stage - using distroless static for minimal attack surface (no libc needed)
+FROM gcr.io/distroless/static-debian13:nonroot
 
 # Pass build arguments to runtime stage
 ARG VERSION
 
 # Metadata labels are now managed by the CI/CD workflow
 
-# Copy timezone data and CA certificates from builder
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-
-# Copy the statically-linked binary
+# Copy the statically-linked binary (CA certs and tzdata are included in distroless/static)
 COPY --from=builder /build/openldap-exporter /openldap-exporter
 
 # Verify binary permissions and ownership
