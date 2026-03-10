@@ -53,8 +53,8 @@ type Config struct {
 
 // LoadConfig loads configuration from environment variables
 func LoadConfig() (*Config, error) {
-	// Get password and create secure string
-	passwordValue := getEnvOrDefault("LDAP_PASSWORD", "")
+	// Get password: LDAP_PASSWORD_FILE takes precedence over LDAP_PASSWORD
+	passwordValue := loadPassword()
 	var securePassword *SecureString
 	if passwordValue != "" {
 		var err error
@@ -62,7 +62,8 @@ func LoadConfig() (*Config, error) {
 		if err != nil {
 			logger.Fatal("config", "Failed to create secure password storage", err)
 		}
-		// Password is now securely stored in SecureString
+		// Clear the plaintext password from the local variable
+		passwordValue = ""
 	}
 
 	config := &Config{
@@ -86,7 +87,7 @@ func LoadConfig() (*Config, error) {
 		logger.Fatal("config", "LDAP_USERNAME environment variable is required", nil)
 	}
 	if config.Password == nil || config.Password.IsEmpty() {
-		logger.Fatal("config", "LDAP_PASSWORD environment variable is required", nil)
+		logger.Fatal("config", "LDAP_PASSWORD or LDAP_PASSWORD_FILE is required", nil)
 	}
 
 	// Validate timeout values
@@ -168,6 +169,40 @@ func (c *Config) Clear() {
 		c.Password.Clear()
 		c.Password = nil
 	}
+}
+
+// loadPassword reads the LDAP password from LDAP_PASSWORD_FILE (Docker/Kubernetes secrets)
+// or falls back to LDAP_PASSWORD environment variable.
+func loadPassword() string {
+	// LDAP_PASSWORD_FILE takes precedence (Docker secrets, Kubernetes secrets)
+	if filePath := os.Getenv("LDAP_PASSWORD_FILE"); filePath != "" {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			logger.Fatal("config", "Failed to read LDAP_PASSWORD_FILE", err, map[string]interface{}{
+				"path": filePath,
+			})
+		}
+
+		password := strings.TrimRight(string(data), "\n\r")
+		if password == "" {
+			logger.Fatal("config", "LDAP_PASSWORD_FILE is empty", nil, map[string]interface{}{
+				"path": filePath,
+			})
+		}
+
+		// Clear the byte slice from memory
+		for i := range data {
+			data[i] = 0
+		}
+
+		logger.SafeInfo("config", "Password loaded from file", map[string]interface{}{
+			"source": "LDAP_PASSWORD_FILE",
+		})
+		return password
+	}
+
+	// Fallback to LDAP_PASSWORD environment variable
+	return getEnvOrDefault("LDAP_PASSWORD", "")
 }
 
 // getEnvOrDefault retrieves an environment variable or returns the default value if not set

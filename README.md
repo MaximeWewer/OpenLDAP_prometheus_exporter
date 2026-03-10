@@ -208,9 +208,70 @@ olcAccess: to * by dn.exact="cn=adminconfig,cn=config" manage by * none
 |----------|-------------|---------|---------|
 | `LDAP_URL` | LDAP server URL | *Required* | `ldap://localhost:389` |
 | `LDAP_USERNAME` | Username for LDAP authentication | *Required* | `cn=admin,dc=example,dc=com` |
-| `LDAP_PASSWORD` | Password for LDAP authentication | *Required* | `password123` |
+| `LDAP_PASSWORD` | Password for LDAP authentication | *Required** | `password123` |
+| `LDAP_PASSWORD_FILE` | Path to a file containing the password | | `/run/secrets/ldap_password` |
+
+> \* One of `LDAP_PASSWORD` or `LDAP_PASSWORD_FILE` is required. `LDAP_PASSWORD_FILE` takes precedence when both are set.
 
 > **Recommendation:** Use the `adminconfig` account which has access to `cn=config` and the Monitor backend.
+
+#### Password from file (Docker / Kubernetes secrets)
+
+`LDAP_PASSWORD_FILE` allows loading the password from a file instead of an environment variable. This is the recommended approach for production deployments using Docker secrets or Kubernetes secrets.
+
+**Docker Compose with secrets:**
+
+```yaml
+services:
+  openldap-exporter:
+    image: ghcr.io/maximewewer/openldap_prometheus_exporter:latest
+    ports:
+      - "9330:9330"
+    environment:
+      - LDAP_URL=ldap://openldap:1389
+      - LDAP_USERNAME=cn=adminconfig,cn=config
+      - LDAP_PASSWORD_FILE=/run/secrets/ldap_password
+      - LDAP_SERVER_NAME=prod-ldap-01
+    secrets:
+      - ldap_password
+
+secrets:
+  ldap_password:
+    file: ./secrets/ldap_password.txt
+```
+
+**Kubernetes with secrets:**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: openldap-exporter
+          image: ghcr.io/maximewewer/openldap_prometheus_exporter:latest
+          env:
+            - name: LDAP_URL
+              value: "ldap://openldap:389"
+            - name: LDAP_USERNAME
+              value: "cn=adminconfig,cn=config"
+            - name: LDAP_PASSWORD_FILE
+              value: "/etc/secrets/ldap-password"
+          volumeMounts:
+            - name: ldap-secret
+              mountPath: /etc/secrets
+              readOnly: true
+      volumes:
+        - name: ldap-secret
+          secret:
+            secretName: ldap-credentials
+            items:
+              - key: password
+                path: ldap-password
+```
+
+The file content is trimmed of trailing newlines. The raw bytes are cleared from memory after reading.
 
 ### LDAP configuration (optional)
 
@@ -266,7 +327,7 @@ olcAccess: to * by dn.exact="cn=adminconfig,cn=config" manage by * none
 | `OPENLDAP_METRICS_INCLUDE` | Only collect these metric groups | `connections,statistics,health,server` |
 | `OPENLDAP_METRICS_EXCLUDE` | Exclude these metric groups | `overlays,tls,backends,log,sasl` |
 
-**Available metric groups:** `connections`, `statistics`, `operations`, `threads`, `time`, `waiters`, `overlays`, `tls`, `backends`, `listeners`, `health`, `database`, `server`, `log`, `sasl`
+**Available metric groups:** `connections`, `statistics`, `operations`, `threads`, `time`, `waiters`, `overlays`, `tls`, `backends`, `listeners`, `health`, `database`, `server`, `log`, `sasl`, `replication`
 
 **Filtering Logic:**
 
@@ -406,6 +467,15 @@ These metrics are collected in different configurable groups. Use `OPENLDAP_METR
 | Metric | Type | Labels | Description | LDAP Source |
 |----------|------|---------|-------------|-------------|
 | `openldap_sasl_info` | Gauge | `server`, `mechanism`, `status` | SASL authentication mechanisms configuration | `cn=SASL,cn=Monitor` |
+
+### Replication (`replication`)
+
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_replication_csn_timestamp` | Gauge | `server`, `base_dn`, `server_id` | Unix timestamp from contextCSN per database and server ID | `contextCSN` on suffix entry |
+| `openldap_replication_lag_seconds` | Gauge | `server`, `base_dn`, `server_id` | Seconds since last contextCSN update | Calculated |
+
+These metrics are only populated when `contextCSN` is present on database suffix entries (i.e., when replication is configured). In multi-master setups, one series per server ID (SID) is exposed, allowing lag detection between replicas.
 
 ### Health (`health`)
 

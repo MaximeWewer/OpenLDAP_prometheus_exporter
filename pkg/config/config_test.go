@@ -601,3 +601,86 @@ func TestValidateFilteringFunctions(t *testing.T) {
 		t.Error("Should NOT monitor 'internal' DC (not in include list, even though in exclude)")
 	}
 }
+
+// TestLoadPasswordFromFile tests LDAP_PASSWORD_FILE support
+func TestLoadPasswordFromFile(t *testing.T) {
+	// Create a temporary secret file
+	tmpFile, err := os.CreateTemp("", "ldap-secret-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString("my-secret-password\n"); err != nil {
+		t.Fatal(err)
+	}
+	tmpFile.Close()
+
+	// Set up env vars for LoadConfig
+	t.Setenv("LDAP_URL", testURL)
+	t.Setenv("LDAP_USERNAME", testUsername)
+	t.Setenv("LDAP_PASSWORD", "")
+	t.Setenv("LDAP_PASSWORD_FILE", tmpFile.Name())
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig with LDAP_PASSWORD_FILE failed: %v", err)
+	}
+	defer config.Clear()
+
+	// Verify the password was loaded from file (without trailing newline)
+	if config.Password == nil || config.Password.IsEmpty() {
+		t.Fatal("Password should not be empty when loaded from file")
+	}
+	if config.Password.String() != "my-secret-password" {
+		t.Errorf("Expected password 'my-secret-password', got '%s'", config.Password.String())
+	}
+}
+
+// TestLoadPasswordFilePrecedence tests that LDAP_PASSWORD_FILE takes precedence over LDAP_PASSWORD
+func TestLoadPasswordFilePrecedence(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "ldap-secret-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString("file-password"); err != nil {
+		t.Fatal(err)
+	}
+	tmpFile.Close()
+
+	t.Setenv("LDAP_URL", testURL)
+	t.Setenv("LDAP_USERNAME", testUsername)
+	t.Setenv("LDAP_PASSWORD", "env-password")
+	t.Setenv("LDAP_PASSWORD_FILE", tmpFile.Name())
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	defer config.Clear()
+
+	// File should take precedence
+	if config.Password.String() != "file-password" {
+		t.Errorf("Expected file password 'file-password', got '%s'", config.Password.String())
+	}
+}
+
+// TestLoadPasswordFallbackToEnv tests fallback to LDAP_PASSWORD when no file is set
+func TestLoadPasswordFallbackToEnv(t *testing.T) {
+	t.Setenv("LDAP_URL", testURL)
+	t.Setenv("LDAP_USERNAME", testUsername)
+	t.Setenv("LDAP_PASSWORD", "env-password")
+	t.Setenv("LDAP_PASSWORD_FILE", "")
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	defer config.Clear()
+
+	if config.Password.String() != "env-password" {
+		t.Errorf("Expected env password 'env-password', got '%s'", config.Password.String())
+	}
+}
