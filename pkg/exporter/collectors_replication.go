@@ -116,12 +116,26 @@ func parseContextCSN(csn string) (time.Time, string, error) {
 	// Parse timestamp (part 0): YYYYMMDDHHmmss.ffffffZ
 	timestamp := parts[0]
 
-	// Try with microseconds first, then without
+	// Parse timestamp, handling variable microsecond precision
+	// OpenLDAP may produce 1-6 fractional digits (e.g., .0Z, .00Z, .000000Z)
 	var t time.Time
 	var err error
 
-	if strings.Contains(timestamp, ".") {
-		t, err = time.Parse("20060102150405.000000Z", timestamp)
+	if dotIdx := strings.IndexByte(timestamp, '.'); dotIdx >= 0 {
+		// Normalize fractional part to exactly 6 digits for consistent parsing
+		zIdx := strings.IndexByte(timestamp, 'Z')
+		if zIdx < 0 {
+			return time.Time{}, "", errors.New("invalid CSN timestamp: missing Z suffix")
+		}
+		frac := timestamp[dotIdx+1 : zIdx]
+		for len(frac) < 6 {
+			frac += "0"
+		}
+		if len(frac) > 6 {
+			frac = frac[:6]
+		}
+		normalized := timestamp[:dotIdx+1] + frac + "Z"
+		t, err = time.Parse("20060102150405.000000Z", normalized)
 	} else {
 		t, err = time.Parse("20060102150405Z", timestamp)
 	}

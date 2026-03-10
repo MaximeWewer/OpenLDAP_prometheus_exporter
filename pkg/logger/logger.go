@@ -117,22 +117,17 @@ var (
 	bindPattern = regexp.MustCompile(`(?i)(bind\s+failed.*password:\s*)(\S+)`)
 )
 
-// Pool for reusing maps to reduce allocations
-var (
-	mapPool = sync.Pool{
-		New: func() interface{} {
-			return make(map[string]interface{}, 8) // Pre-allocate capacity for common case
-		},
-	}
-	// Mutex to protect map pool operations in high-concurrency scenarios
-	mapPoolMutex sync.RWMutex
-)
+// Pool for reusing maps to reduce allocations (sync.Pool is concurrency-safe)
+var mapPool = sync.Pool{
+	New: func() interface{} {
+		return make(map[string]interface{}, 8) // Pre-allocate capacity for common case
+	},
+}
 
-// getMapFromPool returns a clean map from the pool with thread safety
+// getMapFromPool returns a clean map from the pool
+// sync.Pool is already concurrency-safe, no external mutex needed
 func getMapFromPool() map[string]interface{} {
-	mapPoolMutex.RLock()
 	m := mapPool.Get().(map[string]interface{})
-	mapPoolMutex.RUnlock()
 
 	// Clear the map in case it has leftover data
 	for k := range m {
@@ -141,12 +136,10 @@ func getMapFromPool() map[string]interface{} {
 	return m
 }
 
-// putMapToPool returns a map to the pool with thread safety
+// putMapToPool returns a map to the pool
 func putMapToPool(m map[string]interface{}) {
 	if m != nil {
-		mapPoolMutex.Lock()
 		mapPool.Put(m)
-		mapPoolMutex.Unlock()
 	}
 }
 
@@ -211,10 +204,10 @@ func SafeDebug(pkg string, message string, fields ...map[string]interface{}) {
 	event := log.Debug().Str("package", pkg)
 	if len(fields) > 0 {
 		sanitized := sanitizeFields(fields[0])
+		defer putMapToPool(sanitized)
 		for k, v := range sanitized {
 			event = event.Interface(k, v)
 		}
-		putMapToPool(sanitized)
 	}
 	event.Msg(message)
 }
@@ -224,10 +217,10 @@ func SafeInfo(pkg string, message string, fields ...map[string]interface{}) {
 	event := log.Info().Str("package", pkg)
 	if len(fields) > 0 {
 		sanitized := sanitizeFields(fields[0])
+		defer putMapToPool(sanitized)
 		for k, v := range sanitized {
 			event = event.Interface(k, v)
 		}
-		putMapToPool(sanitized)
 	}
 	event.Msg(message)
 }
@@ -237,10 +230,10 @@ func SafeWarn(pkg string, message string, fields ...map[string]interface{}) {
 	event := log.Warn().Str("package", pkg)
 	if len(fields) > 0 {
 		sanitized := sanitizeFields(fields[0])
+		defer putMapToPool(sanitized)
 		for k, v := range sanitized {
 			event = event.Interface(k, v)
 		}
-		putMapToPool(sanitized)
 	}
 	event.Msg(message)
 }
@@ -285,10 +278,10 @@ func SafeError(pkg string, message string, err error, fields ...map[string]inter
 	event := log.Error().Str("package", pkg).Err(sanitizedErr)
 	if len(fields) > 0 {
 		sanitized := sanitizeFields(fields[0])
+		defer putMapToPool(sanitized)
 		for k, v := range sanitized {
 			event = event.Interface(k, v)
 		}
-		putMapToPool(sanitized)
 	}
 	event.Msg(message)
 }

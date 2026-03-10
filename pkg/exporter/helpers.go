@@ -137,7 +137,11 @@ func (rc *RetryConfig) calculateDelay(attempt int) time.Duration {
 	}
 
 	// Add jitter to prevent thundering herd
-	randomFloat, _ := rand.Int(rand.Reader, big.NewInt(1000000))
+	randomFloat, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		// Fall back to no jitter if crypto/rand fails
+		return time.Duration(delay)
+	}
 	random := float64(randomFloat.Int64()) / 1000000.0
 	jitter := (random - JitterOffset) * JitterMultiplier * rc.JitterFactor * delay
 	finalDelay := time.Duration(delay + jitter)

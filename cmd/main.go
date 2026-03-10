@@ -145,6 +145,7 @@ func main() {
 		WebConfigFile:      webConfigFile,
 	}
 
+	serverErrCh := make(chan error, 1)
 	go func() {
 		logger.SafeInfo("main", "Starting OpenLDAP exporter", map[string]interface{}{
 			"listen_address":  *listenAddr,
@@ -153,18 +154,22 @@ func main() {
 		})
 		slogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 		if err := web.ListenAndServe(server, toolkitFlags, slogger); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("main", "Failed to start HTTP server", err)
+			serverErrCh <- err
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
-	<-quit
 
-	logger.Info("main", "Received shutdown signal, starting graceful shutdown")
+	// Wait for shutdown signal or server startup failure
+	select {
+	case <-quit:
+		logger.Info("main", "Received shutdown signal, starting graceful shutdown")
+	case err := <-serverErrCh:
+		logger.Error("main", "HTTP server failed to start", err)
+	}
 
-	// Close the exporter first to clean up LDAP connections
-	exp.Close()
+	signal.Stop(quit)
 
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -224,7 +229,9 @@ func setupHTTPRoutes(exp *exporter.OpenLDAPExporter) http.Handler {
 	}
 
 	// Root endpoint with basic information (rate limited + security headers)
-	mux.Handle("/", chainMiddleware(rateLimitMiddleware, http.HandlerFunc(handleRoot)))
+	mux.Handle("/", chainMiddleware(rateLimitMiddleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handleRoot(w, r, cfg)
+	})))
 
 	// Metrics endpoint (rate limited + security headers)
 	mux.Handle("/metrics", chainMiddleware(rateLimitMiddleware, promhttp.Handler()))
@@ -374,41 +381,37 @@ const rootPageTemplate = `<!DOCTYPE html>
 </html>`
 
 // handleRoot serves the root page with basic exporter information
-func handleRoot(w http.ResponseWriter, r *http.Request) {
+func handleRoot(w http.ResponseWriter, r *http.Request, cfg *config.Config) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	// Load current configuration to show filtering status
-	configData, err := config.LoadConfig()
-	if err != nil {
-		logger.Error("main", "Failed to load configuration for root page", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	defer configData.Clear()
 
 	// Format include/exclude filters for display
 	includeFilter := "None (collect all metric groups)"
-	if len(configData.MetricsInclude) > 0 {
-		includeFilter = fmt.Sprintf("[%s]", strings.Join(configData.MetricsInclude, ", "))
+	if len(cfg.MetricsInclude) > 0 {
+		includeFilter = fmt.Sprintf("[%s]", strings.Join(cfg.MetricsInclude, ", "))
 	}
 
 	excludeFilter := "None"
-	if len(configData.MetricsExclude) > 0 {
-		excludeFilter = fmt.Sprintf("[%s]", strings.Join(configData.MetricsExclude, ", "))
+	if len(cfg.MetricsExclude) > 0 {
+		excludeFilter = fmt.Sprintf("[%s]", strings.Join(cfg.MetricsExclude, ", "))
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(fmt.Sprintf(rootPageTemplate, Version, includeFilter, excludeFilter)))
+	if _, err := w.Write([]byte(fmt.Sprintf(rootPageTemplate, Version, includeFilter, excludeFilter))); err != nil {
+		logger.Error("main", "Failed to write root page response", err)
+	}
 }
 
 // handleHealth provides a simple health check endpoint
 func handleHealth(w http.ResponseWriter, exp *exporter.OpenLDAPExporter) {
-	w.Header().Set("Content-Type", "application/json")
-
 	monitoring := exp.GetInternalMonitoring()
 
 	// Prepare enriched health response
@@ -426,8 +429,11 @@ func handleHealth(w http.ResponseWriter, exp *exporter.OpenLDAPExporter) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(jsonData)
+	if _, err := w.Write(jsonData); err != nil {
+		logger.Error("main", "Failed to write health response", err)
+	}
 }
 
 // handleInternalMetrics provides internal monitoring metrics

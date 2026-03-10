@@ -11,9 +11,16 @@ func (p *ConnectionPool) updateMetrics() {
 		return
 	}
 
+	// Read both values under the pool mutex to get a consistent snapshot
+	p.mutex.RLock()
 	activeConns := atomic.LoadInt64(&p.activeConns)
 	poolSize := atomic.LoadInt64(&p.poolSize)
+	p.mutex.RUnlock()
+
 	idleConns := poolSize - activeConns
+	if idleConns < 0 {
+		idleConns = 0
+	}
 	utilization := float64(activeConns) / float64(p.maxConnections)
 
 	p.monitoring.RecordPoolConnections(p.serverName, "ldap", "active", float64(activeConns))

@@ -42,6 +42,11 @@ func cleanupTestEnv() {
 	os.Unsetenv("LDAP_BASE_DN")
 }
 
+// testConfig returns a minimal config for testing handleRoot
+func testConfig() *config.Config {
+	return &config.Config{}
+}
+
 // TestSecurityHeadersMiddleware tests that security headers are properly set
 func TestSecurityHeadersMiddleware(t *testing.T) {
 	// Create a test handler
@@ -101,7 +106,7 @@ func TestHandleRoot(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
 
-	handleRoot(w, req)
+	handleRoot(w, req, testConfig())
 
 	resp := w.Result()
 	defer resp.Body.Close()
@@ -247,7 +252,7 @@ func TestHTTPServerConfiguration(t *testing.T) {
 
 			// Create server with timeout to avoid blocking tests
 			mux := http.NewServeMux()
-			mux.HandleFunc("/", handleRoot)
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { handleRoot(w, r, testConfig()) })
 
 			server := &http.Server{
 				Addr:         tc.listenAddr,
@@ -293,7 +298,7 @@ func TestGracefulShutdown(t *testing.T) {
 	// but we can verify the shutdown logic works correctly
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", handleRoot)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { handleRoot(w, r, testConfig()) })
 
 	server := &http.Server{
 		Addr:    ":0", // Use random available port
@@ -369,7 +374,7 @@ func TestConcurrentRequests(t *testing.T) {
 
 	// Create test server
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", handleRoot)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { handleRoot(w, r, testConfig()) })
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		handleHealth(w, exp)
 	})
@@ -429,7 +434,7 @@ func BenchmarkHandleRoot(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		w := httptest.NewRecorder()
-		handleRoot(w, req)
+		handleRoot(w, req, testConfig())
 	}
 }
 
@@ -745,17 +750,23 @@ func TestHandleRootEdgeCases(t *testing.T) {
 	defer cleanupTestEnv()
 
 	// Test with different request methods
-	methods := []string{"GET", "POST", "PUT", "DELETE"}
-	for _, method := range methods {
+	t.Run("GET", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		w := httptest.NewRecorder()
+		handleRoot(w, req, testConfig())
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status 200 for GET, got %d", w.Code)
+		}
+	})
+
+	// POST, PUT, DELETE should return 405 Method Not Allowed
+	for _, method := range []string{"POST", "PUT", "DELETE"} {
 		t.Run(method, func(t *testing.T) {
 			req := httptest.NewRequest(method, "/", nil)
 			w := httptest.NewRecorder()
-
-			handleRoot(w, req)
-
-			// All methods should return 200 for root handler
-			if w.Code != http.StatusOK {
-				t.Errorf("Expected status 200 for %s method, got %d", method, w.Code)
+			handleRoot(w, req, testConfig())
+			if w.Code != http.StatusMethodNotAllowed {
+				t.Errorf("Expected status 405 for %s method, got %d", method, w.Code)
 			}
 		})
 	}
@@ -774,7 +785,7 @@ func TestHandleRootEdgeCases(t *testing.T) {
 			req.Header.Set("Accept", accept)
 			w := httptest.NewRecorder()
 
-			handleRoot(w, req)
+			handleRoot(w, req, testConfig())
 
 			if w.Code != http.StatusOK {
 				t.Errorf("Expected status 200 with Accept: %s, got %d", accept, w.Code)
@@ -822,7 +833,7 @@ func TestErrorHandling(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 
-			handleRoot(w, req)
+			handleRoot(w, req, testConfig())
 
 			if w.Code != http.StatusOK {
 				t.Errorf("Expected status 200 with User-Agent: %s, got %d", ua, w.Code)
@@ -859,7 +870,7 @@ func TestHandleRootNotFound(t *testing.T) {
 			req := httptest.NewRequest("GET", path, nil)
 			w := httptest.NewRecorder()
 
-			handleRoot(w, req)
+			handleRoot(w, req, testConfig())
 
 			if w.Code != http.StatusNotFound {
 				t.Errorf("Expected status 404 for path %s, got %d", path, w.Code)
@@ -1027,7 +1038,7 @@ func TestHandleRootInvalidPath(t *testing.T) {
 			req := httptest.NewRequest("GET", tt.path, nil)
 			w := httptest.NewRecorder()
 
-			handleRoot(w, req)
+			handleRoot(w, req, testConfig())
 
 			if w.Code != http.StatusNotFound {
 				t.Errorf("Expected status code %d, got %d", http.StatusNotFound, w.Code)
@@ -1080,24 +1091,23 @@ func TestHandleRootWithFilters(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Set filter environment variables
+			// Build a config with the test's filter values
+			cfg := &config.Config{}
 			if tc.metricsInclude != "" {
-				os.Setenv("OPENLDAP_METRICS_INCLUDE", tc.metricsInclude)
+				for _, m := range strings.Split(tc.metricsInclude, ",") {
+					cfg.MetricsInclude = append(cfg.MetricsInclude, strings.TrimSpace(m))
+				}
 			}
 			if tc.metricsExclude != "" {
-				os.Setenv("OPENLDAP_METRICS_EXCLUDE", tc.metricsExclude)
+				for _, m := range strings.Split(tc.metricsExclude, ",") {
+					cfg.MetricsExclude = append(cfg.MetricsExclude, strings.TrimSpace(m))
+				}
 			}
-
-			// Clean up after test
-			defer func() {
-				os.Unsetenv("OPENLDAP_METRICS_INCLUDE")
-				os.Unsetenv("OPENLDAP_METRICS_EXCLUDE")
-			}()
 
 			req := httptest.NewRequest("GET", "/", nil)
 			w := httptest.NewRecorder()
 
-			handleRoot(w, req)
+			handleRoot(w, req, cfg)
 
 			if w.Code != http.StatusOK {
 				t.Errorf("Expected status 200, got %d", w.Code)

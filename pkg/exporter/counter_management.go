@@ -90,6 +90,16 @@ func (e *OpenLDAPExporter) updateCounterCommon(
 	}
 	entry, entryExists := serverMap[key]
 	if !entryExists {
+		// Enforce per-server entry limit to prevent unbounded memory growth
+		if len(serverMap) >= MaxCounterEntries {
+			e.counterMutex.Unlock()
+			logger.SafeWarn("exporter", "Counter entry limit reached, skipping new key", map[string]interface{}{
+				"server":    server,
+				"key":       key,
+				"max_entries": MaxCounterEntries,
+			})
+			return
+		}
 		entry = &counterEntry{
 			value:    0,
 			lastSeen: time.Now(),
