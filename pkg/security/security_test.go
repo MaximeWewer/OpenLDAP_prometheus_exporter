@@ -675,6 +675,37 @@ func TestValidateMonitorDNEdgeCases(t *testing.T) {
 	}
 }
 
+// TestValidateSuffixDN tests suffix DN validation for replication queries
+func TestValidateSuffixDN(t *testing.T) {
+	tests := []struct {
+		name     string
+		dn       string
+		expected bool
+	}{
+		{"Valid dc suffix", "dc=example,dc=org", true},
+		{"Valid o suffix", "o=myorg", true},
+		{"Valid ou suffix", "ou=people,dc=example,dc=org", true},
+		{"Valid c suffix", "c=FR", true},
+		{"Block cn=config", "cn=config", false},
+		{"Block cn=schema", "cn=schema,cn=config", false},
+		{"Block olcDatabase", "olcDatabase={0}config,cn=config", false},
+		{"Block cn=monitor", "cn=monitor", false},
+		{"Empty DN", "", false},
+		{"Null byte injection", "dc=example\x00,dc=org", false},
+		{"Path traversal", "dc=../etc/passwd,dc=org", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSuffixDN(tt.dn)
+			result := (err == nil)
+			if result != tt.expected {
+				t.Errorf("ValidateSuffixDN(%q) error=%v, want success=%v", tt.dn, err, tt.expected)
+			}
+		})
+	}
+}
+
 // TestGetClientIPEdgeCases tests GetClientIP edge cases
 func TestGetClientIPEdgeCases(t *testing.T) {
 	tests := []struct {

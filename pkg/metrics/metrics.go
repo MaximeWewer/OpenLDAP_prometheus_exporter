@@ -39,6 +39,8 @@ type OpenLDAPMetrics struct {
 	ServerInfo          *prometheus.GaugeVec
 	LogLevels           *prometheus.GaugeVec
 	SaslInfo            *prometheus.GaugeVec
+	ReplicationCSN      *prometheus.GaugeVec
+	ReplicationLag      *prometheus.GaugeVec
 }
 
 // NewOpenLDAPMetrics creates and initializes all OpenLDAP Prometheus metrics
@@ -335,6 +337,24 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server", "mechanism", "status"},
 		),
+
+		// Replication metrics
+		ReplicationCSN: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "replication_csn_timestamp",
+				Help:      "Unix timestamp extracted from contextCSN per database and server ID",
+			},
+			[]string{"server", "base_dn", "server_id"},
+		),
+		ReplicationLag: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "replication_lag_seconds",
+				Help:      "Seconds since the last contextCSN update per database and server ID",
+			},
+			[]string{"server", "base_dn", "server_id"},
+		),
 	}
 }
 
@@ -399,6 +419,10 @@ func (m *OpenLDAPMetrics) getAllMetrics() []prometheus.Collector {
 		m.ServerInfo,
 		m.LogLevels,
 		m.SaslInfo,
+
+		// Replication metrics
+		m.ReplicationCSN,
+		m.ReplicationLag,
 	}
 }
 

@@ -256,6 +256,79 @@ func (c *PooledLDAPClient) Search(baseDN, filter string, attributes []string) (*
 	return result, nil
 }
 
+// SearchContextCSN performs a base-scoped LDAP search for the contextCSN attribute
+// on a suffix entry. This is used for replication monitoring and is restricted to
+// only read the contextCSN operational attribute with base scope.
+func (c *PooledLDAPClient) SearchContextCSN(suffixDN string) (*ldap.SearchResult, error) {
+	if suffixDN == "" {
+		return nil, errors.New("invalid search parameters: suffixDN cannot be empty")
+	}
+
+	// Security validation: validate DN is a valid suffix (not cn=config, etc.)
+	if err := security.ValidateSuffixDN(suffixDN); err != nil {
+		logger.SafeError("pooled_client", "Suffix DN validation failed", err, map[string]interface{}{
+			"suffixDN": suffixDN,
+		})
+		return nil, err
+	}
+
+	var result *ldap.SearchResult
+
+	err := c.circuitBreaker.Call(func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), DefaultSearchTimeout)
+		defer cancel()
+
+		conn, err := c.pool.Get(ctx)
+		if err != nil {
+			return err
+		}
+		defer c.pool.Put(conn)
+
+		// Base-scoped search for contextCSN only
+		searchRequest := ldap.NewSearchRequest(
+			suffixDN,
+			ldap.ScopeBaseObject,
+			ldap.NeverDerefAliases,
+			0,
+			0,
+			false,
+			"(objectClass=*)",
+			[]string{"contextCSN"},
+			nil,
+		)
+
+		searchResult, err := conn.conn.Search(searchRequest)
+		if err != nil {
+			if isNetworkError(err) {
+				c.invalidateConnection(conn)
+			}
+			return err
+		}
+
+		result = searchResult
+		return nil
+	})
+
+	if c.cbMonitoring != nil && c.serverName != "" {
+		if err != nil {
+			if strings.Contains(err.Error(), "circuit breaker is open") {
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
+			} else {
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName)
+			}
+		} else {
+			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+		}
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // Close closes the connection pool
 func (c *PooledLDAPClient) Close() {
 	if c.pool != nil {

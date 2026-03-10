@@ -132,6 +132,8 @@ func (e *OpenLDAPExporter) getAllMetrics() []prometheus.Collector {
 		e.metricsRegistry.ServerInfo,
 		e.metricsRegistry.LogLevels,
 		e.metricsRegistry.SaslInfo,
+		e.metricsRegistry.ReplicationCSN,
+		e.metricsRegistry.ReplicationLag,
 	}
 }
 
@@ -218,6 +220,7 @@ func (e *OpenLDAPExporter) collectAllMetricsWithContext(ctx context.Context) err
 		{"server", e.collectServerInfoMetrics},
 		{"log", e.collectLogMetrics},
 		{"sasl", e.collectSASLMetrics},
+		{"replication", e.collectReplicationMetrics},
 	}
 
 	// Collect metrics in parallel with timeout protection

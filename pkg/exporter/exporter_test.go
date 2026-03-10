@@ -2506,3 +2506,113 @@ func TestCollectAllMetricsAllTasksSkipped(t *testing.T) {
 		t.Log("Completed successfully with all metrics filtered out")
 	}
 }
+
+// TestParseContextCSN tests CSN parsing
+func TestParseContextCSN(t *testing.T) {
+	tests := []struct {
+		name      string
+		csn       string
+		wantSID   string
+		wantYear  int
+		wantMonth time.Month
+		wantDay   int
+		wantErr   bool
+	}{
+		{
+			name:      "Standard CSN with microseconds",
+			csn:       "20240310142356.123456Z#000000#001#000000",
+			wantSID:   "001",
+			wantYear:  2024,
+			wantMonth: time.March,
+			wantDay:   10,
+			wantErr:   false,
+		},
+		{
+			name:      "CSN with server ID 000",
+			csn:       "20250115083000.000000Z#000001#000#000000",
+			wantSID:   "000",
+			wantYear:  2025,
+			wantMonth: time.January,
+			wantDay:   15,
+			wantErr:   false,
+		},
+		{
+			name:    "Invalid format - too few parts",
+			csn:     "20240310142356.123456Z#000000",
+			wantErr: true,
+		},
+		{
+			name:    "Invalid timestamp",
+			csn:     "not-a-timestamp#000000#001#000000",
+			wantErr: true,
+		},
+		{
+			name:    "Empty CSN",
+			csn:     "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsedTime, sid, err := parseContextCSN(tt.csn)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("parseContextCSN(%q) expected error, got nil", tt.csn)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("parseContextCSN(%q) unexpected error: %v", tt.csn, err)
+				return
+			}
+			if sid != tt.wantSID {
+				t.Errorf("parseContextCSN(%q) SID = %q, want %q", tt.csn, sid, tt.wantSID)
+			}
+			if parsedTime.Year() != tt.wantYear || parsedTime.Month() != tt.wantMonth || parsedTime.Day() != tt.wantDay {
+				t.Errorf("parseContextCSN(%q) date = %v, want %d-%v-%d",
+					tt.csn, parsedTime, tt.wantYear, tt.wantMonth, tt.wantDay)
+			}
+		})
+	}
+}
+
+// TestReplicationMetricsDefinition tests that replication metrics are properly defined
+func TestReplicationMetricsDefinition(t *testing.T) {
+	cfg, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	exporter := NewOpenLDAPExporter(cfg)
+	defer exporter.Close()
+
+	// Verify replication metrics exist and can be set
+	exporter.metricsRegistry.ReplicationCSN.With(prometheus.Labels{
+		"server":    "test-server",
+		"base_dn":   "dc=example,dc=org",
+		"server_id": "000",
+	}).Set(1710079436)
+
+	value := testutil.ToFloat64(exporter.metricsRegistry.ReplicationCSN.With(prometheus.Labels{
+		"server":    "test-server",
+		"base_dn":   "dc=example,dc=org",
+		"server_id": "000",
+	}))
+	if value != 1710079436 {
+		t.Errorf("Expected ReplicationCSN to be 1710079436, got %f", value)
+	}
+
+	exporter.metricsRegistry.ReplicationLag.With(prometheus.Labels{
+		"server":    "test-server",
+		"base_dn":   "dc=example,dc=org",
+		"server_id": "000",
+	}).Set(5.5)
+
+	lagValue := testutil.ToFloat64(exporter.metricsRegistry.ReplicationLag.With(prometheus.Labels{
+		"server":    "test-server",
+		"base_dn":   "dc=example,dc=org",
+		"server_id": "000",
+	}))
+	if lagValue != 5.5 {
+		t.Errorf("Expected ReplicationLag to be 5.5, got %f", lagValue)
+	}
+}

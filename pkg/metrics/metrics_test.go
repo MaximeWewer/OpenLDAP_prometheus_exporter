@@ -48,6 +48,8 @@ func TestNewOpenLDAPMetrics(t *testing.T) {
 		{"HealthStatus", metrics.HealthStatus},
 		{"ResponseTime", metrics.ResponseTime},
 		{"ScrapeErrors", metrics.ScrapeErrors},
+		{"ReplicationCSN", metrics.ReplicationCSN},
+		{"ReplicationLag", metrics.ReplicationLag},
 	}
 
 	for _, tt := range tests {
@@ -566,5 +568,48 @@ func TestGaugeSetAndInc(t *testing.T) {
 	value = testutil.ToFloat64(metrics.ConnectionsCurrent.WithLabelValues("test-server"))
 	if value != 12 {
 		t.Errorf("Expected ConnectionsCurrent to be 12 after Add(-3), got %f", value)
+	}
+}
+
+// TestReplicationMetrics tests replication metric gauges
+func TestReplicationMetrics(t *testing.T) {
+	metrics := NewOpenLDAPMetrics()
+
+	labels := prometheus.Labels{
+		"server":    "test-server",
+		"base_dn":   "dc=example,dc=org",
+		"server_id": "001",
+	}
+
+	// Test CSN timestamp
+	metrics.ReplicationCSN.With(labels).Set(1710079436)
+	value := testutil.ToFloat64(metrics.ReplicationCSN.With(labels))
+	if value != 1710079436 {
+		t.Errorf("Expected ReplicationCSN to be 1710079436, got %f", value)
+	}
+
+	// Test lag
+	metrics.ReplicationLag.With(labels).Set(2.5)
+	lagValue := testutil.ToFloat64(metrics.ReplicationLag.With(labels))
+	if lagValue != 2.5 {
+		t.Errorf("Expected ReplicationLag to be 2.5, got %f", lagValue)
+	}
+
+	// Test multiple server IDs (multi-master)
+	labels2 := prometheus.Labels{
+		"server":    "test-server",
+		"base_dn":   "dc=example,dc=org",
+		"server_id": "002",
+	}
+	metrics.ReplicationCSN.With(labels2).Set(1710079400)
+	value2 := testutil.ToFloat64(metrics.ReplicationCSN.With(labels2))
+	if value2 != 1710079400 {
+		t.Errorf("Expected ReplicationCSN for SID 002 to be 1710079400, got %f", value2)
+	}
+
+	// Verify SID 001 is unchanged
+	value = testutil.ToFloat64(metrics.ReplicationCSN.With(labels))
+	if value != 1710079436 {
+		t.Errorf("Expected ReplicationCSN for SID 001 to still be 1710079436, got %f", value)
 	}
 }

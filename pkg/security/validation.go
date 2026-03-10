@@ -210,6 +210,40 @@ func SanitizeLDAPValue(value string) string {
 	return builder.String()
 }
 
+// ValidateSuffixDN validates a suffix DN for contextCSN replication queries.
+// Only allows DN structures that look like naming contexts (dc=..., o=..., ou=...).
+// Rejects access to cn=config, cn=schema, and other sensitive trees.
+func ValidateSuffixDN(dn string) error {
+	if err := ValidateLDAPDN(dn); err != nil {
+		return err
+	}
+
+	dnLower := strings.ToLower(dn)
+
+	// Block access to sensitive configuration trees
+	blockedTrees := []string{"cn=config", "cn=schema", "cn=subschema", "olc"}
+	for _, blocked := range blockedTrees {
+		if strings.Contains(dnLower, blocked) {
+			return errors.New("access to configuration tree not allowed")
+		}
+	}
+
+	// Must start with a valid naming context prefix (dc=, o=, ou=, c=)
+	validPrefixes := []string{"dc=", "o=", "ou=", "c="}
+	hasValidPrefix := false
+	for _, prefix := range validPrefixes {
+		if strings.HasPrefix(dnLower, prefix) {
+			hasValidPrefix = true
+			break
+		}
+	}
+	if !hasValidPrefix {
+		return errors.New("DN must be a valid naming context (dc=, o=, ou=, c=)")
+	}
+
+	return nil
+}
+
 // ValidateMonitorDN validates that a DN is in the monitor tree (security check)
 func ValidateMonitorDN(dn string) error {
 	if err := ValidateLDAPDN(dn); err != nil {
