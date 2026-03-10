@@ -20,8 +20,8 @@ type OpenLDAPMetrics struct {
 	ThreadsStarting     *prometheus.GaugeVec
 	ThreadsPending      *prometheus.GaugeVec
 	ThreadsState        *prometheus.GaugeVec
-	OperationsInitiated *prometheus.GaugeVec
-	OperationsCompleted *prometheus.GaugeVec
+	OperationsInitiated *prometheus.CounterVec
+	OperationsCompleted *prometheus.CounterVec
 	WaitersRead         *prometheus.GaugeVec
 	WaitersWrite        *prometheus.GaugeVec
 	OverlaysInfo        *prometheus.GaugeVec
@@ -161,19 +161,19 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 		),
 
 		// Operation metrics
-		OperationsInitiated: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
+		OperationsInitiated: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
 				Namespace: "openldap",
-				Name:      "operations_initiated_delta",
-				Help:      "Operations initiated delta since last collection (cn=Operations,cn=Monitor)",
+				Name:      "operations_initiated_total",
+				Help:      "Total number of operations initiated (cn=Operations,cn=Monitor)",
 			},
 			[]string{"server", "operation"},
 		),
-		OperationsCompleted: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
+		OperationsCompleted: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
 				Namespace: "openldap",
-				Name:      "operations_completed_delta",
-				Help:      "Operations completed delta since last collection (cn=Operations,cn=Monitor)",
+				Name:      "operations_completed_total",
+				Help:      "Total number of operations completed (cn=Operations,cn=Monitor)",
 			},
 			[]string{"server", "operation"},
 		),

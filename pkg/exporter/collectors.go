@@ -124,16 +124,6 @@ func (e *OpenLDAPExporter) collectOperationsMetrics(server string) {
 		return
 	}
 
-	// Standard OpenLDAP operations as per monitoring documentation
-	standardOperations := []string{
-		"bind", "unbind", "add", "delete", "modrdn", "modify",
-		"compare", "search", "abandon", "extended",
-	}
-
-	// Initialize all standard operations to 0 first
-	// For counters, we need to track what operations exist to set absent ones to 0
-	foundOperations := make(map[string]bool)
-
 	result, err := e.searchLDAP(
 		"cn=Operations,cn=Monitor",
 		"(objectClass=*)",
@@ -146,7 +136,6 @@ func (e *OpenLDAPExporter) collectOperationsMetrics(server string) {
 
 	for _, entry := range result.Entries {
 		operation := strings.ToLower(extractCNFromDN(entry.DN, ",cn=Operations,cn=Monitor"))
-		foundOperations[operation] = true
 
 		for _, attr := range entry.Attributes {
 			switch attr.Name {
@@ -165,17 +154,6 @@ func (e *OpenLDAPExporter) collectOperationsMetrics(server string) {
 					}
 				}
 			}
-		}
-	}
-
-	// Initialize missing standard operations to 0
-	for _, operation := range standardOperations {
-		if !foundOperations[operation] {
-			keyInitiated := "operations_initiated_" + operation
-			keyCompleted := "operations_completed_" + operation
-			// Use updateOperationCounter with 0 to properly initialize and create metrics
-			e.updateOperationCounter(e.metricsRegistry.OperationsInitiated, server, operation, keyInitiated, 0)
-			e.updateOperationCounter(e.metricsRegistry.OperationsCompleted, server, operation, keyCompleted, 0)
 		}
 	}
 }

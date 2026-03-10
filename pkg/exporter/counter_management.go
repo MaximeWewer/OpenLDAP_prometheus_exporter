@@ -27,9 +27,11 @@ func (e *OpenLDAPExporter) updateCounter(counter *prometheus.CounterVec, server,
 }
 
 // updateOperationCounter safely updates an operation counter metric
-func (e *OpenLDAPExporter) updateOperationCounter(counter *prometheus.GaugeVec, server, operation, key string, newValue float64) {
+func (e *OpenLDAPExporter) updateOperationCounter(counter *prometheus.CounterVec, server, operation, key string, newValue float64) {
 	e.updateCounterCommon("operation_counter", server, key, operation, newValue, func(delta float64, labels prometheus.Labels) {
-		counter.With(labels).Set(delta)
+		if delta > 0 {
+			counter.With(labels).Add(delta)
+		}
 	})
 }
 

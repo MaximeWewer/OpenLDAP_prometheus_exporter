@@ -462,11 +462,11 @@ func TestUpdateOperationCounter(t *testing.T) {
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
 
-	// Create test operation counter
-	counter := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "test_operations_delta",
-			Help: "Test operation delta gauge",
+	// Create test operation counter (now a CounterVec like in production)
+	counter := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "test_operations_total",
+			Help: "Test operation counter",
 		},
 		[]string{"server", "operation"},
 	)
@@ -475,18 +475,18 @@ func TestUpdateOperationCounter(t *testing.T) {
 	operation := "bind"
 	key := "ops-bind"
 
-	// Test first update (initial delta)
+	// Test first update: LDAP reports 50 total operations, delta from 0 = 50
 	exporter.updateOperationCounter(counter, server, operation, key, 50)
 	value := testutil.ToFloat64(counter.WithLabelValues(server, operation))
 	if value != 50 {
-		t.Errorf("First operation update should show initial delta (50), got %f", value)
+		t.Errorf("First operation update should add delta (50), got %f", value)
 	}
 
-	// Test second update (should show delta: 75 - 50 = 25)
+	// Test second update: LDAP reports 75 total, delta from 50 = 25, cumulative = 75
 	exporter.updateOperationCounter(counter, server, operation, key, 75)
 	value = testutil.ToFloat64(counter.WithLabelValues(server, operation))
-	if value != 25 { // Delta: 75 - 50 = 25
-		t.Errorf("Second operation update should show delta value (25), got %f", value)
+	if value != 75 { // Counter accumulates: 50 + 25 = 75
+		t.Errorf("Second operation update should accumulate to 75, got %f", value)
 	}
 }
 
