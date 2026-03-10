@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,6 +21,7 @@ import (
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/security"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/exporter-toolkit/web"
 )
 
 const (
@@ -81,10 +83,16 @@ func formatDuration(d time.Duration) string {
 	return d.Truncate(10 * time.Millisecond).String()
 }
 
+// boolPtr returns a pointer to a bool value
+func boolPtr(b bool) *bool {
+	return &b
+}
+
 var (
-	listenAddr = flag.String("web.listen-address", getEnvString("LISTEN_ADDRESS", defaultListenAddress), "Address to listen on for web interface and telemetry. Can also be set via LISTEN_ADDRESS environment variable")
-	version    = flag.Bool("version", false, "Print version information and exit")
-	logLevel   = flag.String("log.level", getEnvString("LOG_LEVEL", "INFO"), "Log level (DEBUG, INFO, WARN, ERROR, FATAL). Can also be set via LOG_LEVEL environment variable")
+	listenAddr    = flag.String("web.listen-address", getEnvString("LISTEN_ADDRESS", defaultListenAddress), "Address to listen on for web interface and telemetry. Can also be set via LISTEN_ADDRESS environment variable")
+	webConfigFile = flag.String("web.config.file", getEnvString("WEB_CONFIG_FILE", ""), "Path to web configuration file (TLS/basic auth). See https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md")
+	version       = flag.Bool("version", false, "Print version information and exit")
+	logLevel      = flag.String("log.level", getEnvString("LOG_LEVEL", "INFO"), "Log level (DEBUG, INFO, WARN, ERROR, FATAL). Can also be set via LOG_LEVEL environment variable")
 )
 
 var Version = "dev"
@@ -127,12 +135,21 @@ func main() {
 		IdleTimeout:  idleTimeout,
 	}
 
+	// Build exporter-toolkit FlagConfig for TLS/basic auth support
+	toolkitFlags := &web.FlagConfig{
+		WebListenAddresses: &[]string{*listenAddr},
+		WebSystemdSocket:   boolPtr(false),
+		WebConfigFile:      webConfigFile,
+	}
+
 	go func() {
 		logger.SafeInfo("main", "Starting OpenLDAP exporter", map[string]interface{}{
-			"listen_address": *listenAddr,
-			"version":        Version,
+			"listen_address":  *listenAddr,
+			"version":         Version,
+			"web_config_file": *webConfigFile,
 		})
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		slogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		if err := web.ListenAndServe(server, toolkitFlags, slogger); err != nil && err != http.ErrServerClosed {
 			logger.Fatal("main", "Failed to start HTTP server", err)
 		}
 	}()

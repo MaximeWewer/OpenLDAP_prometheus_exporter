@@ -11,6 +11,8 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 - **Rate Limiting**: Configurable rate limiting on all endpoints
 - **Security Headers**: Full set of security headers (CSP, HSTS, X-Frame-Options, etc.)
 - **Circuit Breaker**: Protection against cascading failures
+- **Web Config (exporter-toolkit)**: Optional TLS and basic auth on `/metrics` via `--web.config.file`
+- **SASL EXTERNAL Auth**: Support for mTLS client certificate authentication to LDAP
 - **Safe Logging**: Automatic redaction of sensitive information in logs
 
 ### Performance optimizations
@@ -281,20 +283,41 @@ The file content is trimmed of trailing newlines. The raw bytes are cleared from
 | `LDAP_TLS` | Use TLS for connection | `false` | `true` |
 | `LDAP_TIMEOUT` | LDAP connection timeout (seconds) | `10` | `30` |
 | `LDAP_UPDATE_EVERY` | Metrics update interval (seconds) | `15` | `30` |
+| `LDAP_AUTH_METHOD` | Authentication method (`simple` or `external`) | `simple` | `external` |
 | `LDAP_TLS_SKIP_VERIFY` | Skip TLS certificate verification | `false` | `true` |
 | `LDAP_TLS_CA` | Path to CA certificate for TLS | | `/path/to/ca.crt` |
 | `LDAP_TLS_CERT` | Path to client certificate | | `/path/to/client.crt` |
 | `LDAP_TLS_KEY` | Path to client private key | | `/path/to/client.key` |
+
+> **SASL EXTERNAL**: Set `LDAP_AUTH_METHOD=external` to authenticate using the TLS client certificate (`LDAP_TLS_CERT`/`LDAP_TLS_KEY`) instead of username/password. In this mode, `LDAP_USERNAME` and `LDAP_PASSWORD` are not required.
 
 ### HTTP server configuration
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `LISTEN_ADDRESS` | HTTP server listen address | `:9330` | `:8080` |
+| `WEB_CONFIG_FILE` | Path to web config file (TLS/basic auth) | | `/etc/exporter/web-config.yml` |
 | `HTTP_READ_TIMEOUT` | HTTP read timeout | `10s` | `30s` |
 | `HTTP_WRITE_TIMEOUT` | HTTP write timeout | `10s` | `30s` |
 | `HTTP_IDLE_TIMEOUT` | HTTP idle timeout | `60s` | `120s` |
 | `HTTP_SHUTDOWN_TIMEOUT` | Graceful shutdown timeout | `30s` | `60s` |
+
+> The `--web.config.file` flag (or `WEB_CONFIG_FILE` env) enables TLS and/or basic auth on all HTTP endpoints using [exporter-toolkit](https://github.com/prometheus/exporter-toolkit). This follows the standard Prometheus ecosystem convention used by node_exporter, blackbox_exporter, etc.
+
+**Example `web-config.yml`:**
+
+```yaml
+# TLS configuration
+tls_server_config:
+  cert_file: /path/to/cert.pem
+  key_file: /path/to/key.pem
+
+# Basic authentication (bcrypt hashed passwords)
+basic_auth_users:
+  prometheus: $2y$10$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+See the full [web configuration documentation](https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md) for all options.
 
 ### Rate limiting configuration
 
@@ -371,6 +394,8 @@ These metrics are collected in different configurable groups. Use `OPENLDAP_METR
 |----------|------|---------|-------------|-------------|
 | `openldap_connections_current` | Gauge | `server` | Current number of connections | `cn=Current,cn=Connections,cn=Monitor` |
 | `openldap_connections_total` | Counter | `server` | Total number of connections (cumulative) | `cn=Total,cn=Connections,cn=Monitor` |
+| `openldap_connections_by_protocol` | Gauge | `server`, `protocol` | Number of connections by LDAP protocol version | Individual `cn=Connection X` entries |
+| `openldap_connection_ops_aggregate` | Gauge | `server`, `state` | Aggregate ops across all connections (executing, pending, received, completed) | Individual `cn=Connection X` entries |
 
 ### Statistics (`statistics`)
 
@@ -453,6 +478,7 @@ These metrics are collected in different configurable groups. Use `OPENLDAP_METR
 | Metric | Type | Labels | Description | LDAP Source |
 |----------|------|---------|-------------|-------------|
 | `openldap_server_info` | Gauge | `server`, `version`, `description` | OpenLDAP server version and description | `cn=Monitor` |
+| `openldap_supported_control_info` | Gauge | `server`, `oid` | LDAP controls supported by the server | RootDSE `supportedControl` |
 
 ### Log (`log`)
 
@@ -637,7 +663,7 @@ The exporter uses a structured logging system in JSON format:
 - **Language:** Go
 - **Logging:** [rs/zerolog](https://github.com/rs/zerolog) for high-performance structured logs
 - **LDAP:** [go-ldap/ldap/v3](https://github.com/go-ldap/ldap)
-- **Metrics:** Official Prometheus client
+- **Metrics:** Official Prometheus client with [exporter-toolkit](https://github.com/prometheus/exporter-toolkit) for HTTP auth/TLS
 - **Security:** ChaCha20-Poly1305 for password encryption, comprehensive input validation
 - **Performance:** Connection pooling, circuit breaker pattern, retry with exponential backoff
 - **Container:** Distroless image for security
