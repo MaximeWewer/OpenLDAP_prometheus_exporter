@@ -73,19 +73,36 @@ func (p *ConnectionPool) establishConnection() (*ldap.Conn, error) {
 
 	conn.SetTimeout(p.config.Timeout)
 
-	if p.config.Username != "" && p.config.Password != nil && !p.config.Password.IsEmpty() {
-		logger.SafeDebug("pool", "Attempting LDAP bind", map[string]interface{}{"username": p.config.Username})
-		password := p.config.Password.String()
-		err = conn.Bind(p.config.Username, password)
-		// Password is handled securely by SecureString
+	// Authenticate based on configured method
+	switch p.config.AuthMethod {
+	case "external":
+		// SASL EXTERNAL: authenticate using the TLS client certificate
+		logger.SafeDebug("pool", "Attempting SASL EXTERNAL bind")
+		err = conn.ExternalBind()
 		if err != nil {
-			logger.SafeError("pool", "LDAP authentication failed", err, map[string]interface{}{"username": p.config.Username})
+			logger.SafeError("pool", "SASL EXTERNAL bind failed", err)
 			if closeErr := conn.Close(); closeErr != nil {
 				logger.SafeError("pool", "Failed to close connection after bind failure", closeErr)
 			}
-			return nil, fmt.Errorf("LDAP bind failed: %w", err)
+			return nil, fmt.Errorf("SASL EXTERNAL bind failed: %w", err)
 		}
-		logger.SafeDebug("pool", "LDAP bind successful", map[string]interface{}{"username": p.config.Username})
+		logger.SafeDebug("pool", "SASL EXTERNAL bind successful")
+
+	default: // "simple"
+		if p.config.Username != "" && p.config.Password != nil && !p.config.Password.IsEmpty() {
+			logger.SafeDebug("pool", "Attempting LDAP simple bind", map[string]interface{}{"username": p.config.Username})
+			password := p.config.Password.String()
+			err = conn.Bind(p.config.Username, password)
+			// Password is handled securely by SecureString
+			if err != nil {
+				logger.SafeError("pool", "LDAP authentication failed", err, map[string]interface{}{"username": p.config.Username})
+				if closeErr := conn.Close(); closeErr != nil {
+					logger.SafeError("pool", "Failed to close connection after bind failure", closeErr)
+				}
+				return nil, fmt.Errorf("LDAP bind failed: %w", err)
+			}
+			logger.SafeDebug("pool", "LDAP simple bind successful", map[string]interface{}{"username": p.config.Username})
+		}
 	}
 
 	return conn, nil

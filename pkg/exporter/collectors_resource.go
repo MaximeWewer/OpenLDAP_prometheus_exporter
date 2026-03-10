@@ -1,6 +1,8 @@
 package exporter
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -35,6 +37,9 @@ func (e *OpenLDAPExporter) collectConnectionsMetrics(server string) {
 		"server":         server,
 		"counters_found": len(connectionCounters),
 	})
+
+	// Collect individual connection details (protocol, aggregate ops)
+	e.collectIndividualConnections(server)
 }
 
 // collectThreadsMetrics collects thread-related metrics
@@ -168,4 +173,73 @@ func (e *OpenLDAPExporter) collectHealthMetrics(server string) {
 		e.metricsRegistry.HealthStatus.With(prometheus.Labels{"server": server}).Set(0)
 		logger.SafeError("exporter", "Health check failed", err)
 	}
+}
+
+// collectIndividualConnections queries individual connection entries under cn=Connections,cn=Monitor
+// and aggregates metrics by protocol version and operation state.
+func (e *OpenLDAPExporter) collectIndividualConnections(server string) {
+	result, err := e.client.Search(
+		"cn=Connections,cn=Monitor",
+		"(objectClass=*)",
+		[]string{"monitorConnectionProtocol", "monitorConnectionOpsExecuting", "monitorConnectionOpsPending", "monitorConnectionOpsReceived", "monitorConnectionOpsCompleted"},
+	)
+	if err != nil {
+		logger.SafeDebug("exporter", "Failed to query individual connections", map[string]interface{}{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	protocolCounts := make(map[string]float64)
+	var totalExecuting, totalPending, totalReceived, totalCompleted float64
+
+	for _, entry := range result.Entries {
+		// Skip the parent entry cn=Connections,cn=Monitor itself
+		if !strings.Contains(entry.DN, "cn=Connection ") {
+			continue
+		}
+
+		for _, attr := range entry.Attributes {
+			if len(attr.Values) == 0 {
+				continue
+			}
+			switch attr.Name {
+			case "monitorConnectionProtocol":
+				protocolCounts[attr.Values[0]]++
+			case "monitorConnectionOpsExecuting":
+				if v, err := strconv.ParseFloat(attr.Values[0], 64); err == nil {
+					totalExecuting += v
+				}
+			case "monitorConnectionOpsPending":
+				if v, err := strconv.ParseFloat(attr.Values[0], 64); err == nil {
+					totalPending += v
+				}
+			case "monitorConnectionOpsReceived":
+				if v, err := strconv.ParseFloat(attr.Values[0], 64); err == nil {
+					totalReceived += v
+				}
+			case "monitorConnectionOpsCompleted":
+				if v, err := strconv.ParseFloat(attr.Values[0], 64); err == nil {
+					totalCompleted += v
+				}
+			}
+		}
+	}
+
+	for protocol, count := range protocolCounts {
+		e.metricsRegistry.ConnectionsByProtocol.With(prometheus.Labels{
+			"server":   server,
+			"protocol": protocol,
+		}).Set(count)
+	}
+
+	e.metricsRegistry.ConnectionOpsAggregate.With(prometheus.Labels{"server": server, "state": "executing"}).Set(totalExecuting)
+	e.metricsRegistry.ConnectionOpsAggregate.With(prometheus.Labels{"server": server, "state": "pending"}).Set(totalPending)
+	e.metricsRegistry.ConnectionOpsAggregate.With(prometheus.Labels{"server": server, "state": "received"}).Set(totalReceived)
+	e.metricsRegistry.ConnectionOpsAggregate.With(prometheus.Labels{"server": server, "state": "completed"}).Set(totalCompleted)
+
+	logger.SafeDebug("exporter", "Collected individual connection metrics", map[string]interface{}{
+		"server":    server,
+		"protocols": protocolCounts,
+	})
 }

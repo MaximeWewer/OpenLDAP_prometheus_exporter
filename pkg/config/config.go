@@ -47,6 +47,9 @@ type Config struct {
 	DCInclude []string // Only monitor these domain components
 	DCExclude []string // Exclude these domain components from monitoring
 
+	// Authentication method
+	AuthMethod string // "simple" (default) or "external" (SASL EXTERNAL for mTLS)
+
 	// Rate limiting options
 	RateLimitEnabled bool // Enable/disable rate limiting (RATE_LIMIT_ENABLED)
 }
@@ -83,11 +86,16 @@ func LoadConfig() (*Config, error) {
 	if config.URL == "" {
 		logger.Fatal("config", "LDAP_URL environment variable is required", nil)
 	}
-	if config.Username == "" {
-		logger.Fatal("config", "LDAP_USERNAME environment variable is required", nil)
-	}
-	if config.Password == nil || config.Password.IsEmpty() {
-		logger.Fatal("config", "LDAP_PASSWORD or LDAP_PASSWORD_FILE is required", nil)
+
+	// SASL EXTERNAL uses client cert — no username/password needed
+	authMethod := strings.ToLower(getEnvOrDefault("LDAP_AUTH_METHOD", "simple"))
+	if authMethod != "external" {
+		if config.Username == "" {
+			logger.Fatal("config", "LDAP_USERNAME environment variable is required", nil)
+		}
+		if config.Password == nil || config.Password.IsEmpty() {
+			logger.Fatal("config", "LDAP_PASSWORD or LDAP_PASSWORD_FILE is required", nil)
+		}
 	}
 
 	// Validate timeout values
@@ -144,6 +152,16 @@ func LoadConfig() (*Config, error) {
 	// Load DC filtering configuration
 	config.DCInclude = parseMetricsList(getEnvOrDefault("OPENLDAP_DC_INCLUDE", ""))
 	config.DCExclude = parseMetricsList(getEnvOrDefault("OPENLDAP_DC_EXCLUDE", ""))
+
+	// Load authentication method
+	config.AuthMethod = strings.ToLower(getEnvOrDefault("LDAP_AUTH_METHOD", "simple"))
+	if config.AuthMethod != "simple" && config.AuthMethod != "external" {
+		logger.Warn("config", "Invalid LDAP_AUTH_METHOD, using 'simple'", map[string]interface{}{
+			"provided": config.AuthMethod,
+			"valid":    []string{"simple", "external"},
+		})
+		config.AuthMethod = "simple"
+	}
 
 	// Load rate limiting configuration
 	config.RateLimitEnabled = getEnvBoolOrDefault("RATE_LIMIT_ENABLED", true)

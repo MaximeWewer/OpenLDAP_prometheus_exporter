@@ -137,6 +137,9 @@ func (e *OpenLDAPExporter) getAllMetrics() []prometheus.Collector {
 		e.metricsRegistry.SaslInfo,
 		e.metricsRegistry.ReplicationCSN,
 		e.metricsRegistry.ReplicationLag,
+		e.metricsRegistry.ConnectionsByProtocol,
+		e.metricsRegistry.ConnectionOpsAggregate,
+		e.metricsRegistry.SupportedControlInfo,
 	}
 }
 

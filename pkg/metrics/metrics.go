@@ -38,9 +38,12 @@ type OpenLDAPMetrics struct {
 	Up                  *prometheus.GaugeVec
 	ServerInfo          *prometheus.GaugeVec
 	LogLevels           *prometheus.GaugeVec
-	SaslInfo            *prometheus.GaugeVec
-	ReplicationCSN      *prometheus.GaugeVec
-	ReplicationLag      *prometheus.GaugeVec
+	SaslInfo               *prometheus.GaugeVec
+	ReplicationCSN         *prometheus.GaugeVec
+	ReplicationLag         *prometheus.GaugeVec
+	ConnectionsByProtocol  *prometheus.GaugeVec
+	ConnectionOpsAggregate *prometheus.GaugeVec
+	SupportedControlInfo   *prometheus.GaugeVec
 }
 
 // NewOpenLDAPMetrics creates and initializes all OpenLDAP Prometheus metrics
@@ -355,6 +358,31 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server", "base_dn", "server_id"},
 		),
+
+		ConnectionsByProtocol: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "connections_by_protocol",
+				Help:      "Number of individual connections by LDAP protocol version",
+			},
+			[]string{"server", "protocol"},
+		),
+		ConnectionOpsAggregate: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "connection_ops_aggregate",
+				Help:      "Aggregate operation counts across all individual connections",
+			},
+			[]string{"server", "state"},
+		),
+		SupportedControlInfo: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "supported_control_info",
+				Help:      "LDAP controls supported by the server (from RootDSE)",
+			},
+			[]string{"server", "oid"},
+		),
 	}
 }
 
@@ -423,6 +451,13 @@ func (m *OpenLDAPMetrics) getAllMetrics() []prometheus.Collector {
 		// Replication metrics
 		m.ReplicationCSN,
 		m.ReplicationLag,
+
+		// Individual connection metrics
+		m.ConnectionsByProtocol,
+		m.ConnectionOpsAggregate,
+
+		// RootDSE metrics
+		m.SupportedControlInfo,
 	}
 }
 

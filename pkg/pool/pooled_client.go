@@ -329,6 +329,72 @@ func (c *PooledLDAPClient) SearchContextCSN(suffixDN string) (*ldap.SearchResult
 	return result, nil
 }
 
+// SearchRootDSE performs a base-scoped search on the RootDSE (empty base DN)
+// to retrieve server capabilities like supportedControl, supportedExtension, etc.
+func (c *PooledLDAPClient) SearchRootDSE(attributes []string) (*ldap.SearchResult, error) {
+	// Validate attributes
+	for _, attr := range attributes {
+		if err := security.ValidateLDAPAttribute(attr); err != nil {
+			return nil, err
+		}
+	}
+
+	var result *ldap.SearchResult
+
+	err := c.circuitBreaker.Call(func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), DefaultSearchTimeout)
+		defer cancel()
+
+		conn, err := c.pool.Get(ctx)
+		if err != nil {
+			return err
+		}
+		defer c.pool.Put(conn)
+
+		searchRequest := ldap.NewSearchRequest(
+			"",
+			ldap.ScopeBaseObject,
+			ldap.NeverDerefAliases,
+			0,
+			0,
+			false,
+			"(objectClass=*)",
+			attributes,
+			nil,
+		)
+
+		searchResult, err := conn.conn.Search(searchRequest)
+		if err != nil {
+			if isNetworkError(err) {
+				c.invalidateConnection(conn)
+			}
+			return err
+		}
+
+		result = searchResult
+		return nil
+	})
+
+	if c.cbMonitoring != nil && c.serverName != "" {
+		if err != nil {
+			if strings.Contains(err.Error(), "circuit breaker is open") {
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
+			} else {
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName)
+			}
+		} else {
+			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+		}
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // Close closes the connection pool
 func (c *PooledLDAPClient) Close() {
 	if c.pool != nil {

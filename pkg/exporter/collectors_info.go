@@ -183,6 +183,9 @@ func (e *OpenLDAPExporter) collectServerInfoMetrics(server string) {
 			}).Set(1)
 		}
 	}
+
+	// Also collect supportedControl from RootDSE
+	e.collectSupportedControlsMetrics(server)
 }
 
 // collectLogMetrics collects log level information
@@ -228,6 +231,41 @@ func (e *OpenLDAPExporter) collectLogMetrics(server string) {
 			}).Set(1)
 		}
 	}
+}
+
+// collectSupportedControlsMetrics collects supportedControl OIDs from the RootDSE
+func (e *OpenLDAPExporter) collectSupportedControlsMetrics(server string) {
+	if !e.shouldCollectMetric("server") {
+		return
+	}
+
+	result, err := e.client.SearchRootDSE([]string{"supportedControl"})
+	if err != nil {
+		logger.SafeDebug("exporter", "Failed to query RootDSE for supportedControl", map[string]interface{}{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	controlCount := 0
+	for _, entry := range result.Entries {
+		for _, attr := range entry.Attributes {
+			if attr.Name == "supportedControl" {
+				for _, oid := range attr.Values {
+					e.metricsRegistry.SupportedControlInfo.With(prometheus.Labels{
+						"server": server,
+						"oid":    oid,
+					}).Set(1)
+					controlCount++
+				}
+			}
+		}
+	}
+
+	logger.SafeDebug("exporter", "Collected supportedControl metrics", map[string]interface{}{
+		"server":        server,
+		"control_count": controlCount,
+	})
 }
 
 // collectSASLMetrics collects SASL mechanism information
