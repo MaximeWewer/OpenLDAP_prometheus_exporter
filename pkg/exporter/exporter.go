@@ -35,6 +35,9 @@ const (
 	MaxRetryDelay      = 2 * time.Second
 	RetryBackoffFactor = 2.0
 	RetryJitterFactor  = 0.1
+
+	// MaxConcurrentCollectors limits the number of metric collection goroutines running in parallel
+	MaxConcurrentCollectors = 4
 )
 
 // collectionTask represents a metric collection task
@@ -223,7 +226,10 @@ func (e *OpenLDAPExporter) collectAllMetricsWithContext(ctx context.Context) err
 		{"replication", e.collectReplicationMetrics},
 	}
 
-	// Collect metrics in parallel with timeout protection
+	// Semaphore to limit concurrent collection goroutines
+	sem := make(chan struct{}, MaxConcurrentCollectors)
+
+	// Collect metrics in parallel with concurrency limit and timeout protection
 	for _, task := range tasks {
 		if !e.shouldCollectMetric(task.name) {
 			logger.SafeDebug("exporter", "Skipping metric collection", map[string]interface{}{
@@ -236,6 +242,17 @@ func (e *OpenLDAPExporter) collectAllMetricsWithContext(ctx context.Context) err
 		wg.Add(1)
 		go func(t collectionTask) {
 			defer wg.Done()
+
+			// Acquire semaphore slot
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				errorMutex.Lock()
+				collectErrors = append(collectErrors, ctx.Err())
+				errorMutex.Unlock()
+				return
+			}
 
 			// Create a sub-context with timeout for this specific collection
 			taskCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
