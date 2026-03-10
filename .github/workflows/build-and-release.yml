@@ -4,8 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       force_version:
-        # Versioning pattern (number only): YEAR.MONTH.INDEX_OF_TAG (+1 at eatch tag)
-        description: 'Force a specific version (optional, format: YYYY.MM.X)'
+        description: 'Force a specific version (optional, format: YYYY.M.X)'
         required: false
         type: string
 
@@ -37,25 +36,30 @@ jobs:
       run: |
         if [ -n "${{ github.event.inputs.force_version }}" ]; then
           VERSION="${{ github.event.inputs.force_version }}"
+          # Validate format: YYYY.M.X (no leading zeros on month/patch)
+          if ! echo "$VERSION" | grep -qE '^[0-9]{4}\.[1-9][0-9]?\.[0-9]+$'; then
+            echo "::error::Invalid version format: $VERSION (expected YYYY.M.X, no leading zeros)"
+            exit 1
+          fi
           echo "Using forced version: $VERSION"
         else
           # Fetch all tags from remote to ensure we have the latest
           git fetch --tags
-          
-          # Get current year and month
-          YEAR_MONTH=$(date +'%Y.%m')
-          
-          # Get the highest existing tag for current year.month and increment
-          LATEST_TAG=$(git tag -l "v${YEAR_MONTH}.*" | sort -V | tail -n 1)
-          
+
+          # Current year and month (no leading zero for semver compatibility)
+          YEAR=$(date +'%Y')
+          MONTH=$(date +'%-m')
+
+          # Get the highest existing tag for current YEAR.MONTH.* and increment patch
+          LATEST_TAG=$(git tag -l "v${YEAR}.${MONTH}.*" | sort -V | tail -n 1)
+
           if [ -z "$LATEST_TAG" ]; then
-            # No tags for this year.month, start with .1
-            VERSION="${YEAR_MONTH}.1"
+            # No tags for this year.month, start at .1
+            VERSION="${YEAR}.${MONTH}.1"
           else
-            # Extract patch version and increment
-            PATCH_VERSION=$(echo "$LATEST_TAG" | sed 's/^v.*\.//' )
-            NEW_PATCH=$((PATCH_VERSION + 1))
-            VERSION="${YEAR_MONTH}.${NEW_PATCH}"
+            # Extract patch number and increment
+            PATCH=$(echo "$LATEST_TAG" | sed "s/^v${YEAR}\.${MONTH}\.\([0-9]*\).*/\1/")
+            VERSION="${YEAR}.${MONTH}.$((PATCH + 1))"
           fi
         fi
 
