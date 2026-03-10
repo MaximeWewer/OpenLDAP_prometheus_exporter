@@ -4,7 +4,7 @@ This guide explains how to develop and contribute to the OpenLDAP Prometheus Exp
 
 ## Prerequisites
 
-- Go 1.24.6+
+- Go 1.26+
 - Git
 - Make (optional but recommended)
 
@@ -163,19 +163,26 @@ export TEST_LDAP_BASE_DN=dc=example,dc=com
 The project follows Go testing best practices:
 
 - **Unit tests**: `*_test.go` files alongside source code
+- **Fuzz tests**: `helpers_fuzz_test.go` for randomized input validation
+- **Benchmark tests**: `benchmark_test.go` for performance regression detection
 - **Integration tests**: `tests/` directory with build tag `integration`
 - **Test helpers**: Setup/cleanup functions for consistent test environments
 - **Table-driven tests**: Used for comprehensive scenario coverage
-- **Mock objects**: Used to isolate units under test
 
 Key test packages:
 
-- `cmd/main_test.go`: HTTP handlers and main function tests
-- `pkg/exporter/*_test.go`: Core LDAP exporter functionality
-- `pkg/security/*_test.go`: Security validation and rate limiting
-- `pkg/monitoring/*_test.go`: Internal monitoring and metrics
-- `pkg/pool/*_test.go`: Connection pool and LDAP client tests
-- `pkg/circuitbreaker/*_test.go`: Circuit breaker pattern tests
+- `cmd/main_test.go`: HTTP handlers, security headers, method validation, graceful shutdown
+- `pkg/exporter/exporter_test.go`: Counter tracking, cleanup, atomic stats
+- `pkg/exporter/helpers_fuzz_test.go`: Fuzz tests for key validation and CN extraction
+- `pkg/exporter/benchmark_test.go`: Benchmarks for metrics, counters, validation
+- `pkg/metrics/metrics_test.go`: All metric types (Gauge, Counter, Histogram), concurrent access
+- `pkg/config/config_test.go`: Config loading, validation, metric/DC filtering
+- `pkg/security/security_test.go`: Rate limiting, DN/filter validation, IP extraction
+- `pkg/monitoring/monitoring_test.go`: Internal monitoring and metrics
+- `pkg/pool/pool_test.go`: Connection pool lifecycle and maintenance
+- `pkg/pool/pooled_client_test.go`: LDAP client wrapper tests
+- `pkg/circuitbreaker/circuitbreaker_test.go`: Circuit breaker pattern tests
+- `pkg/logger/logger_test.go`: Logging, sanitization, safe logging functions
 - `tests/integration_core_test.go`: Integration tests with build tag
 
 ## Pre-push checklist
@@ -228,6 +235,61 @@ go test -race -v ./...
 # Check test coverage for specific packages
 go test -coverprofile=coverage.out ./pkg/exporter
 go tool cover -html=coverage.out
+```
+
+### Running fuzz and benchmark tests
+
+```bash
+# Fuzz tests (randomized input testing)
+go test -fuzz=FuzzValidateKey -fuzztime=10s ./pkg/exporter/
+go test -fuzz=FuzzExtractCNFromFirstComponent -fuzztime=10s ./pkg/exporter/
+
+# Benchmark tests
+go test -bench=. -benchmem ./pkg/exporter/
+```
+
+## Project structure
+
+```text
+cmd/
+└── main.go                         # Entry point, HTTP server, signal handling
+
+pkg/
+├── config/                         # Configuration loading and validation
+│   ├── config.go                   # Env var parsing, metric/DC filtering
+│   └── secure.go                   # SecureString (ChaCha20-Poly1305 encrypted password)
+├── exporter/                       # Prometheus collector implementation
+│   ├── exporter.go                 # Collector interface, lifecycle, concurrency control
+│   ├── collectors.go               # Common collector utilities
+│   ├── collectors_resource.go      # Connections, threads, time, waiters, health metrics
+│   ├── collectors_statistics.go    # Statistics counters (bytes, PDU, referrals, entries)
+│   ├── collectors_info.go          # Overlays, TLS, backends, listeners, server info, SASL, log
+│   ├── collectors_database.go      # Database entries and replication info
+│   ├── collectors_replication.go   # contextCSN parsing and replication lag
+│   ├── counter_management.go       # Monotonic counter delta tracking with typed map
+│   └── helpers.go                  # Retry logic, key validation, DN extraction
+├── metrics/                        # Prometheus metric definitions
+│   └── metrics.go                  # All GaugeVec, CounterVec, HistogramVec definitions
+├── pool/                           # LDAP connection pool
+│   ├── pool.go                     # Pool struct, constructor, Close, Stats
+│   ├── pool_connections.go         # Connection creation, TLS config, SASL EXTERNAL bind
+│   ├── pool_operations.go          # Get/Release connection operations
+│   ├── pool_maintenance.go         # Background health checks and idle cleanup
+│   ├── pool_metrics.go             # Pool monitoring metric updates
+│   └── pooled_client.go            # High-level LDAP client with circuit breaker
+├── monitoring/                     # Internal exporter metrics
+│   ├── monitoring.go               # Struct, constructor, histogram buckets
+│   ├── monitoring_pool.go          # Pool-related metric recording
+│   ├── monitoring_collection.go    # Circuit breaker, rate limit, system metrics
+│   ├── monitoring_events.go        # Event recording and scrape tracking
+│   └── monitoring_registry.go      # Prometheus registry registration
+├── circuitbreaker/                 # Circuit breaker pattern
+│   └── circuitbreaker.go           # State machine (closed/open/half-open)
+├── logger/                         # Structured logging with sanitization
+│   └── logger.go                   # Zerolog wrapper, sensitive field redaction
+└── security/                       # Security utilities
+    ├── validation.go               # LDAP DN and filter input validation
+    └── ratelimit.go                # Token bucket rate limiter per IP
 ```
 
 ## Development tips

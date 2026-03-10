@@ -32,7 +32,29 @@ go test -v ./...
 go test -race -coverprofile=coverage.out ./...
 ```
 
-### 2. Core component tests (Go-based)
+### 2. Fuzz tests (Go-based)
+
+Randomized input testing for edge cases and robustness:
+
+```bash
+# Run fuzz tests (default: 10 seconds each)
+go test -fuzz=FuzzValidateKey -fuzztime=10s ./pkg/exporter/
+go test -fuzz=FuzzExtractCNFromFirstComponent -fuzztime=10s ./pkg/exporter/
+```
+
+### 3. Benchmark tests (Go-based)
+
+Performance benchmarks for critical paths:
+
+```bash
+# Run all benchmarks
+go test -bench=. -benchmem ./pkg/exporter/
+
+# Run specific benchmark
+go test -bench=BenchmarkCounterUpdate -benchmem ./pkg/exporter/
+```
+
+### 5. Core component tests (Go-based)
 
 Tests Go-specific functionality (connection pools, circuit breakers, internal logic):
 
@@ -47,7 +69,7 @@ TEST_LDAP_PASSWORD=configpassword \
 go test -tags=integration -v ./tests/...
 ```
 
-### 3. Operation metrics tests (Bash-based)
+### 6. Operation metrics tests (Bash-based)
 
 Dynamic tests that configure LDAP Monitor backend and validate metrics collection:
 
@@ -60,7 +82,7 @@ LDAP_PORT=1389 EXPORTER_PORT=9360 \
 ./tests/scripts/run-operation-metrics-test.sh --traffic 50
 ```
 
-### 4. Complete test suite
+### 7. Complete test suite
 
 Run all test types with a single command:
 
@@ -79,12 +101,38 @@ Run all test types with a single command:
 ### Core Go components (integration_core_test.go)
 
 - Connection pool lifecycle and statistics
-- Circuit breaker protection and state transitions  
+- Circuit breaker protection and state transitions
 - PooledLDAPClient wrapper functionality
 - Prometheus exporter Go integration
 - DC (Domain Component) filtering logic
-- Concurrent metric collection (Go routines)
+- Concurrent metric collection (goroutines with semaphore concurrency limiting)
 - Metric consistency and stability
+- SASL EXTERNAL authentication via mTLS
+
+### Unit tests (pkg/*_test.go, cmd/main_test.go)
+
+- **Exporter**: Counter delta tracking, overflow detection, cleanup, atomic stats
+- **Metrics**: All metric types (Gauge, Counter, Histogram), Describe/Collect, concurrent access, registry
+- **Config**: Environment variable parsing, validation, metric/DC filtering, SecureString
+- **Pool**: Connection lifecycle, maintenance, metrics reporting
+- **Monitoring**: Internal metrics, event recording, system stats
+- **Circuit breaker**: State transitions, failure counting, recovery
+- **Security**: Rate limiting, DN/filter validation, IP extraction
+- **HTTP handlers**: Root page, health endpoint, internal metrics, security headers, method validation
+
+### Fuzz tests (pkg/exporter/helpers_fuzz_test.go)
+
+- `FuzzValidateKey`: Random input validation for counter map keys (null bytes, length limits, control characters)
+- `FuzzExtractCNFromFirstComponent`: CN extraction robustness with malformed DNs
+
+### Benchmark tests (pkg/exporter/benchmark_test.go)
+
+- `BenchmarkMetricsCreation`: Metric registry allocation performance
+- `BenchmarkMetricsDescribe`: Describe method throughput
+- `BenchmarkMetricsCollect`: Collect method throughput
+- `BenchmarkCounterUpdate`: Counter delta tracking performance
+- `BenchmarkValidateKey`: Key validation performance
+- `BenchmarkExtractCN`: CN extraction from DN performance
 
 ### Dynamic operation metrics
 
@@ -105,7 +153,7 @@ Run all test types with a single command:
 
 ### For Go tests
 
-- Go 1.24.6+
+- Go 1.26+
 - Access to LDAP server (for integration tests)
 
 ### For operation tests
