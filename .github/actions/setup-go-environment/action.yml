@@ -1,44 +1,44 @@
-name: 'Setup Go Environment'
-description: 'Sets up Go environment with caching, downloads and verifies dependencies'
+name: "Setup Go Environment"
+description: "Sets up Go environment with caching, downloads and verifies dependencies"
 
 inputs:
   go-version:
-    description: 'Go version to use'
+    description: "Go version to use"
     required: false
-    default: '1.24'
+    default: "1.26.0"
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
-  - name: Set up Go
-    uses: actions/setup-go@v4
-    with:
-      go-version: ${{ inputs.go-version }}
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ inputs.go-version }}
 
-  - name: Clean potential cache conflicts
-    shell: bash
-    run: |
-      # Clean Go module cache properly using go clean to avoid permission issues
-      go clean -modcache 2>/dev/null || true
-      # Clean build cache
-      go clean -cache 2>/dev/null || true
+    - name: Clean potential cache conflicts
+      shell: bash
+      run: |
+        # Clean Go module cache properly using go clean to avoid permission issues
+        go clean -modcache 2>/dev/null || true
+        # Clean build cache
+        go clean -cache 2>/dev/null || true
 
-  - name: Cache Go modules
-    uses: actions/cache@v4
-    with:
-      path: |
-        ~/.cache/go-build
-        ~/go/pkg/mod
-      key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-${{ github.job }}-${{ github.run_number }}-${{ github.run_attempt }}
-      restore-keys: |
-        ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-${{ github.job }}-${{ github.run_number }}-
-        ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-${{ github.job }}-
-        ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-${{ github.job }}-${{ github.run_number }}-${{ github.run_attempt }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-${{ github.job }}-${{ github.run_number }}-
+          ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-${{ github.job }}-
+          ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}-
 
-  - name: Download dependencies
-    shell: bash
-    run: go mod download
+    - name: Download dependencies
+      shell: bash
+      run: go mod download
 
-  - name: Verify dependencies
-    shell: bash
-    run: go mod verify
+    - name: Verify dependencies
+      shell: bash
+      run: go mod verify

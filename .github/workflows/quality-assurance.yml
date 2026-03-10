@@ -8,22 +8,22 @@ on:
   workflow_dispatch:
     inputs:
       test_selection:
-        description: 'Select tests to run'
+        description: "Select tests to run"
         required: false
-        default: 'all'
+        default: "all"
         type: choice
         options:
-          - 'all'
-          - 'unit-only'
-          - 'integration-only'
-          - 'static-analysis-only'
-          - 'security-only'
-          - 'unit-integration'
-          - 'coverage-only'
-          - 'analysis-security'
+          - "all"
+          - "unit-only"
+          - "integration-only"
+          - "static-analysis-only"
+          - "security-only"
+          - "unit-integration"
+          - "coverage-only"
+          - "analysis-security"
 
 env:
-  GO_VERSION: "1.24.6"
+  GO_VERSION: "1.26.0"
 
 # Default permissions for all jobs
 permissions:
@@ -35,52 +35,52 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Go environment
-      uses: ./.github/actions/setup-go-environment
-      with:
-        go-version: ${{ env.GO_VERSION }}
-    
-    - name: Auto-format code with gofmt
-      run: |
-        echo "Auto-formatting Go code with gofmt..."
-        BEFORE=$(gofmt -s -l . | wc -l)
-        if [ "$BEFORE" -gt 0 ]; then
-          echo "Found $BEFORE files that need formatting:"
-          gofmt -s -l .
-          echo ""
-          echo "Applying automatic formatting..."
-          gofmt -s -w .
-          AFTER=$(gofmt -s -l . | wc -l)
-          if [ "$AFTER" -eq 0 ]; then
-            echo "All files have been automatically formatted"
-          else
-            echo "ERROR: Some files still have formatting issues after gofmt"
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go environment
+        uses: ./.github/actions/setup-go-environment
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Auto-format code with gofmt
+        run: |
+          echo "Auto-formatting Go code with gofmt..."
+          BEFORE=$(gofmt -s -l . | wc -l)
+          if [ "$BEFORE" -gt 0 ]; then
+            echo "Found $BEFORE files that need formatting:"
             gofmt -s -l .
-            exit 1
+            echo ""
+            echo "Applying automatic formatting..."
+            gofmt -s -w .
+            AFTER=$(gofmt -s -l . | wc -l)
+            if [ "$AFTER" -eq 0 ]; then
+              echo "All files have been automatically formatted"
+            else
+              echo "ERROR: Some files still have formatting issues after gofmt"
+              gofmt -s -l .
+              exit 1
+            fi
+          else
+            echo "All Go files are already properly formatted"
           fi
-        else
-          echo "All Go files are already properly formatted"
-        fi
-    
-    - name: Run go vet
-      run: go vet ./...
-    
-    - name: Check for ineffective assignments
-      run: |
-        go install github.com/gordonklaus/ineffassign@latest
-        ineffassign ./...
-    
-    - name: Run golangci-lint (quick check)
-      uses: golangci/golangci-lint-action@v3
-      with:
-        version: latest
-        args: --timeout=3m
-        skip-cache: false
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Check for ineffective assignments
+        run: |
+          go install github.com/gordonklaus/ineffassign@latest
+          ineffassign ./...
+
+      - name: Run golangci-lint (quick check)
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          args: --timeout=3m
+          skip-cache: false
 
   unit-tests:
     name: Unit Tests
@@ -91,37 +91,37 @@ jobs:
       contents: read
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Go environment
-      uses: ./.github/actions/setup-go-environment
-      with:
-        go-version: ${{ env.GO_VERSION }}
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Run unit tests with race detector and coverage
-      timeout-minutes: 5
-      run: go test -race -timeout=30s -coverprofile=unit-coverage.out -covermode=atomic ./...
+      - name: Setup Go environment
+        uses: ./.github/actions/setup-go-environment
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
-    - name: Display unit test coverage
-      run: |
-        go tool cover -func=unit-coverage.out
-        COVERAGE=$(go tool cover -func=unit-coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-        echo "Unit Test Coverage: $COVERAGE%"
-        echo "UNIT_COVERAGE=$COVERAGE" >> $GITHUB_ENV
+      - name: Run unit tests with race detector and coverage
+        timeout-minutes: 5
+        run: go test -race -timeout=30s -coverprofile=unit-coverage.out -covermode=atomic ./...
 
-    - name: Upload unit test coverage artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: unit-coverage
-        path: unit-coverage.out
-        retention-days: 1
+      - name: Display unit test coverage
+        run: |
+          go tool cover -func=unit-coverage.out
+          COVERAGE=$(go tool cover -func=unit-coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Unit Test Coverage: $COVERAGE%"
+          echo "UNIT_COVERAGE=$COVERAGE" >> $GITHUB_ENV
 
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./unit-coverage.out
-        flags: unittests
+      - name: Upload unit test coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-coverage
+          path: unit-coverage.out
+          retention-days: 1
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./unit-coverage.out
+          flags: unittests
 
   integration-tests:
     name: Integration Tests
@@ -144,76 +144,76 @@ jobs:
           LDAP_SKIP_DEFAULT_TREE: "yes"
           LDAP_EXTRA_SCHEMAS: "dyngroup,cosine,inetorgperson,nis"
         ports:
-        - 1389:1389
+          - 1389:1389
         options: >-
           --health-cmd "ldapsearch -x -H ldap://localhost:1389 -b '' -s base '(objectClass=*)' namingContexts" --health-interval 10s --health-timeout 5s --health-retries 10 --health-start-period 60s
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Go environment
-      uses: ./.github/actions/setup-go-environment
-      with:
-        go-version: ${{ env.GO_VERSION }}
+      - name: Setup Go environment
+        uses: ./.github/actions/setup-go-environment
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
-    - name: Setup LDAP test environment
-      uses: ./.github/actions/setup-ldap-test
+      - name: Setup LDAP test environment
+        uses: ./.github/actions/setup-ldap-test
 
-    - name: Run integration tests with coverage
-      env:
-        TEST_LDAP_URL: ldap://localhost:1389
-        TEST_LDAP_USERNAME: cn=adminconfig,cn=config
-        TEST_LDAP_PASSWORD: configpassword
-      run: go test -tags=integration -v -coverprofile=integration-coverage.out -covermode=atomic -coverpkg=./pkg/...,./cmd/... ./tests/...
+      - name: Run integration tests with coverage
+        env:
+          TEST_LDAP_URL: ldap://localhost:1389
+          TEST_LDAP_USERNAME: cn=adminconfig,cn=config
+          TEST_LDAP_PASSWORD: configpassword
+        run: go test -tags=integration -v -coverprofile=integration-coverage.out -covermode=atomic -coverpkg=./pkg/...,./cmd/... ./tests/...
 
-    - name: Display integration test coverage
-      run: |
-        go tool cover -func=integration-coverage.out
-        COVERAGE=$(go tool cover -func=integration-coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-        echo "Integration Test Coverage: $COVERAGE%"
-        echo "INTEGRATION_COVERAGE=$COVERAGE" >> $GITHUB_ENV
+      - name: Display integration test coverage
+        run: |
+          go tool cover -func=integration-coverage.out
+          COVERAGE=$(go tool cover -func=integration-coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Integration Test Coverage: $COVERAGE%"
+          echo "INTEGRATION_COVERAGE=$COVERAGE" >> $GITHUB_ENV
 
-    - name: Upload integration test coverage artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: integration-coverage
-        path: integration-coverage.out
-        retention-days: 1
+      - name: Upload integration test coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-coverage
+          path: integration-coverage.out
+          retention-days: 1
 
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./integration-coverage.out
-        flags: integrationtests
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./integration-coverage.out
+          flags: integrationtests
 
-    - name: Install LDAP tools for operation tests
-      run: sudo apt-get update && sudo apt-get install -y ldap-utils
+      - name: Install LDAP tools for operation tests
+        run: sudo apt-get update && sudo apt-get install -y ldap-utils
 
-    - name: Run operation metrics tests (bash-based)
-      env:
-        LDAP_HOST: localhost
-        LDAP_PORT: 1389
-        ADMIN_PASSWORD: adminpassword
-        CONFIG_PASSWORD: configpassword
-        EXPORTER_PORT: 9360
-        TEST_TRAFFIC_OPERATIONS: 25
-        TEST_TIMEOUT: 120
-      run: |
-        chmod +x tests/scripts/run-operation-metrics-test.sh
-        ./tests/scripts/run-operation-metrics-test.sh --ldap-port 1389 --traffic 25
+      - name: Run operation metrics tests (bash-based)
+        env:
+          LDAP_HOST: localhost
+          LDAP_PORT: 1389
+          ADMIN_PASSWORD: adminpassword
+          CONFIG_PASSWORD: configpassword
+          EXPORTER_PORT: 9360
+          TEST_TRAFFIC_OPERATIONS: 25
+          TEST_TIMEOUT: 120
+        run: |
+          chmod +x tests/scripts/run-operation-metrics-test.sh
+          ./tests/scripts/run-operation-metrics-test.sh --ldap-port 1389 --traffic 25
 
-    - name: Generate test report
-      if: always()
-      run: |
-        echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        if [[ -f /tmp/operation_metrics_test_report.txt ]]; then
-          echo "### Operation Metrics Test Report" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat /tmp/operation_metrics_test_report.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-        fi
+      - name: Generate test report
+        if: always()
+        run: |
+          echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ -f /tmp/operation_metrics_test_report.txt ]]; then
+            echo "### Operation Metrics Test Report" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat /tmp/operation_metrics_test_report.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
 
   static-analysis:
     name: Static Analysis
@@ -224,260 +224,266 @@ jobs:
       contents: read
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Go environment
-      uses: ./.github/actions/setup-go-environment
-      with:
-        go-version: ${{ env.GO_VERSION }}
+      - name: Setup Go environment
+        uses: ./.github/actions/setup-go-environment
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
-    - name: Install static analysis tools
-      run: |
-        echo "Installing static analysis tools..."
-        go install honnef.co/go/tools/cmd/staticcheck@latest
-        go install github.com/kisielk/errcheck@latest
-        go install github.com/client9/misspell/cmd/misspell@latest
-        go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
-        go install golang.org/x/tools/cmd/goimports@latest
-        go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@latest
-        echo "All tools installed successfully"
-    
-    - name: Run shadow analysis
-      run: |
-        echo "Running shadow analysis (variable shadowing detection)..."
-        go vet -vettool=$(which shadow) ./...
-    
-    - name: Auto-format imports with goimports
-      run: |
-        echo "Auto-formatting Go imports with goimports..."
-        BEFORE=$(goimports -l . 2>/dev/null | wc -l || echo "0")
-        if [ "$BEFORE" -gt 0 ]; then
-          echo "Found $BEFORE files with incorrect import formatting:"
-          goimports -l . 2>/dev/null || true
-          echo ""
-          echo "Applying automatic import formatting..."
-          goimports -w . 2>/dev/null || true
-          AFTER=$(goimports -l . 2>/dev/null | wc -l || echo "0")
-          if [ "$AFTER" -eq 0 ]; then
-            echo "All import formatting has been automatically corrected"
-          else
-            echo "ERROR: Some files still have import formatting issues after goimports"
+      - name: Install static analysis tools
+        run: |
+          echo "Installing static analysis tools..."
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install github.com/kisielk/errcheck@latest
+          go install github.com/client9/misspell/cmd/misspell@latest
+          go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+          go install golang.org/x/tools/cmd/goimports@latest
+          go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@latest
+          echo "All tools installed successfully"
+
+      - name: Run shadow analysis
+        run: |
+          echo "Running shadow analysis (variable shadowing detection)..."
+          go vet -vettool=$(which shadow) ./...
+
+      - name: Auto-format imports with goimports
+        run: |
+          echo "Auto-formatting Go imports with goimports..."
+          BEFORE=$(goimports -l . 2>/dev/null | wc -l || echo "0")
+          if [ "$BEFORE" -gt 0 ]; then
+            echo "Found $BEFORE files with incorrect import formatting:"
             goimports -l . 2>/dev/null || true
-            exit 1
+            echo ""
+            echo "Applying automatic import formatting..."
+            goimports -w . 2>/dev/null || true
+            AFTER=$(goimports -l . 2>/dev/null | wc -l || echo "0")
+            if [ "$AFTER" -eq 0 ]; then
+              echo "All import formatting has been automatically corrected"
+            else
+              echo "ERROR: Some files still have import formatting issues after goimports"
+              goimports -l . 2>/dev/null || true
+              exit 1
+            fi
+          else
+            echo "All Go imports are already properly formatted"
           fi
-        else
-          echo "All Go imports are already properly formatted"
-        fi
-    
-    - name: Run staticcheck
-      run: |
-        echo "Running staticcheck (advanced static analysis)..."
-        staticcheck ./...
-    
-    - name: Run errcheck
-      run: |
-        echo "Running errcheck (comprehensive error checking)..."
-        errcheck -verbose -ignoretests ./...
-    
-    - name: Run misspell
-      run: |
-        echo "Running misspell (spelling checker)..."
-        misspell -error .
-    
-    - name: Run gocyclo
-      run: |
-        echo "Running gocyclo (cyclomatic complexity analysis)..."
-        echo "Checking functions with complexity > 20..."
-        if gocyclo -over 20 . | grep -q .; then
-          echo "Functions with complexity > 20 found:"
-          gocyclo -over 20 .
-          echo "These functions should be refactored to reduce complexity"
-          exit 1
-        else
-          echo "No functions with complexity > 20 found"
-        fi
-        echo "Functions with complexity 15-20 (warnings):"
-        if gocyclo -over 15 . | grep -v "_test.go" | head -5 | grep -q .; then
-          gocyclo -over 15 . | grep -v "_test.go" | head -5
-          echo "Consider refactoring these functions if possible"
-        else
-          echo "No non-test functions with complexity 15-20 found"
-        fi
+
+      - name: Run staticcheck
+        run: |
+          echo "Running staticcheck (advanced static analysis)..."
+          staticcheck ./...
+
+      - name: Run errcheck
+        run: |
+          echo "Running errcheck (comprehensive error checking)..."
+          errcheck -verbose -ignoretests ./...
+
+      - name: Run misspell
+        run: |
+          echo "Running misspell (spelling checker)..."
+          misspell -error .
+
+      - name: Run gocyclo
+        run: |
+          echo "Running gocyclo (cyclomatic complexity analysis)..."
+          echo "Checking functions with complexity > 20..."
+          if gocyclo -over 20 . | grep -q .; then
+            echo "Functions with complexity > 20 found:"
+            gocyclo -over 20 .
+            echo "These functions should be refactored to reduce complexity"
+            exit 1
+          else
+            echo "No functions with complexity > 20 found"
+          fi
+          echo "Functions with complexity 15-20 (warnings):"
+          if gocyclo -over 15 . | grep -v "_test.go" | head -5 | grep -q .; then
+            gocyclo -over 15 . | grep -v "_test.go" | head -5
+            echo "Consider refactoring these functions if possible"
+          else
+            echo "No non-test functions with complexity 15-20 found"
+          fi
 
   security:
     name: Security Analysis
     runs-on: ubuntu-latest
     needs: pre-check
     if: ${{ contains(inputs.test_selection, 'all') || contains(inputs.test_selection, 'security') || contains(inputs.test_selection, 'analysis') && inputs.test_selection != 'coverage-only' }}
-    
+
     permissions:
       actions: read
       contents: read
       security-events: write
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Go environment
-      uses: ./.github/actions/setup-go-environment
-      with:
-        go-version: ${{ env.GO_VERSION }}
+      - name: Setup Go environment
+        uses: ./.github/actions/setup-go-environment
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
-    - name: Run Gosec Security Scanner
-      run: |
-        go install github.com/securego/gosec/v2/cmd/gosec@latest
-        gosec -fmt sarif -out results.sarif ./... || true
+      - name: Run Gosec Security Scanner
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -fmt sarif -out results.sarif ./... || true
 
-    - name: Upload SARIF file
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: results.sarif
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
 
-    - name: Check for known vulnerabilities
-      run: |
-        go install golang.org/x/vuln/cmd/govulncheck@latest
-        govulncheck ./...
+      - name: Check for known vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
 
-    - name: Dependency review (Pull Request only)
-      if: github.event_name == 'pull_request'
-      uses: actions/dependency-review-action@v4
-    
-    - name: Check dependencies (Push events)
-      if: github.event_name == 'push'
-      run: |
-        echo "Checking Go module dependencies..."
-        go list -m -u all
-        echo "Verifying module integrity..."
-        go mod verify
+      - name: Dependency review (Pull Request only)
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
+
+      - name: Check dependencies (Push events)
+        if: github.event_name == 'push'
+        run: |
+          echo "Checking Go module dependencies..."
+          go list -m -u all
+          echo "Verifying module integrity..."
+          go mod verify
 
   coverage-report:
     name: Combined Coverage Report
     runs-on: ubuntu-latest
-    needs: [ unit-tests, integration-tests ]
+    needs: [unit-tests, integration-tests]
     if: |
-      always() && 
-      !cancelled() && 
+      always() &&
+      !cancelled() &&
       (needs.unit-tests.result == 'success' || needs.integration-tests.result == 'success')
     permissions:
       contents: read
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Go environment
-      uses: ./.github/actions/setup-go-environment
-      with:
-        go-version: ${{ env.GO_VERSION }}
+      - name: Setup Go environment
+        uses: ./.github/actions/setup-go-environment
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
-    - name: Download unit test coverage
-      if: needs.unit-tests.result == 'success'
-      uses: actions/download-artifact@v4
-      with:
-        name: unit-coverage
-        path: ./coverage-reports/
+      - name: Download unit test coverage
+        if: needs.unit-tests.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: unit-coverage
+          path: ./coverage-reports/
 
-    - name: Download integration test coverage
-      if: needs.integration-tests.result == 'success' 
-      uses: actions/download-artifact@v4
-      with:
-        name: integration-coverage
-        path: ./coverage-reports/
+      - name: Download integration test coverage
+        if: needs.integration-tests.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-coverage
+          path: ./coverage-reports/
 
-    - name: Merge coverage reports
-      run: |
-        echo "Merging coverage reports..."
-        
-        # Install gocovmerge tool
-        go install github.com/wadey/gocovmerge@latest
-        
-        # List available coverage files
-        echo "Available coverage files:"
-        ls -la ./coverage-reports/ || echo "No coverage reports found"
-        
-        # Merge coverage files if they exist
-        if [ -f "./coverage-reports/unit-coverage.out" ] && [ -f "./coverage-reports/integration-coverage.out" ]; then
-          echo "Merging unit and integration test coverage..."
-          gocovmerge ./coverage-reports/unit-coverage.out ./coverage-reports/integration-coverage.out > combined-coverage.out
-        elif [ -f "./coverage-reports/unit-coverage.out" ]; then
-          echo "Only unit test coverage available..."
-          cp ./coverage-reports/unit-coverage.out combined-coverage.out
-        elif [ -f "./coverage-reports/integration-coverage.out" ]; then
-          echo "Only integration test coverage available..."
-          cp ./coverage-reports/integration-coverage.out combined-coverage.out
-        else
-          echo "No coverage reports found to merge"
-          exit 1
-        fi
+      - name: Merge coverage reports
+        run: |
+          echo "Merging coverage reports..."
 
-    - name: Generate combined coverage report
-      run: |
-        echo "## Combined Coverage Report" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        go tool cover -func=combined-coverage.out | tee coverage-summary.txt
-        
-        TOTAL_COVERAGE=$(go tool cover -func=combined-coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Total Coverage: ${TOTAL_COVERAGE}%**" >> $GITHUB_STEP_SUMMARY
-        
-        # Coverage threshold check
-        THRESHOLD=70
-        if (( $(echo "$TOTAL_COVERAGE < $THRESHOLD" | bc -l) )); then
+          # Install gocovmerge tool
+          go install github.com/wadey/gocovmerge@latest
+
+          # List available coverage files
+          echo "Available coverage files:"
+          ls -la ./coverage-reports/ || echo "No coverage reports found"
+
+          # Merge coverage files if they exist
+          if [ -f "./coverage-reports/unit-coverage.out" ] && [ -f "./coverage-reports/integration-coverage.out" ]; then
+            echo "Merging unit and integration test coverage..."
+            gocovmerge ./coverage-reports/unit-coverage.out ./coverage-reports/integration-coverage.out > combined-coverage.out
+          elif [ -f "./coverage-reports/unit-coverage.out" ]; then
+            echo "Only unit test coverage available..."
+            cp ./coverage-reports/unit-coverage.out combined-coverage.out
+          elif [ -f "./coverage-reports/integration-coverage.out" ]; then
+            echo "Only integration test coverage available..."
+            cp ./coverage-reports/integration-coverage.out combined-coverage.out
+          else
+            echo "No coverage reports found to merge"
+            exit 1
+          fi
+
+      - name: Generate combined coverage report
+        run: |
+          echo "## Combined Coverage Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Coverage is below ${THRESHOLD}% threshold" >> $GITHUB_STEP_SUMMARY
-          echo "Coverage ${TOTAL_COVERAGE}% is below the ${THRESHOLD}% threshold"
-          exit 1
-        else
+
+          go tool cover -func=combined-coverage.out | tee coverage-summary.txt
+
+          TOTAL_COVERAGE=$(go tool cover -func=combined-coverage.out | grep total | awk '{print $3}' | sed 's/%//')
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Coverage meets the ${THRESHOLD}% threshold" >> $GITHUB_STEP_SUMMARY
-        fi
+          echo "**Total Coverage: ${TOTAL_COVERAGE}%**" >> $GITHUB_STEP_SUMMARY
 
-    - name: Generate HTML coverage report
-      run: |
-        go tool cover -html=combined-coverage.out -o coverage-report.html
-        echo "HTML coverage report generated"
+          # Coverage threshold check
+          THRESHOLD=70
+          if (( $(echo "$TOTAL_COVERAGE < $THRESHOLD" | bc -l) )); then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Coverage is below ${THRESHOLD}% threshold" >> $GITHUB_STEP_SUMMARY
+            echo "Coverage ${TOTAL_COVERAGE}% is below the ${THRESHOLD}% threshold"
+            exit 1
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Coverage meets the ${THRESHOLD}% threshold" >> $GITHUB_STEP_SUMMARY
+          fi
 
-    - name: Upload combined coverage artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: combined-coverage-report
-        path: |
-          combined-coverage.out
-          coverage-report.html
-          coverage-summary.txt
-        retention-days: 7
+      - name: Generate HTML coverage report
+        run: |
+          go tool cover -html=combined-coverage.out -o coverage-report.html
+          echo "HTML coverage report generated"
 
-    - name: Upload to Codecov (combined)
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./combined-coverage.out
-        flags: combined
-        name: combined-coverage
+      - name: Upload combined coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-coverage-report
+          path: |
+            combined-coverage.out
+            coverage-report.html
+            coverage-summary.txt
+          retention-days: 7
+
+      - name: Upload to Codecov (combined)
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./combined-coverage.out
+          flags: combined
+          name: combined-coverage
 
   test-summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
-    needs: [ unit-tests, integration-tests, static-analysis, security, coverage-report ]
+    needs:
+      [
+        unit-tests,
+        integration-tests,
+        static-analysis,
+        security,
+        coverage-report,
+      ]
     if: always() && !cancelled()
     permissions:
       contents: read
 
     steps:
-    - name: Pipeline Results Summary
-      run: |
-        echo "## Quality Assurance Results Summary" >> $GITHUB_STEP_SUMMARY
-        echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
-        echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Unit Tests | ${{ needs.unit-tests.result == 'success' && '✅ Passed' || (needs.unit-tests.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
-        
-        echo "| Integration Tests | ${{ needs.integration-tests.result == 'success' && '✅ Passed' || (needs.integration-tests.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Coverage Report | ${{ needs.coverage-report.result == 'success' && '✅ Passed' || (needs.coverage-report.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Static Analysis | ${{ needs.static-analysis.result == 'success' && '✅ Passed' || (needs.static-analysis.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Security Analysis | ${{ needs.security.result == 'success' && '✅ Passed' || (needs.security.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Test Selection:** ${{ inputs.test_selection }}" >> $GITHUB_STEP_SUMMARY
+      - name: Pipeline Results Summary
+        run: |
+          echo "## Quality Assurance Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Unit Tests | ${{ needs.unit-tests.result == 'success' && '✅ Passed' || (needs.unit-tests.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
 
+          echo "| Integration Tests | ${{ needs.integration-tests.result == 'success' && '✅ Passed' || (needs.integration-tests.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage Report | ${{ needs.coverage-report.result == 'success' && '✅ Passed' || (needs.coverage-report.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Static Analysis | ${{ needs.static-analysis.result == 'success' && '✅ Passed' || (needs.static-analysis.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Analysis | ${{ needs.security.result == 'success' && '✅ Passed' || (needs.security.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Test Selection:** ${{ inputs.test_selection }}" >> $GITHUB_STEP_SUMMARY
