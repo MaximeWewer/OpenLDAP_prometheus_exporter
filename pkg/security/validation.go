@@ -244,6 +244,21 @@ func ValidateSuffixDN(dn string) error {
 	return nil
 }
 
+// ValidateAccessLogDN validates that a DN is in the accesslog tree (security check)
+func ValidateAccessLogDN(dn string) error {
+	if err := ValidateLDAPDN(dn); err != nil {
+		return err
+	}
+
+	// Ensure DN is within accesslog tree
+	dnLower := strings.ToLower(dn)
+	if dnLower != "cn=accesslog" && !strings.HasSuffix(dnLower, ",cn=accesslog") {
+		return errors.New("DN must be within cn=accesslog tree")
+	}
+
+	return nil
+}
+
 // ValidateMonitorDN validates that a DN is in the monitor tree (security check)
 func ValidateMonitorDN(dn string) error {
 	if err := ValidateLDAPDN(dn); err != nil {

@@ -140,6 +140,14 @@ func (e *OpenLDAPExporter) getAllMetrics() []prometheus.Collector {
 		e.metricsRegistry.ConnectionsByProtocol,
 		e.metricsRegistry.ConnectionOpsAggregate,
 		e.metricsRegistry.SupportedControlInfo,
+		e.metricsRegistry.PpolicyPwdFailureCount,
+		e.metricsRegistry.PpolicyAccountLocked,
+		e.metricsRegistry.PpolicyPwdChangedTimestamp,
+		e.metricsRegistry.PpolicyPwdLastSuccess,
+		e.metricsRegistry.PpolicyPwdGraceUseCount,
+		e.metricsRegistry.PpolicyPwdReset,
+		e.metricsRegistry.AccesslogBindTotal,
+		e.metricsRegistry.AccesslogWriteTotal,
 	}
 }
 
@@ -227,6 +235,8 @@ func (e *OpenLDAPExporter) collectAllMetricsWithContext(ctx context.Context) err
 		{"log", e.collectLogMetrics},
 		{"sasl", e.collectSASLMetrics},
 		{"replication", e.collectReplicationMetrics},
+		{"ppolicy", e.collectPpolicyMetrics},
+		{"accesslog", e.collectAccesslogMetrics},
 	}
 
 	// Semaphore to limit concurrent collection goroutines

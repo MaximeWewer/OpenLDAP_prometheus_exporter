@@ -55,7 +55,7 @@ services:
       # ========================================
       # OPENLDAP_METRICS_INCLUDE: "connections,statistics,health"       # Only collect these metric groups
       # OPENLDAP_METRICS_EXCLUDE: "overlays,tls,backends"               # Exclude these metric groups
-      # Available groups: connections, statistics, operations, threads, time, waiters, overlays, tls, backends, listeners, health, database, server, log, sasl
+      # Available groups: connections, statistics, operations, threads, time, waiters, overlays, tls, backends, listeners, health, database, server, log, sasl, replication, ppolicy, accesslog
 
       # ========================================
       # Domain Component (DC) filtering

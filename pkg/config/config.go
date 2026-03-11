@@ -275,7 +275,7 @@ func (c *Config) validateMetricFiltering() {
 	validMetricGroups := []string{
 		"connections", "statistics", "operations", "threads", "time",
 		"waiters", "overlays", "tls", "backends", "listeners", "health",
-		"database", "server", "log", "sasl", "replication",
+		"database", "server", "log", "sasl", "replication", "ppolicy", "accesslog",
 	}
 
 	// Validate include list

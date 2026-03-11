@@ -1,6 +1,6 @@
 # OpenLDAP Prometheus Exporter
 
-A Prometheus exporter for OpenLDAP with advanced security features, performance optimizations, and comprehensive monitoring using the [*Monitor backend*](https://www.openldap.org/doc/admin26/monitoringslapd.html)
+A Prometheus exporter for OpenLDAP with advanced security features, performance optimizations, and comprehensive monitoring using the [*Monitor backend*](https://www.openldap.org/doc/admin26/monitoringslapd.html), [*ppolicy overlay*](https://www.openldap.org/doc/admin26/overlays.html#Password%20Policies), and [*accesslog overlay*](https://www.openldap.org/doc/admin26/overlays.html#Access%20Logging)
 
 ## Features
 
@@ -52,6 +52,8 @@ Monitor your OpenLDAP server performance with key metrics including operations, 
 - Database and backend information tables
 - Collapsible Information section (overlays, listeners, TLS, supported controls)
 - Collapsible Replication section (lag, CSN timestamps)
+- Collapsible Password Policy section (per-user failure count, account lock status, password age)
+- Collapsible Access Log section (bind successes/failures per user, write operations per user)
 
 ### OpenLDAP exporter internal metrics dashboard
 
@@ -193,7 +195,7 @@ olcMonitoring: TRUE
 
 ### 3. ACL configuration
 
-The account used (recommended: `adminconfig`. `LDAP_CONFIG_ADMIN` is used) must have read access to the Monitor backend:
+The account used (recommended: `adminconfig`. `LDAP_CONFIG_ADMIN` is used) must have read access to the Monitor backend. For `ppolicy` metrics, it also needs read access to user entries in the data tree:
 
 ```ldif
 # This file configures access control lists to allow adminconfig to read Monitor & Backend
@@ -208,6 +210,57 @@ changetype: modify
 replace: olcAccess
 olcAccess: to * by dn.exact="cn=adminconfig,cn=config" manage by * none
 ```
+
+For **ppolicy** metrics, the exporter account must be able to read user entries (ppolicy operational attributes like `pwdFailureTime`, `pwdAccountLockedTime`, etc.):
+
+```ldif
+# Grant read access to user entries for ppolicy monitoring
+# Add this to your data database ACLs (adjust database number and base DN)
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcAccess
+olcAccess: to dn.subtree="ou=users,dc=example,dc=org"
+  by dn.exact="cn=adminconfig,cn=config" read
+```
+
+### 4. Accesslog overlay (optional)
+
+The `accesslog` metric group requires the `slapo-accesslog` overlay to be configured. This provides per-user bind and write operation tracking.
+
+```ldif
+# 1. Load the accesslog module
+dn: cn=module{0},cn=config
+changetype: modify
+add: olcModuleLoad
+olcModuleLoad: accesslog.so
+
+# 2. Create a dedicated MDB database for access logs
+dn: olcDatabase={2}mdb,cn=config
+objectClass: olcDatabaseConfig
+objectClass: olcMdbConfig
+olcDatabase: {2}mdb
+olcSuffix: cn=accesslog
+olcDbDirectory: /var/lib/openldap/accesslog-data
+olcRootDN: cn=adminconfig,cn=config
+olcDbMaxSize: 1073741824
+olcDbIndex: reqStart eq
+olcDbIndex: reqDN eq
+olcDbIndex: reqType eq
+olcDbIndex: reqResult eq
+olcAccess: {0}to * by dn.exact="cn=adminconfig,cn=config" read by * none
+
+# 3. Add the accesslog overlay to the main database
+dn: olcOverlay=accesslog,olcDatabase={1}mdb,cn=config
+objectClass: olcOverlayConfig
+objectClass: olcAccessLogConfig
+olcOverlay: accesslog
+olcAccessLogDB: cn=accesslog
+olcAccessLogOps: writes bind
+olcAccessLogSuccess: FALSE
+olcAccessLogPurge: 07+00:00 01+00:00
+```
+
+> **Note:** `olcAccessLogSuccess: FALSE` logs both successful and failed operations. `olcAccessLogPurge: 07+00:00 01+00:00` purges entries older than 7 days, checked every day. Adjust the database number (`{2}mdb`) to match your configuration — the monitor database number will need to be incremented accordingly.
 
 ## Configuration
 
@@ -357,7 +410,7 @@ See the full [web configuration documentation](https://github.com/prometheus/exp
 | `OPENLDAP_METRICS_INCLUDE` | Only collect these metric groups | `connections,statistics,health,server` |
 | `OPENLDAP_METRICS_EXCLUDE` | Exclude these metric groups | `overlays,tls,backends,log,sasl` |
 
-**Available metric groups:** `connections`, `statistics`, `operations`, `threads`, `time`, `waiters`, `overlays`, `tls`, `backends`, `listeners`, `health`, `database`, `server`, `log`, `sasl`, `replication`
+**Available metric groups:** `connections`, `statistics`, `operations`, `threads`, `time`, `waiters`, `overlays`, `tls`, `backends`, `listeners`, `health`, `database`, `server`, `log`, `sasl`, `replication`, `ppolicy`, `accesslog`
 
 **Filtering Logic:**
 
@@ -388,7 +441,7 @@ See the full [web configuration documentation](https://github.com/prometheus/exp
 
 The exporter exposes two types of metrics:
 
-1. **OpenLDAP metrics** (namespace `openldap`) - collected from LDAP server via `cn=Monitor`
+1. **OpenLDAP metrics** (namespace `openldap`) - collected from LDAP server via `cn=Monitor`, user entries (ppolicy), and `cn=accesslog`
 2. **Internal metrics** (namespace `openldap_exporter`) - exporter performance and health
 
 ### OpenLDAP metrics (namespace: `openldap`)
@@ -509,6 +562,34 @@ These metrics are collected in different configurable groups. Use `OPENLDAP_METR
 | `openldap_replication_lag_seconds` | Gauge | `server`, `base_dn`, `server_id` | Seconds since last contextCSN update | Calculated |
 
 These metrics are only populated when `contextCSN` is present on database suffix entries (i.e., when replication is configured). In multi-master setups, one series per server ID (SID) is exposed, allowing lag detection between replicas.
+
+### Password Policy (`ppolicy`)
+
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_ppolicy_pwd_failure_count` | Gauge | `server`, `user_dn`, `user`, `base_dn` | Consecutive password failures per user | `pwdFailureTime` operational attribute |
+| `openldap_ppolicy_account_locked` | Gauge | `server`, `user_dn`, `user`, `base_dn` | Account lock status (1=locked, 0=unlocked) | `pwdAccountLockedTime` operational attribute |
+| `openldap_ppolicy_pwd_changed_timestamp` | Gauge | `server`, `user_dn`, `user`, `base_dn` | Unix timestamp of last password change | `pwdChangedTime` operational attribute |
+| `openldap_ppolicy_pwd_last_success_timestamp` | Gauge | `server`, `user_dn`, `user`, `base_dn` | Unix timestamp of last successful bind | `pwdLastSuccess` operational attribute |
+| `openldap_ppolicy_pwd_grace_use_count` | Gauge | `server`, `user_dn`, `user`, `base_dn` | Grace logins used after password expiration | `pwdGraceUseTime` operational attribute |
+| `openldap_ppolicy_pwd_reset` | Gauge | `server`, `user_dn`, `user`, `base_dn` | Must change password on next bind (1=yes, 0=no) | `pwdReset` operational attribute |
+
+These metrics require the `slapo-ppolicy` overlay to be configured on the OpenLDAP server. The exporter account must have read access to user entries (see [ACL configuration](#3-acl-configuration)). Only users with at least one ppolicy operational attribute set are reported.
+
+### Access Log (`accesslog`)
+
+| Metric | Type | Labels | Description | LDAP Source |
+|----------|------|---------|-------------|-------------|
+| `openldap_accesslog_bind_total` | Gauge | `server`, `user_dn`, `user`, `result` | Bind operations per user and result in the accesslog sliding window | `cn=accesslog` `auditBind` entries |
+| `openldap_accesslog_write_total` | Gauge | `server`, `user_dn`, `user`, `operation` | Write operations per user and type in the accesslog sliding window | `cn=accesslog` `auditAdd/Modify/Delete/ModRDN` entries |
+
+These metrics require the `slapo-accesslog` overlay and a dedicated `cn=accesslog` MDB database (see [Accesslog overlay configuration](#4-accesslog-overlay-optional)). The counts represent a sliding window controlled by `olcAccessLogPurge` on the server side.
+
+**Result labels for binds:** `success`, `invalid_credentials`, `insufficient_access`, `constraint_violation`, `unwilling_to_perform`, `error_<code>`
+
+**Operation labels for writes:** `add`, `modify`, `delete`, `modrdn`
+
+> **Note:** Failed binds due to wrong passwords (LDAP result code 49) are typically rejected at the frontend level before reaching the accesslog overlay, so they are not logged as `auditBind` entries. Use the `ppolicy` metrics (`pwdFailureTime`) for reliable authentication failure tracking. The accesslog is most useful for tracking successful bind activity and write operations.
 
 ### Health (`health`)
 

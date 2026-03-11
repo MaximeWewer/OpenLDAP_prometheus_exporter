@@ -338,8 +338,8 @@ const rootPageTemplate = `<!DOCTYPE html>
 			</div>
 			<div class="metrics-info">
 				<h3>Metrics overview</h3>
-				<p><strong>Available metric groups:</strong> <span class="metric-count">15</span> (connections, statistics, operations, threads, time, waiters, overlays, tls, backends, listeners, health, database, server, log, sasl)</p>
-				<p><strong>Total metrics:</strong> <span class="metric-count">25+</span> OpenLDAP monitoring metrics</p>
+				<p><strong>Available metric groups:</strong> <span class="metric-count">18</span> (connections, statistics, operations, threads, time, waiters, overlays, tls, backends, listeners, health, database, server, log, sasl, replication, ppolicy, accesslog)</p>
+				<p><strong>Total metrics:</strong> <span class="metric-count">35+</span> OpenLDAP monitoring metrics</p>
 				<p><strong>Last scrape:</strong> <span class="timestamp" id="lastScrape">Available on first /metrics request</span></p>
 			</div>
 			<div class="status-info">

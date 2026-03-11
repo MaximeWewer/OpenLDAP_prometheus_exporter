@@ -329,6 +329,188 @@ func (c *PooledLDAPClient) SearchContextCSN(suffixDN string) (*ldap.SearchResult
 	return result, nil
 }
 
+// SearchSuffix performs a subtree-scoped LDAP search under a suffix DN.
+// This is used for querying user entries (e.g., ppolicy attributes) and is restricted
+// to valid naming contexts (dc=, o=, ou=, c=) to prevent access to sensitive trees.
+func (c *PooledLDAPClient) SearchSuffix(suffixDN, filter string, attributes []string) (*ldap.SearchResult, error) {
+	if suffixDN == "" || filter == "" {
+		return nil, errors.New("invalid search parameters: suffixDN and filter cannot be empty")
+	}
+
+	// Security validation: validate DN is a valid suffix (not cn=config, etc.)
+	if err := security.ValidateSuffixDN(suffixDN); err != nil {
+		logger.SafeError("pooled_client", "Suffix DN validation failed", err, map[string]interface{}{
+			"suffixDN": suffixDN,
+		})
+		return nil, err
+	}
+
+	// Security validation: validate LDAP filter
+	if err := security.ValidateLDAPFilter(filter); err != nil {
+		logger.SafeError("pooled_client", "Filter validation failed", err, map[string]interface{}{
+			"filter": filter,
+		})
+		return nil, err
+	}
+
+	// Security validation: validate attributes
+	for _, attr := range attributes {
+		if err := security.ValidateLDAPAttribute(attr); err != nil {
+			logger.SafeError("pooled_client", "Attribute validation failed", err, map[string]interface{}{
+				"attribute": attr,
+			})
+			return nil, err
+		}
+	}
+
+	var result *ldap.SearchResult
+
+	err := c.circuitBreaker.Call(func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), DefaultSearchTimeout)
+		defer cancel()
+
+		conn, err := c.pool.Get(ctx)
+		if err != nil {
+			return err
+		}
+		defer c.pool.Put(conn)
+
+		searchRequest := ldap.NewSearchRequest(
+			suffixDN,
+			ldap.ScopeWholeSubtree,
+			ldap.NeverDerefAliases,
+			0,
+			0,
+			false,
+			filter,
+			attributes,
+			nil,
+		)
+
+		searchResult, err := conn.conn.Search(searchRequest)
+		if err != nil {
+			if isNetworkError(err) {
+				c.invalidateConnection(conn)
+			}
+			return err
+		}
+
+		result = searchResult
+		return nil
+	})
+
+	if c.cbMonitoring != nil && c.serverName != "" {
+		if err != nil {
+			if strings.Contains(err.Error(), "circuit breaker is open") {
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
+			} else {
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName)
+			}
+		} else {
+			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+		}
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	logger.SafeDebug("pooled_client", "Suffix search completed", map[string]interface{}{
+		"suffixDN":      suffixDN,
+		"filter":        filter,
+		"entries_found": len(result.Entries),
+	})
+
+	return result, nil
+}
+
+// SearchAccessLog performs a subtree-scoped LDAP search on the accesslog database (cn=accesslog).
+// This is used for querying bind operation logs and is restricted to the cn=accesslog tree.
+func (c *PooledLDAPClient) SearchAccessLog(filter string, attributes []string) (*ldap.SearchResult, error) {
+	if filter == "" {
+		return nil, errors.New("invalid search parameters: filter cannot be empty")
+	}
+
+	// Security validation: validate LDAP filter
+	if err := security.ValidateLDAPFilter(filter); err != nil {
+		logger.SafeError("pooled_client", "Filter validation failed", err, map[string]interface{}{
+			"filter": filter,
+		})
+		return nil, err
+	}
+
+	// Security validation: validate attributes
+	for _, attr := range attributes {
+		if err := security.ValidateLDAPAttribute(attr); err != nil {
+			logger.SafeError("pooled_client", "Attribute validation failed", err, map[string]interface{}{
+				"attribute": attr,
+			})
+			return nil, err
+		}
+	}
+
+	var result *ldap.SearchResult
+
+	err := c.circuitBreaker.Call(func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), DefaultSearchTimeout)
+		defer cancel()
+
+		conn, err := c.pool.Get(ctx)
+		if err != nil {
+			return err
+		}
+		defer c.pool.Put(conn)
+
+		searchRequest := ldap.NewSearchRequest(
+			"cn=accesslog",
+			ldap.ScopeWholeSubtree,
+			ldap.NeverDerefAliases,
+			0,
+			0,
+			false,
+			filter,
+			attributes,
+			nil,
+		)
+
+		searchResult, err := conn.conn.Search(searchRequest)
+		if err != nil {
+			if isNetworkError(err) {
+				c.invalidateConnection(conn)
+			}
+			return err
+		}
+
+		result = searchResult
+		return nil
+	})
+
+	if c.cbMonitoring != nil && c.serverName != "" {
+		if err != nil {
+			if strings.Contains(err.Error(), "circuit breaker is open") {
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
+			} else {
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName)
+			}
+		} else {
+			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+		}
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	logger.SafeDebug("pooled_client", "Accesslog search completed", map[string]interface{}{
+		"filter":        filter,
+		"entries_found": len(result.Entries),
+	})
+
+	return result, nil
+}
+
 // SearchRootDSE performs a base-scoped search on the RootDSE (empty base DN)
 // to retrieve server capabilities like supportedControl, supportedExtension, etc.
 func (c *PooledLDAPClient) SearchRootDSE(attributes []string) (*ldap.SearchResult, error) {

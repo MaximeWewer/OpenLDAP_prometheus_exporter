@@ -15,6 +15,8 @@ import (
 //   collectors_info.go         - overlays, TLS, backends, listeners, server, log, SASL
 //   collectors_database.go     - database metrics
 //   collectors_replication.go  - replication CSN and lag
+//   collectors_ppolicy.go      - password policy per-user metrics
+//   collectors_accesslog.go    - accesslog bind and write operation metrics
 
 // searchLDAP performs an LDAP search with error handling and logging
 func (e *OpenLDAPExporter) searchLDAP(baseDN, filter string, attributes []string, metricType string) (*ldap.SearchResult, error) {
