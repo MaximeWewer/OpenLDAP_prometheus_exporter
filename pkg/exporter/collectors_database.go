@@ -26,6 +26,10 @@ func (e *OpenLDAPExporter) collectDatabaseMetrics(server string) {
 		if entry.DN == "cn=Databases,cn=Monitor" {
 			continue // Skip root entry
 		}
+		// Skip overlay entries - they don't have their own entry counts
+		if strings.Contains(entry.DN, "cn=Overlay") {
+			continue
+		}
 		e.processDatabaseEntry(server, entry)
 	}
 }
@@ -35,7 +39,7 @@ func (e *OpenLDAPExporter) searchDatabaseEntries() (*ldap.SearchResult, error) {
 	return e.client.Search(
 		"cn=Databases,cn=Monitor",
 		"(objectClass=*)",
-		[]string{"namingContexts", "monitorCounter", "monitoredInfo", "monitorIsShadow", "monitorContext", "readOnly"},
+		[]string{"namingContexts", "monitorCounter", "monitoredInfo", "monitorIsShadow", "monitorContext", "readOnly", "olmMDBEntries"},
 	)
 }
 
@@ -94,7 +98,7 @@ func (e *OpenLDAPExporter) processDatabaseAttribute(attr *ldap.EntryAttribute, i
 	switch attr.Name {
 	case "namingContexts":
 		info.baseDN = attr.Values[0]
-	case "monitorCounter":
+	case "monitorCounter", "olmMDBEntries":
 		if val, err := strconv.ParseFloat(attr.Values[0], 64); err == nil {
 			info.entryCount = val
 		}

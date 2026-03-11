@@ -26,7 +26,7 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 ## Support
 
 - Compatible with OpenLDAP 2.4+
-- Tested with Bitnami OpenLDAP container
+- Tested with Bitnami OpenLDAP and cleanstart/openldap containers
 
 ---
 
@@ -45,11 +45,13 @@ Monitor your OpenLDAP server performance with key metrics including operations, 
 **Features:**
 
 - Server status indicators (health, uptime, database entries, response time)
-- LDAP operations rate and totals
-- Connection monitoring
-- Thread pool status
-- Network traffic statistics
+- User LDAP operations rate (add, modify, delete, compare, extended) — exporter-generated operations (search/bind) and monitor operations are excluded
+- Connection monitoring (current, total, by protocol)
+- Thread pool status and waiters
+- Network traffic statistics (bytes, entries, PDUs)
 - Database and backend information tables
+- Collapsible Information section (overlays, listeners, TLS, supported controls)
+- Collapsible Replication section (lag, CSN timestamps)
 
 ### OpenLDAP exporter internal metrics dashboard
 
@@ -62,10 +64,13 @@ Monitor the exporter itself with detailed performance and health metrics.
 **Features:**
 
 - Exporter status and collection statistics
-- Connection pool monitoring
+- Connection pool monitoring (utilization, operations, get/put rates)
 - Circuit breaker state and requests
-- Collection latency percentiles
-- Performance metrics and failure tracking
+- Collection latency percentiles (P50, P90, P99)
+- System metrics (uptime, goroutines, memory by type)
+- Pool details (health checks, wait time percentiles, timeouts)
+- Exporter LDAP activity (search/bind rates, network traffic to LDAP)
+- Rate limiting monitoring
 
 ### Quick Setup
 
@@ -73,7 +78,7 @@ Monitor the exporter itself with detailed performance and health metrics.
 2. Configure Prometheus as a data source
 3. Update the data source variable in each dashboard to match your Prometheus instance
 
-Both dashboards are designed to work with the metrics exposed by this exporter and provide comprehensive monitoring capabilities for production environments.
+> **Important:** The dashboards expect Prometheus job names `openldap-exporter` (for `/metrics`) and `openldap-exporter-internal` (for `/internal/metrics`). Adjust the `job_name` in your Prometheus config or update the dashboard queries if you use different names.
 
 ---
 
@@ -133,20 +138,20 @@ global:
   scrape_timeout: 10s
 
 scrape_configs:
-  - job_name: 'openldap'
-    static_configs:
-      - targets: ['openldap-exporter:9330']
-        labels:
-          ldap_server: 'openldap-dev'
-    metrics_path: '/metrics'
-    scrape_interval: 30s
-    scrape_timeout: 10s
-
   - job_name: 'openldap-exporter'
     static_configs:
       - targets: ['openldap-exporter:9330']
         labels:
-          instance: 'openldap-exporter'
+          instance: 'openldap-dev'
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  - job_name: 'openldap-exporter-internal'
+    static_configs:
+      - targets: ['openldap-exporter:9330']
+        labels:
+          instance: 'openldap-dev'
     metrics_path: '/internal/metrics'
     scrape_interval: 15s
     scrape_timeout: 5s
@@ -175,7 +180,9 @@ olcMonitoring: TRUE
 
 ```ldif
 # This configures monitoring for the main database
-# Note: Bitnami OpenLDAP structure: {0}config, {1}monitor, {2}mdb
+# Note: Database numbering varies by installation:
+#   Bitnami OpenLDAP: {0}config, {1}monitor, {2}mdb
+#   cleanstart/openldap: {0}config, {1}mdb, {2}monitor
 
 # Configure main database monitoring
 dn: olcDatabase={2}mdb,cn=config
