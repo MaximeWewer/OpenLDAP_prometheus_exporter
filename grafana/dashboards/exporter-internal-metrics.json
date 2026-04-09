@@ -96,7 +96,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "up{job=\"openldap-exporter-internal\"}",
+          "expr": "up",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -549,7 +549,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_collection_success_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_collection_success_total[$__rate_interval])",
           "legendFormat": "Success Rate",
           "range": true,
           "refId": "A"
@@ -560,7 +560,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_collection_failures_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_collection_failures_total[$__rate_interval])",
           "legendFormat": "Failure Rate - {{metric_type}}",
           "range": true,
           "refId": "B"
@@ -654,7 +654,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum(rate(openldap_exporter_collection_latency_seconds_bucket{job=\"openldap-exporter-internal\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(openldap_exporter_collection_latency_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "P50",
           "range": true,
           "refId": "A"
@@ -665,7 +665,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.90, sum(rate(openldap_exporter_collection_latency_seconds_bucket{job=\"openldap-exporter-internal\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.90, sum(rate(openldap_exporter_collection_latency_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "P90",
           "range": true,
           "refId": "B"
@@ -676,7 +676,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(openldap_exporter_collection_latency_seconds_bucket{job=\"openldap-exporter-internal\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(openldap_exporter_collection_latency_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "P99",
           "range": true,
           "refId": "C"
@@ -915,7 +915,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_pool_connections_created_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_pool_connections_created_total[$__rate_interval])",
           "legendFormat": "Created",
           "range": true,
           "refId": "A"
@@ -926,7 +926,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_pool_connections_closed_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_pool_connections_closed_total[$__rate_interval])",
           "legendFormat": "Closed - {{reason}}",
           "range": true,
           "refId": "B"
@@ -937,7 +937,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_circuit_breaker_failures_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_circuit_breaker_failures_total[$__rate_interval])",
           "legendFormat": "Circuit Breaker Failures",
           "range": true,
           "refId": "C"
@@ -1284,7 +1284,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "openldap_exporter_system_uptime_seconds{job=\"openldap-exporter-internal\"}",
+          "expr": "openldap_exporter_system_uptime_seconds",
           "legendFormat": "Uptime",
           "range": true,
           "refId": "A"
@@ -1377,7 +1377,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "openldap_exporter_system_goroutines{job=\"openldap-exporter-internal\"}",
+          "expr": "openldap_exporter_system_goroutines",
           "legendFormat": "Goroutines",
           "range": true,
           "refId": "A"
@@ -1471,7 +1471,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "openldap_exporter_system_memory_bytes{job=\"openldap-exporter-internal\"}",
+          "expr": "openldap_exporter_system_memory_bytes",
           "legendFormat": "{{type}}",
           "range": true,
           "refId": "A"
@@ -1557,7 +1557,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "openldap_exporter_pool_utilization_ratio{job=\"openldap-exporter-internal\"} * 100",
+          "expr": "openldap_exporter_pool_utilization_ratio * 100",
           "legendFormat": "Utilization",
           "range": true,
           "refId": "A"
@@ -1650,7 +1650,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_pool_operations_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_pool_operations_total[$__rate_interval])",
           "legendFormat": "{{operation}}",
           "range": true,
           "refId": "A"
@@ -1774,7 +1774,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_pool_get_requests_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_pool_get_requests_total[$__rate_interval])",
           "legendFormat": "Get Requests",
           "range": true,
           "refId": "A"
@@ -1785,7 +1785,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_pool_get_failures_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_pool_get_failures_total[$__rate_interval])",
           "legendFormat": "Get Failures",
           "range": true,
           "refId": "B"
@@ -1796,7 +1796,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_pool_put_requests_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_pool_put_requests_total[$__rate_interval])",
           "legendFormat": "Put Requests",
           "range": true,
           "refId": "C"
@@ -1807,7 +1807,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_pool_put_rejections_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_pool_put_rejections_total[$__rate_interval])",
           "legendFormat": "Put Rejections",
           "range": true,
           "refId": "D"
@@ -1916,7 +1916,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_pool_health_checks_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_pool_health_checks_total[$__rate_interval])",
           "legendFormat": "Health Checks ({{result}})",
           "range": true,
           "refId": "A"
@@ -1927,7 +1927,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_pool_health_check_failures_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_pool_health_check_failures_total[$__rate_interval])",
           "legendFormat": "Health Check Failures",
           "range": true,
           "refId": "B"
@@ -2021,7 +2021,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum(rate(openldap_exporter_pool_wait_time_seconds_bucket{job=\"openldap-exporter-internal\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(openldap_exporter_pool_wait_time_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "P50",
           "range": true,
           "refId": "A"
@@ -2032,7 +2032,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.90, sum(rate(openldap_exporter_pool_wait_time_seconds_bucket{job=\"openldap-exporter-internal\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.90, sum(rate(openldap_exporter_pool_wait_time_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "P90",
           "range": true,
           "refId": "B"
@@ -2043,7 +2043,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(openldap_exporter_pool_wait_time_seconds_bucket{job=\"openldap-exporter-internal\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(openldap_exporter_pool_wait_time_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "P99",
           "range": true,
           "refId": "C"
@@ -2152,7 +2152,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_pool_wait_timeouts_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_pool_wait_timeouts_total[$__rate_interval])",
           "legendFormat": "Wait Timeouts",
           "range": true,
           "refId": "A"
@@ -2163,7 +2163,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_pool_connections_reused_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_pool_connections_reused_total[$__rate_interval])",
           "legendFormat": "Reused Connections",
           "range": true,
           "refId": "B"
@@ -2174,7 +2174,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_pool_connections_failed_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_pool_connections_failed_total[$__rate_interval])",
           "legendFormat": "Failed Connections - {{reason}}",
           "range": true,
           "refId": "C"
@@ -2479,7 +2479,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(openldap_exporter_rate_limit_blocked_total{job=\"openldap-exporter-internal\"}[$__rate_interval])",
+          "expr": "rate(openldap_exporter_rate_limit_blocked_total[$__rate_interval])",
           "legendFormat": "{{endpoint}}",
           "range": true,
           "refId": "A"
