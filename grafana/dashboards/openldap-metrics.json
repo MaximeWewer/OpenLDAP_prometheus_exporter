@@ -2877,7 +2877,7 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "openldap_accesslog_bind_total{server=~\"$server\", result=\"success\"}",
+              "expr": "sum by (server, user_dn, user) (openldap_accesslog_bind_total{server=~\"$server\", result=\"success\"})",
               "format": "table",
               "instant": true,
               "legendFormat": "",
@@ -2924,7 +2924,8 @@
                   "instance": true,
                   "instance 1": true,
                   "instance 2": true,
-                  "result": true
+                  "result": true,
+                  "__mimir_tenant_id": true
                 },
                 "renameByName": {
                   "user": "User",
