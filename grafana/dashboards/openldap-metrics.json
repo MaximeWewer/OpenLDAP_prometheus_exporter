@@ -2877,60 +2877,25 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (server, user_dn, user) (openldap_accesslog_bind_total{server=~\"$server\", result=\"success\"})",
+              "expr": "sum by (user, result) (openldap_accesslog_bind_total{server=~\"$server\"})",
               "format": "table",
               "instant": true,
               "legendFormat": "",
               "refId": "A"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "sum by (server, user_dn, user) (openldap_accesslog_bind_total{server=~\"$server\", result!=\"success\"})",
-              "format": "table",
-              "instant": true,
-              "legendFormat": "",
-              "refId": "B"
             }
           ],
           "transformations": [
-            {
-              "id": "seriesToColumns",
-              "options": {
-                "byField": "user"
-              }
-            },
             {
               "id": "organize",
               "options": {
                 "excludeByName": {
                   "Time": true,
-                  "Time 1": true,
-                  "Time 2": true,
-                  "server": true,
-                  "server 1": true,
-                  "server 2": true,
-                  "user_dn": true,
-                  "user_dn 1": true,
-                  "user_dn 2": true,
-                  "__name__": true,
-                  "__name__ 1": true,
-                  "__name__ 2": true,
-                  "job": true,
-                  "job 1": true,
-                  "job 2": true,
-                  "instance": true,
-                  "instance 1": true,
-                  "instance 2": true,
-                  "result": true,
                   "__mimir_tenant_id": true
                 },
                 "renameByName": {
                   "user": "User",
-                  "Value #A": "Successes",
-                  "Value #B": "Failures"
+                  "result": "Result",
+                  "Value": "Count"
                 }
               }
             }
@@ -3254,6 +3219,7 @@
             "$__all"
           ]
         },
+        "allValue": ".*",
         "definition": "label_values(openldap_up, server)",
         "hide": 0,
         "includeAll": true,
