@@ -50,6 +50,12 @@ func (e *OpenLDAPExporter) collectReplicationMetrics(server string) {
 			continue
 		}
 
+		// Skip non-data suffixes (cn=config, cn=accesslog, cn=monitor, etc.)
+		suffixLower := strings.ToLower(suffixDN)
+		if strings.HasPrefix(suffixLower, "cn=") {
+			continue
+		}
+
 		// Apply domain component filtering
 		domainComponents := e.extractDomainComponents(suffixDN)
 		if !e.shouldIncludeDomain(domainComponents) {
