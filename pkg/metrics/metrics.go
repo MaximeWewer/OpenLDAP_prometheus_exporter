@@ -46,16 +46,15 @@ type OpenLDAPMetrics struct {
 	SupportedControlInfo   *prometheus.GaugeVec
 
 	// PPolicy metrics
-	PpolicyPwdFailureCount     *prometheus.GaugeVec
-	PpolicyAccountLocked       *prometheus.GaugeVec
 	PpolicyPwdChangedTimestamp *prometheus.GaugeVec
 	PpolicyPwdLastSuccess      *prometheus.GaugeVec
 	PpolicyPwdGraceUseCount    *prometheus.GaugeVec
 	PpolicyPwdReset            *prometheus.GaugeVec
 
-	// Accesslog metrics
-	AccesslogBindTotal  *prometheus.GaugeVec
-	AccesslogWriteTotal *prometheus.GaugeVec
+	// Accesslog metrics (event-based counters, incrementally scanned by reqStart cursor)
+	AccesslogBindTotal       *prometheus.CounterVec
+	AccesslogWriteTotal      *prometheus.CounterVec
+	AccesslogLockEventsTotal *prometheus.CounterVec
 }
 
 // NewOpenLDAPMetrics creates and initializes all OpenLDAP Prometheus metrics
@@ -398,22 +397,6 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 		),
 
 		// PPolicy metrics
-		PpolicyPwdFailureCount: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: "openldap",
-				Name:      "ppolicy_pwd_failure_count",
-				Help:      "Number of consecutive password failures per user (from pwdFailureTime)",
-			},
-			[]string{"server", "user_dn", "user", "base_dn"},
-		),
-		PpolicyAccountLocked: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: "openldap",
-				Name:      "ppolicy_account_locked",
-				Help:      "Whether a user account is locked (1=locked, 0=unlocked, from pwdAccountLockedTime)",
-			},
-			[]string{"server", "user_dn", "user", "base_dn"},
-		),
 		PpolicyPwdChangedTimestamp: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "openldap",
@@ -447,22 +430,30 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			[]string{"server", "user_dn", "user", "base_dn"},
 		),
 
-		// Accesslog metrics
-		AccesslogBindTotal: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
+		// Accesslog metrics (event-based counters)
+		AccesslogBindTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
 				Namespace: "openldap",
 				Name:      "accesslog_bind_total",
-				Help:      "Number of bind operations per user and result in the accesslog sliding window (from cn=accesslog)",
+				Help:      "Cumulative bind operations per user and result observed via accesslog incremental scan (from cn=accesslog)",
 			},
 			[]string{"server", "user_dn", "user", "result"},
 		),
-		AccesslogWriteTotal: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
+		AccesslogWriteTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
 				Namespace: "openldap",
 				Name:      "accesslog_write_total",
-				Help:      "Number of write operations per user and type in the accesslog sliding window (from cn=accesslog)",
+				Help:      "Cumulative write operations per user and type observed via accesslog incremental scan (from cn=accesslog)",
 			},
 			[]string{"server", "user_dn", "user", "operation"},
+		),
+		AccesslogLockEventsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "openldap",
+				Name:      "accesslog_account_lock_events_total",
+				Help:      "Cumulative account lock events per user observed via accesslog (auditModify touching pwdAccountLockedTime)",
+			},
+			[]string{"server", "user_dn", "user"},
 		),
 	}
 }
@@ -541,8 +532,6 @@ func (m *OpenLDAPMetrics) getAllMetrics() []prometheus.Collector {
 		m.SupportedControlInfo,
 
 		// PPolicy metrics
-		m.PpolicyPwdFailureCount,
-		m.PpolicyAccountLocked,
 		m.PpolicyPwdChangedTimestamp,
 		m.PpolicyPwdLastSuccess,
 		m.PpolicyPwdGraceUseCount,
@@ -551,6 +540,7 @@ func (m *OpenLDAPMetrics) getAllMetrics() []prometheus.Collector {
 		// Accesslog metrics
 		m.AccesslogBindTotal,
 		m.AccesslogWriteTotal,
+		m.AccesslogLockEventsTotal,
 	}
 }
 

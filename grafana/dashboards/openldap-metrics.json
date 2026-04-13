@@ -2233,7 +2233,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "Per-user password policy status: failure count, account lock status, password change time, and last successful bind.",
+          "description": "Per-user password policy status: failure and lock events observed in the dashboard time range (via accesslog), password change time, and last successful bind.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -2293,28 +2293,24 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "Locked"
+                  "options": "Lock Events"
                 },
                 "properties": [
                   {
-                    "id": "mappings",
-                    "value": [
-                      {
-                        "options": {
-                          "0": {
-                            "text": "No",
-                            "color": "green",
-                            "index": 0
-                          },
-                          "1": {
-                            "text": "Yes",
-                            "color": "red",
-                            "index": 1
-                          }
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": null
                         },
-                        "type": "value"
-                      }
-                    ]
+                        {
+                          "color": "red",
+                          "value": 1
+                        }
+                      ]
+                    }
                   },
                   {
                     "id": "custom.cellOptions",
@@ -2418,7 +2414,7 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "openldap_ppolicy_pwd_failure_count{server=~\"$server\"}",
+              "expr": "sum by (user) (increase(openldap_accesslog_bind_total{server=~\"$server\", result!=\"success\"}[$__range]))",
               "format": "table",
               "instant": true,
               "legendFormat": "",
@@ -2429,7 +2425,7 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "openldap_ppolicy_account_locked{server=~\"$server\"}",
+              "expr": "sum by (user) (increase(openldap_accesslog_account_lock_events_total{server=~\"$server\"}[$__range]))",
               "format": "table",
               "instant": true,
               "legendFormat": "",
@@ -2526,7 +2522,7 @@
                   "user": "User",
                   "base_dn": "Base DN",
                   "Value #A": "Failures",
-                  "Value #B": "Locked",
+                  "Value #B": "Lock Events",
                   "Value #C": "Pwd Changed",
                   "Value #D": "Last Success",
                   "Value #E": "Must Reset"
@@ -2540,7 +2536,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "Password failure count per user over time. Useful for detecting brute-force attempts.",
+          "description": "Password failure events per user derived from the accesslog. Each point is the rate of failed binds (result != success) over the interval. Useful for detecting brute-force attempts.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -2624,7 +2620,7 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "openldap_ppolicy_pwd_failure_count{server=~\"$server\"}",
+              "expr": "sum by (user) (increase(openldap_accesslog_bind_total{server=~\"$server\", result!=\"success\"}[$__rate_interval]))",
               "legendFormat": "{{user}}",
               "refId": "A"
             }
@@ -2635,7 +2631,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "Account lock status per user over time. 1=locked, 0=unlocked.",
+          "description": "Account lock events per user over time, derived from accesslog auditModify entries that set pwdAccountLockedTime.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -2656,13 +2652,13 @@
                   "legend": false
                 },
                 "insertNulls": false,
-                "lineInterpolation": "stepAfter",
+                "lineInterpolation": "linear",
                 "lineWidth": 2,
                 "pointSize": 5,
                 "scaleDistribution": {
                   "type": "linear"
                 },
-                "showPoints": "never",
+                "showPoints": "auto",
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
@@ -2672,23 +2668,7 @@
                   "mode": "off"
                 }
               },
-              "mappings": [
-                {
-                  "options": {
-                    "0": {
-                      "text": "Unlocked",
-                      "index": 0
-                    },
-                    "1": {
-                      "text": "Locked",
-                      "index": 1
-                    }
-                  },
-                  "type": "value"
-                }
-              ],
-              "max": 1,
-              "min": 0,
+              "mappings": [],
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -2702,7 +2682,8 @@
                   }
                 ]
               },
-              "noValue": "No locked accounts"
+              "unit": "short",
+              "noValue": "No lock events"
             },
             "overrides": []
           },
@@ -2726,7 +2707,7 @@
               "sort": "desc"
             }
           },
-          "title": "Account Lock Status",
+          "title": "Account Lock Events",
           "type": "timeseries",
           "targets": [
             {
@@ -2734,7 +2715,7 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "openldap_ppolicy_account_locked{server=~\"$server\"}",
+              "expr": "sum by (user) (increase(openldap_accesslog_account_lock_events_total{server=~\"$server\"}[$__rate_interval]))",
               "legendFormat": "{{user}}",
               "refId": "A"
             }
@@ -2759,7 +2740,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "Bind operations per user from the accesslog database. Shows success and failure counts within the accesslog retention window.",
+          "description": "Bind operations per user from the accesslog database. Event counts over the selected dashboard time range.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -2877,7 +2858,7 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (user, result) (openldap_accesslog_bind_total{server=~\"$server\"})",
+              "expr": "sum by (user, result) (increase(openldap_accesslog_bind_total{server=~\"$server\"}[$__range]))",
               "format": "table",
               "instant": true,
               "legendFormat": "",
@@ -2906,7 +2887,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "Bind success count per user over time from the accesslog sliding window.",
+          "description": "Bind success events per user over time, rate computed from the accesslog.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -2986,7 +2967,7 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "openldap_accesslog_bind_total{server=~\"$server\", result=\"success\"}",
+              "expr": "sum by (user) (increase(openldap_accesslog_bind_total{server=~\"$server\", result=\"success\"}[$__rate_interval]))",
               "legendFormat": "{{user}}",
               "refId": "A"
             }
@@ -2997,7 +2978,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "Bind failure count per user over time from the accesslog sliding window. Useful for detecting brute-force attempts.",
+          "description": "Bind failure events per user over time, rate computed from the accesslog. Useful for detecting brute-force attempts.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -3081,7 +3062,7 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (user) (openldap_accesslog_bind_total{server=~\"$server\", result!=\"success\"})",
+              "expr": "sum by (user) (increase(openldap_accesslog_bind_total{server=~\"$server\", result!=\"success\"}[$__rate_interval]))",
               "legendFormat": "{{user}}",
               "refId": "A"
             }
@@ -3172,7 +3153,7 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "openldap_accesslog_write_total{server=~\"$server\"}",
+              "expr": "sum by (user, operation) (increase(openldap_accesslog_write_total{server=~\"$server\"}[$__rate_interval]))",
               "legendFormat": "{{user}} - {{operation}}",
               "refId": "A"
             }

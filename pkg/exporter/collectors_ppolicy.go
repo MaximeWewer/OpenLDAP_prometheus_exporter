@@ -69,10 +69,11 @@ func (e *OpenLDAPExporter) collectPpolicyMetrics(server string) {
 	logMetricCollection(server, "ppolicy", count)
 }
 
-// ppolicyAttributes are the operational attributes we request from user entries
+// ppolicyAttributes are the operational attributes we request from user entries.
+// pwdFailureTime and pwdAccountLockedTime are intentionally excluded: they expose
+// persistent state that skews time-series graphs (flat lines across scrapes).
+// Failure and lock events are now derived from the accesslog collector instead.
 var ppolicyAttributes = []string{
-	"pwdFailureTime",
-	"pwdAccountLockedTime",
 	"pwdChangedTime",
 	"pwdLastSuccess",
 	"pwdGraceUseTime",
@@ -83,8 +84,8 @@ var ppolicyAttributes = []string{
 
 // collectPpolicyForSuffix searches a single naming context for users with ppolicy data
 func (e *OpenLDAPExporter) collectPpolicyForSuffix(server, suffixDN string) int {
-	// Search for entries that have at least one ppolicy operational attribute set
-	filter := "(|(pwdFailureTime=*)(pwdAccountLockedTime=*)(pwdChangedTime=*)(pwdLastSuccess=*)(pwdGraceUseTime=*)(pwdReset=TRUE))"
+	// Search for entries that have at least one persisted ppolicy attribute set
+	filter := "(|(pwdChangedTime=*)(pwdLastSuccess=*)(pwdGraceUseTime=*)(pwdReset=TRUE))"
 
 	result, err := e.client.SearchSuffix(suffixDN, filter, ppolicyAttributes)
 	if err != nil {
@@ -122,14 +123,6 @@ func (e *OpenLDAPExporter) processPpolicyEntry(server, baseDN string, entry *lda
 		}
 
 		switch attr.Name {
-		case "pwdFailureTime":
-			// Multi-valued: each value is a GeneralizedTime of a failed attempt
-			e.metricsRegistry.PpolicyPwdFailureCount.With(labels).Set(float64(len(attr.Values)))
-
-		case "pwdAccountLockedTime":
-			// If present, account is locked
-			e.metricsRegistry.PpolicyAccountLocked.With(labels).Set(1)
-
 		case "pwdChangedTime":
 			if ts, err := parseGeneralizedTime(attr.Values[0]); err == nil {
 				e.metricsRegistry.PpolicyPwdChangedTimestamp.With(labels).Set(float64(ts.Unix()))
@@ -151,18 +144,6 @@ func (e *OpenLDAPExporter) processPpolicyEntry(server, baseDN string, entry *lda
 				e.metricsRegistry.PpolicyPwdReset.With(labels).Set(0)
 			}
 		}
-	}
-
-	// Set default for account locked if not present (entry matched filter but may not have this attr)
-	hasLockedAttr := false
-	for _, attr := range entry.Attributes {
-		if attr.Name == "pwdAccountLockedTime" {
-			hasLockedAttr = true
-			break
-		}
-	}
-	if !hasLockedAttr {
-		e.metricsRegistry.PpolicyAccountLocked.With(labels).Set(0)
 	}
 
 	logger.SafeDebug("exporter", "Collected ppolicy metric", map[string]interface{}{

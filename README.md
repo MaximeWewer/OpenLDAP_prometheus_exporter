@@ -567,8 +567,6 @@ These metrics are only populated when `contextCSN` is present on database suffix
 
 | Metric | Type | Labels | Description | LDAP Source |
 |----------|------|---------|-------------|-------------|
-| `openldap_ppolicy_pwd_failure_count` | Gauge | `server`, `user_dn`, `user`, `base_dn` | Consecutive password failures per user | `pwdFailureTime` operational attribute |
-| `openldap_ppolicy_account_locked` | Gauge | `server`, `user_dn`, `user`, `base_dn` | Account lock status (1=locked, 0=unlocked) | `pwdAccountLockedTime` operational attribute |
 | `openldap_ppolicy_pwd_changed_timestamp` | Gauge | `server`, `user_dn`, `user`, `base_dn` | Unix timestamp of last password change | `pwdChangedTime` operational attribute |
 | `openldap_ppolicy_pwd_last_success_timestamp` | Gauge | `server`, `user_dn`, `user`, `base_dn` | Unix timestamp of last successful bind | `pwdLastSuccess` operational attribute |
 | `openldap_ppolicy_pwd_grace_use_count` | Gauge | `server`, `user_dn`, `user`, `base_dn` | Grace logins used after password expiration | `pwdGraceUseTime` operational attribute |
@@ -576,20 +574,23 @@ These metrics are only populated when `contextCSN` is present on database suffix
 
 These metrics require the `slapo-ppolicy` overlay to be configured on the OpenLDAP server. The exporter account must have read access to user entries (see [ACL configuration](#3-acl-configuration)). Only users with at least one ppolicy operational attribute set are reported.
 
+> **Event-based failures & locks:** per-user bind failure counts and account-lock events are **not** exposed by the ppolicy collector. `pwdFailureTime` and `pwdAccountLockedTime` are persisted state and, exposed as gauges, make time-series graphs show flat lines that keep repeating the same event on every scrape. The exporter instead derives those events from the `accesslog` collector via an incremental `reqStart` cursor so that Prometheus sees each failure or lock as a point-in-time counter increment. Use `rate(openldap_accesslog_bind_total{result!="success"}[5m])` and `increase(openldap_accesslog_account_lock_events_total[$__range])` in place of the old `openldap_ppolicy_pwd_failure_count` / `openldap_ppolicy_account_locked` metrics.
+
 ### Access Log (`accesslog`)
 
 | Metric | Type | Labels | Description | LDAP Source |
 |----------|------|---------|-------------|-------------|
-| `openldap_accesslog_bind_total` | Gauge | `server`, `user_dn`, `user`, `result` | Bind operations per user and result in the accesslog sliding window | `cn=accesslog` `auditBind` entries |
-| `openldap_accesslog_write_total` | Gauge | `server`, `user_dn`, `user`, `operation` | Write operations per user and type in the accesslog sliding window | `cn=accesslog` `auditAdd/Modify/Delete/ModRDN` entries |
+| `openldap_accesslog_bind_total` | Counter | `server`, `user_dn`, `user`, `result` | Cumulative bind operations per user and result | `cn=accesslog` `auditBind` entries |
+| `openldap_accesslog_write_total` | Counter | `server`, `user_dn`, `user`, `operation` | Cumulative write operations per user and type | `cn=accesslog` `auditAdd/Modify/Delete/ModRDN` entries |
+| `openldap_accesslog_account_lock_events_total` | Counter | `server`, `user_dn`, `user` | Cumulative account lock events (auditModify setting `pwdAccountLockedTime`) | `cn=accesslog` `auditModify` entries with `reqMod=pwdAccountLockedTime:+...` |
 
-These metrics require the `slapo-accesslog` overlay and a dedicated `cn=accesslog` MDB database (see [Accesslog overlay configuration](#4-accesslog-overlay-optional)). The counts represent a sliding window controlled by `olcAccessLogPurge` on the server side.
+These metrics require the `slapo-accesslog` overlay and a dedicated `cn=accesslog` MDB database (see [Accesslog overlay configuration](#4-accesslog-overlay-optional)).
+
+The collector performs an **incremental scan**: on each scrape it queries only accesslog entries whose `reqStart` is newer than the cursor it stored on the previous scrape, then increments Prometheus counters once per matching entry. On the very first scrape the cursor is initialised from the current maximum `reqStart` without emitting increments, so pre-existing history is not back-filled as a spike. This yields true event-based counters that you can feed to `rate()` / `increase()` without having to subtract a sliding-window gauge.
 
 **Result labels for binds:** `success`, `invalid_credentials`, `insufficient_access`, `constraint_violation`, `unwilling_to_perform`, `error_<code>`
 
 **Operation labels for writes:** `add`, `modify`, `delete`, `modrdn`
-
-> **Note:** Failed binds due to wrong passwords (LDAP result code 49) are typically rejected at the frontend level before reaching the accesslog overlay, so they are not logged as `auditBind` entries. Use the `ppolicy` metrics (`pwdFailureTime`) for reliable authentication failure tracking. The accesslog is most useful for tracking successful bind activity and write operations.
 
 ### Health (`health`)
 

@@ -53,7 +53,9 @@ type OpenLDAPExporter struct {
 	config          *config.Config
 	monitoring      *monitoring.InternalMonitoring
 	counterValues   map[string]map[string]*counterEntry // Per-server counter tracking (typed map)
-	counterMutex    sync.RWMutex                       // Protects counterValues map
+	counterMutex    sync.RWMutex                        // Protects counterValues map
+	accesslogCursor map[string]*accesslogCursorState    // Per-server accesslog incremental scan cursors
+	accesslogMutex  sync.Mutex                          // Protects accesslogCursor map
 	stopChan        chan struct{}        // Signal to stop background goroutines
 	stopped         int32                // Atomic flag to indicate if exporter is stopped
 	closeOnce       sync.Once            // Ensures Close() is called only once
@@ -79,6 +81,7 @@ func NewOpenLDAPExporter(cfg *config.Config) *OpenLDAPExporter {
 		config:          cfg,
 		monitoring:      internalMonitoring,
 		counterValues:   make(map[string]map[string]*counterEntry),
+		accesslogCursor: make(map[string]*accesslogCursorState),
 		stopChan:        make(chan struct{}),
 	}
 
@@ -140,14 +143,13 @@ func (e *OpenLDAPExporter) getAllMetrics() []prometheus.Collector {
 		e.metricsRegistry.ConnectionsByProtocol,
 		e.metricsRegistry.ConnectionOpsAggregate,
 		e.metricsRegistry.SupportedControlInfo,
-		e.metricsRegistry.PpolicyPwdFailureCount,
-		e.metricsRegistry.PpolicyAccountLocked,
 		e.metricsRegistry.PpolicyPwdChangedTimestamp,
 		e.metricsRegistry.PpolicyPwdLastSuccess,
 		e.metricsRegistry.PpolicyPwdGraceUseCount,
 		e.metricsRegistry.PpolicyPwdReset,
 		e.metricsRegistry.AccesslogBindTotal,
 		e.metricsRegistry.AccesslogWriteTotal,
+		e.metricsRegistry.AccesslogLockEventsTotal,
 	}
 }
 
