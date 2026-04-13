@@ -1,0 +1,84 @@
+# End-to-end test stack for the OpenLDAP exporter and its JSON events stream.
+#
+# Runs cleanstart/openldap:2.6.13 (the same image as the reference
+# MaximeWewer/OpenLDAP-docker-setup repo) with the slapo-accesslog and
+# slapo-ppolicy overlays pre-seeded into cn=config via offline slapadd, the
+# exporter image built from this repository with OPENLDAP_EVENTS_ENABLED=true
+# and a "tools" sidecar that ships ldap clients so the trigger script can
+# run from the host without depending on locally installed packages.
+#
+# Workflow:
+#   ./setup.sh           # bootstrap data/ via offline slapadd
+#   docker compose up -d # start openldap + exporter + tools
+#   ./scripts/trigger-events.sh
+#   tail -f output/openldap-events-$(date -u +%F).jsonl
+
+networks:
+  openldap-events-test:
+    driver: bridge
+
+services:
+  openldap:
+    image: cleanstart/openldap:2.6.13
+    container_name: openldap-events-test
+    hostname: openldap
+    restart: unless-stopped
+    ports:
+      - "1389:389"
+    volumes:
+      - ./data/slapd.d:/etc/openldap/slapd.d
+      - ./data/openldap-data:/var/lib/openldap/openldap-data
+      - ./data/accesslog-data:/var/lib/openldap/accesslog-data
+    networks:
+      - openldap-events-test
+    logging:
+      driver: json-file
+      options:
+        "max-size": "10m"
+        "max-file": "5"
+
+  exporter:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: openldap-prometheus-exporter:test
+    container_name: openldap-events-test-exporter
+    depends_on:
+      - openldap
+    environment:
+      LDAP_URL: "ldap://openldap:389"
+      LDAP_USERNAME: "cn=adminconfig,cn=config"
+      LDAP_PASSWORD: "adminpasswordconfig"
+      LDAP_SERVER_NAME: "openldap-events-test"
+      LDAP_TLS: "false"
+      LDAP_UPDATE_EVERY: "15"
+      LOG_LEVEL: "DEBUG"
+
+      # Events stream — opt in, written to the mounted output directory with
+      # daily rotation so the host can tail today's file directly.
+      OPENLDAP_EVENTS_ENABLED: "true"
+      OPENLDAP_EVENTS_INTERVAL: "5s"
+      OPENLDAP_EVENTS_OUTPUT: "/var/log/openldap-events/openldap-events-{date}.jsonl"
+      OPENLDAP_EVENTS_ROTATION: "daily"
+    ports:
+      - "9330:9330"
+    volumes:
+      - ./output:/var/log/openldap-events
+    networks:
+      - openldap-events-test
+
+  # Long-running sidecar that ships ldapsearch / ldapmodify / ldapadd / ldapdelete
+  # so trigger-events.sh can invoke them via "docker exec" without requiring the
+  # host to have ldap-utils installed.
+  tools:
+    image: alpine:3.23
+    container_name: openldap-events-test-tools
+    command:
+      - sh
+      - -c
+      - "apk add --no-cache openldap-clients >/dev/null && exec sleep infinity"
+    depends_on:
+      - openldap
+    networks:
+      - openldap-events-test
+    restart: unless-stopped

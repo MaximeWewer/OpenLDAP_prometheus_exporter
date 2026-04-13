@@ -163,6 +163,13 @@ func (e *OpenLDAPExporter) GetConfig() *config.Config {
 	return e.config
 }
 
+// Client returns the shared pooled LDAP client. It is exposed so auxiliary
+// components (events runner, ad-hoc probes) can reuse the same connection pool
+// instead of opening their own.
+func (e *OpenLDAPExporter) Client() *pool.PooledLDAPClient {
+	return e.client
+}
+
 // Describe sends metric descriptions to Prometheus
 func (e *OpenLDAPExporter) Describe(ch chan<- *prometheus.Desc) {
 	for _, metric := range e.getAllMetrics() {

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/config"
+	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/events"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/exporter"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/security"
@@ -121,6 +122,20 @@ func main() {
 	exp := exporter.NewOpenLDAPExporter(configData)
 	defer exp.Close()
 	prometheus.MustRegister(exp)
+
+	// Optional JSON events stream (ppolicy + accesslog derived events).
+	// Runs on its own ticker with its own cursor so it does not perturb —
+	// and is not perturbed by — Prometheus scrapes.
+	var eventsRunner *events.Runner
+	if configData.EventsEnabled {
+		r, err := events.NewRunner(configData, exp.Client())
+		if err != nil {
+			logger.Fatal("main", "Failed to initialise events runner", err)
+		}
+		r.Start()
+		eventsRunner = r
+		defer eventsRunner.Stop()
+	}
 
 	mux := setupHTTPRoutes(exp)
 

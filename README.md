@@ -437,6 +437,53 @@ See the full [web configuration documentation](https://github.com/prometheus/exp
 - `ou=users,dc=company,dc=net` → Components: `["company", "net"]`
 - `uid=user1,ou=people,dc=test,dc=local` → Components: `["test", "local"]`
 
+### JSON events stream (optional)
+
+In addition to Prometheus metrics, the exporter can emit a stream of structured **JSON events** derived from the `slapo-accesslog` overlay (binds, writes, account locks, password changes, …). It is meant for log shippers (Loki, Vector, Fluent Bit, …) that want event-by-event records rather than aggregated counters.
+
+The events stream runs in its **own goroutine, on its own ticker, with its own `reqStart` cursor**, completely independent of Prometheus scrapes. Enabling it does not perturb metric collection, and metric scrapes do not drain the event stream before it is observed. A failure on one stream (bind / write / lock) does not freeze the others.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENLDAP_EVENTS_ENABLED` | Enable the JSON events stream | `false` |
+| `OPENLDAP_EVENTS_INTERVAL` | Scan interval (Go duration, e.g. `30s`, `1m`) — clamped to `[5s, 30m]` | `30s` |
+| `OPENLDAP_EVENTS_OUTPUT` | `stdout` or a filesystem path. The token `{date}` in the path is replaced by the current UTC day | `stdout` |
+| `OPENLDAP_EVENTS_ROTATION` | `none` (append to a single file) or `daily` (roll at UTC midnight, see below) — file output only | `none` |
+| `OPENLDAP_EVENTS_TYPES` | Comma-separated allow-list. Empty = emit all types | *(all)* |
+
+**Event types**
+
+| Type | Source | Notes |
+|------|--------|-------|
+| `bind.success` | `auditBind` `reqResult=0` | |
+| `bind.failure` | `auditBind` `reqResult!=0` | `result_code` carries the raw LDAP code, `result` the human label (`invalid_credentials`, …) |
+| `account.lock` | `auditModify` adding/replacing `pwdAccountLockedTime` | |
+| `account.unlock` | `auditModify` deleting `pwdAccountLockedTime` | |
+| `password.change` | `auditModify` touching `userPassword` or `pwdChangedTime` | Emitted **in addition** to the corresponding `write.modify` event |
+| `password.reset_required` | `auditModify` adding `pwdReset=TRUE` | Emitted **in addition** to `write.modify` |
+| `write.add` / `write.modify` / `write.delete` / `write.modrdn` | `auditAdd` / `auditModify` / `auditDelete` / `auditModRDN` | `attributes` lists modified attribute names for `modify` |
+
+**Output format** — one JSON object per line (JSON Lines):
+
+```json
+{"ts":"2026-04-13T14:22:01.123Z","event":"bind.failure","server":"ldap-prod-1","source":"accesslog","req_start":"20260413142201.123456Z","req_session":"1234","actor":"","user_dn":"uid=arthur.meyer,ou=users,dc=iph,dc=lan","result":"invalid_credentials","result_code":"49"}
+{"ts":"2026-04-13T14:22:02.050Z","event":"account.lock","server":"ldap-prod-1","source":"accesslog","req_start":"20260413142202.050000Z","actor":"cn=admin,dc=iph,dc=lan","user_dn":"uid=arthur.meyer,ou=users,dc=iph,dc=lan"}
+```
+
+Common fields: `ts`, `event`, `server`, `source`, `req_start`, `req_session`, `actor`. Per-type extras: `user_dn`, `target_dn`, `result`, `result_code`, `operation`, `attributes`.
+
+**Output destinations**
+
+- **`stdout`** (default) — recommended for Docker / Kubernetes deployments. Let your container runtime collect the lines and feed them to the log shipper of your choice.
+- **File, no rotation** — `OPENLDAP_EVENTS_OUTPUT=/var/log/openldap-events.jsonl` `OPENLDAP_EVENTS_ROTATION=none`. Appends forever; pair with `logrotate` if needed.
+- **File, daily rotation** — `OPENLDAP_EVENTS_OUTPUT=/var/log/openldap-events-{date}.jsonl` `OPENLDAP_EVENTS_ROTATION=daily`. A new file is opened automatically at UTC midnight; if the path does not contain `{date}`, the suffix `.YYYY-MM-DD` is appended to the configured filename. No size cap, no compression — keep heavy lifecycles for `logrotate` or a log shipper.
+
+**Baseline behaviour** — the very first scan after a restart only **records** the maximum `reqStart` found in each stream and emits nothing. Subsequent ticks emit every entry strictly newer than the cursor. This avoids back-filling the entire `cn=accesslog` window as a spike when the exporter starts up.
+
+**Filtering** — set `OPENLDAP_EVENTS_TYPES=bind.failure,account.lock,password.change` to only emit the event types you care about; everything else is dropped at the emitter.
+
+**Requirements** — the `slapo-accesslog` overlay must be configured on the OpenLDAP server (see [Accesslog overlay configuration](#4-accesslog-overlay-optional)) and the exporter account must have read access to `cn=accesslog`.
+
 ## Exported metrics
 
 The exporter exposes two types of metrics:

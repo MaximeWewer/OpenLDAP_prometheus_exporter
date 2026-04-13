@@ -23,6 +23,22 @@ const (
 
 	// Server name limits
 	MaxServerNameLen = 128
+
+	// Events exporter limits
+	MinEventsInterval     = 5 * time.Second
+	MaxEventsInterval     = 30 * time.Minute
+	DefaultEventsInterval = 30 * time.Second
+)
+
+// EventsRotationMode describes how the events output file is rotated.
+type EventsRotationMode string
+
+const (
+	// EventsRotationNone means events are appended to a single file indefinitely.
+	EventsRotationNone EventsRotationMode = "none"
+	// EventsRotationDaily means events are written to a new file every UTC day,
+	// named by replacing the token "{date}" in the output path with YYYY-MM-DD.
+	EventsRotationDaily EventsRotationMode = "daily"
 )
 
 // Config holds all configuration parameters for the OpenLDAP exporter
@@ -52,6 +68,16 @@ type Config struct {
 
 	// Rate limiting options
 	RateLimitEnabled bool // Enable/disable rate limiting (RATE_LIMIT_ENABLED)
+
+	// Events exporter options (JSON event stream derived from the accesslog overlay).
+	// Independent of Prometheus scrapes: runs its own ticker and its own reqStart cursor
+	// so enabling it does not perturb metric collection, and metric scrapes do not drain
+	// the event stream before it is observed.
+	EventsEnabled  bool               // OPENLDAP_EVENTS_ENABLED
+	EventsInterval time.Duration      // OPENLDAP_EVENTS_INTERVAL (e.g. 30s)
+	EventsOutput   string             // OPENLDAP_EVENTS_OUTPUT ("stdout" or a filesystem path; path may contain "{date}")
+	EventsRotation EventsRotationMode // OPENLDAP_EVENTS_ROTATION ("none" or "daily", file output only)
+	EventsTypes    []string           // OPENLDAP_EVENTS_TYPES (comma separated; empty = all types)
 }
 
 // LoadConfig loads configuration from environment variables
@@ -166,6 +192,13 @@ func LoadConfig() (*Config, error) {
 	// Load rate limiting configuration
 	config.RateLimitEnabled = getEnvBoolOrDefault("RATE_LIMIT_ENABLED", true)
 
+	// Load events exporter configuration
+	config.EventsEnabled = getEnvBoolOrDefault("OPENLDAP_EVENTS_ENABLED", false)
+	config.EventsInterval = parseEventsInterval(getEnvOrDefault("OPENLDAP_EVENTS_INTERVAL", ""))
+	config.EventsOutput = strings.TrimSpace(getEnvOrDefault("OPENLDAP_EVENTS_OUTPUT", "stdout"))
+	config.EventsRotation = parseEventsRotation(getEnvOrDefault("OPENLDAP_EVENTS_ROTATION", string(EventsRotationNone)))
+	config.EventsTypes = parseMetricsList(getEnvOrDefault("OPENLDAP_EVENTS_TYPES", ""))
+
 	// Validate and warn about metric filtering configuration
 	config.validateMetricFiltering()
 	config.validateDCFiltering()
@@ -249,6 +282,54 @@ func getEnvIntOrDefault(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+// parseEventsInterval parses an interval string such as "30s" or "1m" for the
+// events runner and clamps it into the allowed range. Empty falls back to default.
+func parseEventsInterval(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return DefaultEventsInterval
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		logger.SafeWarn("config", "Invalid OPENLDAP_EVENTS_INTERVAL, using default", map[string]interface{}{
+			"provided": value,
+			"default":  DefaultEventsInterval.String(),
+		})
+		return DefaultEventsInterval
+	}
+	if d < MinEventsInterval {
+		logger.SafeWarn("config", "OPENLDAP_EVENTS_INTERVAL too low, clamped to minimum", map[string]interface{}{
+			"provided": d.String(),
+			"minimum":  MinEventsInterval.String(),
+		})
+		return MinEventsInterval
+	}
+	if d > MaxEventsInterval {
+		logger.SafeWarn("config", "OPENLDAP_EVENTS_INTERVAL too high, clamped to maximum", map[string]interface{}{
+			"provided": d.String(),
+			"maximum":  MaxEventsInterval.String(),
+		})
+		return MaxEventsInterval
+	}
+	return d
+}
+
+// parseEventsRotation parses the rotation mode for the file-backed events writer.
+func parseEventsRotation(value string) EventsRotationMode {
+	switch EventsRotationMode(strings.ToLower(strings.TrimSpace(value))) {
+	case EventsRotationNone, "":
+		return EventsRotationNone
+	case EventsRotationDaily:
+		return EventsRotationDaily
+	default:
+		logger.SafeWarn("config", "Invalid OPENLDAP_EVENTS_ROTATION, using 'none'", map[string]interface{}{
+			"provided": value,
+			"valid":    []string{string(EventsRotationNone), string(EventsRotationDaily)},
+		})
+		return EventsRotationNone
+	}
 }
 
 // parseMetricsList parses a comma-separated list of metric group names

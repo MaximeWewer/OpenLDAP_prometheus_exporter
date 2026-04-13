@@ -1,0 +1,100 @@
+dn: cn=config
+objectClass: olcGlobal
+cn: config
+olcPidFile: /run/openldap/slapd.pid
+olcArgsFile: /run/openldap/slapd.args
+
+dn: cn=module{0},cn=config
+objectClass: olcModuleList
+cn: module{0}
+olcModulePath: /usr/lib/openldap
+olcModuleLoad: back_mdb.so
+olcModuleLoad: back_monitor.so
+olcModuleLoad: ppolicy.so
+olcModuleLoad: accesslog.so
+
+dn: cn=schema,cn=config
+objectClass: olcSchemaConfig
+cn: schema
+
+include: file:///etc/openldap/schema/core.ldif
+include: file:///etc/openldap/schema/cosine.ldif
+include: file:///etc/openldap/schema/inetorgperson.ldif
+
+dn: olcDatabase={-1}frontend,cn=config
+objectClass: olcDatabaseConfig
+objectClass: olcFrontendConfig
+olcDatabase: {-1}frontend
+
+dn: olcDatabase={0}config,cn=config
+objectClass: olcDatabaseConfig
+olcDatabase: {0}config
+olcRootDN: cn=adminconfig,cn=config
+olcRootPW: {SSHA}TvbnXOBAi/jPewUbknNizpHkWdOaph34
+olcAccess: {0}to * by dn.exact="cn=adminconfig,cn=config" manage by * none
+
+dn: olcDatabase={1}mdb,cn=config
+objectClass: olcDatabaseConfig
+objectClass: olcMdbConfig
+olcDatabase: {1}mdb
+olcSuffix: dc=example,dc=org
+olcDbDirectory: /var/lib/openldap/openldap-data
+olcRootDN: cn=admin,dc=example,dc=org
+olcRootPW: {SSHA}wlMDjvJeSJd43qPSa9+Wy9koWkhXnkgq
+olcDbMaxSize: 1073741824
+olcDbIndex: objectClass eq
+olcDbIndex: cn,sn,uid eq,pres,sub
+olcDbIndex: mail eq,sub
+olcDbIndex: member eq
+olcMonitoring: TRUE
+olcAccess: {0}to attrs=userPassword by self write by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by dn.exact="cn=adminconfig,cn=config" write by anonymous auth by * none
+olcAccess: {1}to dn.subtree="ou=policies,dc=example,dc=org" by * read
+olcAccess: {2}to dn.subtree="ou=users,dc=example,dc=org" by self write by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by dn.exact="cn=adminconfig,cn=config" read by * none
+olcAccess: {3}to dn.base="dc=example,dc=org" by dn.exact="cn=admin,ou=users,dc=example,dc=org" write by * read
+
+dn: olcOverlay=ppolicy,olcDatabase={1}mdb,cn=config
+objectClass: olcOverlayConfig
+objectClass: olcPPolicyConfig
+olcOverlay: ppolicy
+olcPPolicyDefault: cn=defaultppolicy,ou=policies,dc=example,dc=org
+olcPPolicyHashCleartext: TRUE
+olcPPolicyUseLockout: TRUE
+
+# Accesslog database — stores bind and write operation logs queried by the
+# exporter via the slapo-accesslog overlay attached to the main DB below.
+dn: olcDatabase={2}mdb,cn=config
+objectClass: olcDatabaseConfig
+objectClass: olcMdbConfig
+olcDatabase: {2}mdb
+olcSuffix: cn=accesslog
+olcDbDirectory: /var/lib/openldap/accesslog-data
+olcRootDN: cn=adminconfig,cn=config
+olcDbMaxSize: 1073741824
+olcDbIndex: reqStart eq
+olcDbIndex: reqDN eq
+olcDbIndex: reqType eq
+olcDbIndex: reqResult eq
+olcDbIndex: reqMod eq
+olcAccess: {0}to * by dn.exact="cn=adminconfig,cn=config" read by * none
+
+# Accesslog overlay on the main database — logs every bind and write so the
+# exporter can derive bind.success/failure, account.lock/unlock,
+# password.change, password.reset_required and write.* events from a single
+# structured source. olcAccessLogSuccess: FALSE means *all* operations are
+# logged regardless of result, which is exactly what we want for failure
+# detection.
+dn: olcOverlay=accesslog,olcDatabase={1}mdb,cn=config
+objectClass: olcOverlayConfig
+objectClass: olcAccessLogConfig
+olcOverlay: accesslog
+olcAccessLogDB: cn=accesslog
+olcAccessLogOps: writes bind
+olcAccessLogSuccess: FALSE
+olcAccessLogPurge: 07+00:00 01+00:00
+
+dn: olcDatabase={3}monitor,cn=config
+objectClass: olcDatabaseConfig
+objectClass: olcMonitorConfig
+olcDatabase: {3}monitor
+olcAccess: {0}to dn.subtree="cn=Monitor" by dn.exact="cn=adminconfig,cn=config" read by * none
+olcMonitoring: TRUE

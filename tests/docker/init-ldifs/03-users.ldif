@@ -1,0 +1,39 @@
+dn: cn=admin,ou=users,dc=example,dc=org
+objectClass: inetOrgPerson
+cn: admin
+uid: admin
+sn: admin
+givenName: admin
+displayName: admin
+mail: admin@example.org
+userPassword: adminpassword
+
+dn: cn=alice.tester,ou=users,dc=example,dc=org
+objectClass: inetOrgPerson
+cn: alice.tester
+uid: alice.tester
+sn: Tester
+givenName: Alice
+displayName: Alice Tester
+mail: alice.tester@example.org
+userPassword: AliceCorrectHorse42
+
+dn: cn=bob.tester,ou=users,dc=example,dc=org
+objectClass: inetOrgPerson
+cn: bob.tester
+uid: bob.tester
+sn: Tester
+givenName: Bob
+displayName: Bob Tester
+mail: bob.tester@example.org
+userPassword: BobCorrectHorse42
+
+dn: cn=carol.tester,ou=users,dc=example,dc=org
+objectClass: inetOrgPerson
+cn: carol.tester
+uid: carol.tester
+sn: Tester
+givenName: Carol
+displayName: Carol Tester
+mail: carol.tester@example.org
+userPassword: CarolCorrectHorse42

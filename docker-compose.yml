@@ -11,17 +11,17 @@ services:
       # ========================================
       # LDAP configuration (Required)
       # ========================================
-      LDAP_URL: "ldap://host.docker.internal:389"     # LDAP server URL
-      LDAP_USERNAME: "cn=adminconfig,cn=config"       # LDAP authentication username
-      LDAP_PASSWORD: "adminpasswordconfig"            # LDAP authentication password
+      LDAP_URL: "ldap://host.docker.internal:389" # LDAP server URL
+      LDAP_USERNAME: "cn=adminconfig,cn=config" # LDAP authentication username
+      LDAP_PASSWORD: "adminpasswordconfig" # LDAP authentication password
 
       # ========================================
       # LDAP configuration (Optional)
       # ========================================
-      LDAP_SERVER_NAME: "openldap-dev"                # Server name for logs and metrics (default: openldap)
-      LDAP_TLS: "false"                               # Use TLS for connection (default: false)
-      LDAP_TIMEOUT: "10"                              # LDAP connection timeout in seconds (default: 10)
-      LDAP_UPDATE_EVERY: "15"                         # Metrics update interval in seconds (default: 15)
+      LDAP_SERVER_NAME: "openldap-dev" # Server name for logs and metrics (default: openldap)
+      LDAP_TLS: "false" # Use TLS for connection (default: false)
+      LDAP_TIMEOUT: "10" # LDAP connection timeout in seconds (default: 10)
+      LDAP_UPDATE_EVERY: "15" # Metrics update interval in seconds (default: 15)
       # LDAP_TLS_SKIP_VERIFY: "false"                 # Skip TLS certificate verification (default: false)
       # LDAP_TLS_CA: "/path/to/ca.crt"                # Path to CA certificate for TLS
       # LDAP_TLS_CERT: "/path/to/client.crt"          # Path to client certificate
@@ -30,7 +30,7 @@ services:
       # ========================================
       # HTTP server configuration
       # ========================================
-      LISTEN_ADDRESS: ":9330"                         # HTTP server listen address (default: :9330)
+      LISTEN_ADDRESS: ":9330" # HTTP server listen address (default: :9330)
       # HTTP_READ_TIMEOUT: "10s"                      # HTTP read timeout (default: 10s)
       # HTTP_WRITE_TIMEOUT: "10s"                     # HTTP write timeout (default: 10s)
       # HTTP_IDLE_TIMEOUT: "60s"                      # HTTP idle timeout (default: 60s)
@@ -48,7 +48,7 @@ services:
       # ========================================
       # Logging configuration
       # ========================================
-      LOG_LEVEL: "INFO"                               # Log level: DEBUG, INFO, WARN, ERROR, FATAL (default: INFO)
+      LOG_LEVEL: "INFO" # Log level: DEBUG, INFO, WARN, ERROR, FATAL (default: INFO)
 
       # ========================================
       # Metrics filtering configuration
@@ -62,6 +62,19 @@ services:
       # ========================================
       # OPENLDAP_DC_INCLUDE: "example,company,test"   # Only monitor these domain components
       # OPENLDAP_DC_EXCLUDE: "dev,staging"            # Exclude these domain components
+
+      # ========================================
+      # JSON events stream (ppolicy + accesslog derived events)
+      # ========================================
+      # Runs on its own ticker with its own reqStart cursor, independent of Prometheus scrapes.
+      # OPENLDAP_EVENTS_ENABLED: "true"                     # Enable the JSON events stream (default: false)
+      # OPENLDAP_EVENTS_INTERVAL: "30s"                     # Scan interval (default: 30s, min 5s, max 30m)
+      # OPENLDAP_EVENTS_OUTPUT: "stdout"                    # "stdout" (default) or a filesystem path; path may contain {date}
+      # OPENLDAP_EVENTS_ROTATION: "none"                    # "none" (default) or "daily" — file output only
+      # OPENLDAP_EVENTS_TYPES: "bind.failure,account.lock"  # Optional allow-list, comma separated (default: all types)
+      # Available event types: bind.success, bind.failure, account.lock, account.unlock,
+      #                        password.change, password.reset_required,
+      #                        write.add, write.modify, write.delete, write.modrdn
 
     healthcheck:
       test: ["CMD", "/openldap-exporter", "-version"]
