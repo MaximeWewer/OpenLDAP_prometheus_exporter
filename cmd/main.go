@@ -124,6 +124,11 @@ func main() {
 	}
 	defer configData.Clear()
 
+	// Install the trusted-proxy list so GetClientIP does not honor
+	// X-Forwarded-For / X-Real-IP from untrusted sources. Empty list
+	// (the default) disables proxy-header trust entirely.
+	security.SetTrustedProxies(configData.TrustedProxies)
+
 	// Pass version to exporter package for server_info metric
 	exporter.ExporterVersion = Version
 

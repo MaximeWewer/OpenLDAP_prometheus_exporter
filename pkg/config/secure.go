@@ -1,117 +1,105 @@
 package config
 
 import (
-	"crypto/cipher"
-	"crypto/rand"
 	"errors"
-
-	"golang.org/x/crypto/chacha20poly1305"
-
-	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
+	"sync"
 )
 
-// SecureString provides cryptographically secure protection for sensitive strings in memory
-// using ChaCha20-Poly1305 authenticated encryption
+// SecureString wraps sensitive credential bytes with an explicit lifecycle
+// and best-effort zeroing on Clear().
+//
+// Threat model:
+//   - In-process memory scanning of a running, unlocked Go process is
+//     NOT mitigated. Pure Go cannot lock pages or guarantee the GC will
+//     not copy the bytes.
+//   - Core dumps taken after Clear() see a zero buffer instead of the
+//     original credential — assuming the caller disciplines itself and
+//     releases every string derived via String() as well.
+//   - Accidental logging / reflection / printf("%+v") still redacts
+//     nothing: use WithPlaintext when the caller can accept []byte.
 type SecureString struct {
-	ciphertext []byte
-	nonce      []byte
-	aead       cipher.AEAD
+	mu   sync.Mutex
+	data []byte
 }
 
-// NewSecureString creates a new SecureString with ChaCha20-Poly1305 encryption
-// This provides cryptographically secure protection with authentication
+// NewSecureString stores the provided value in a fresh byte buffer.
+// The input string's backing array cannot be zeroed by us because Go
+// strings are immutable; callers that load the value from a file or an
+// environment variable should therefore clear their own buffers once the
+// SecureString is built.
 func NewSecureString(value string) (*SecureString, error) {
 	if value == "" {
 		return nil, errors.New("cannot create SecureString with empty value")
 	}
-
-	// Generate random 256-bit key for ChaCha20
-	key := make([]byte, chacha20poly1305.KeySize)
-	if _, err := rand.Read(key); err != nil {
-		return nil, err
-	}
-
-	// Create ChaCha20-Poly1305 AEAD cipher
-	aead, err := chacha20poly1305.New(key)
-	if err != nil {
-		// Clear key from memory before returning error
-		for i := range key {
-			key[i] = 0
-		}
-		return nil, err
-	}
-
-	// Generate random nonce
-	nonce := make([]byte, aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		// Clear sensitive data before returning error
-		for i := range key {
-			key[i] = 0
-		}
-		return nil, err
-	}
-
-	// Encrypt with authentication
-	ciphertext := aead.Seal(nil, nonce, []byte(value), nil)
-
-	// Clear the original key from local memory (AEAD keeps its own copy)
-	for i := range key {
-		key[i] = 0
-	}
-
-	return &SecureString{
-		ciphertext: ciphertext,
-		nonce:      nonce,
-		aead:       aead,
-	}, nil
+	buf := make([]byte, len(value))
+	copy(buf, value)
+	return &SecureString{data: buf}, nil
 }
 
-// String returns the decrypted value
+// String returns the stored credential as a Go string. Because strings
+// are immutable, the returned value lives on the garbage-collected heap
+// until it is reaped — it cannot be wiped in place. This method exists
+// purely for interoperability with APIs (e.g. ldap.Conn.Bind) that accept
+// only a string. Prefer WithPlaintext whenever the caller can consume
+// []byte, so the plaintext buffer can be zeroed as soon as fn returns.
 func (s *SecureString) String() string {
-	if s == nil || len(s.ciphertext) == 0 || s.aead == nil {
+	if s == nil {
 		return ""
 	}
-
-	// Decrypt and verify authentication tag
-	plaintext, err := s.aead.Open(nil, s.nonce, s.ciphertext, nil)
-	if err != nil {
-		// Authentication failed - data was tampered with
-		logger.SafeError("secure", "SecureString authentication failed - possible tampering detected", err)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.data) == 0 {
 		return ""
 	}
-
-	// Convert to string and clear plaintext from memory
-	result := string(plaintext)
-	for i := range plaintext {
-		plaintext[i] = 0
-	}
-
-	return result
+	return string(s.data)
 }
 
-// Clear securely clears the SecureString from memory
+// WithPlaintext hands the decoded credential to fn as a short-lived byte
+// slice and zeroes that slice when fn returns, regardless of whether fn
+// panics. Callers that can work with []byte (for example direct socket
+// writes) should prefer this API over String() so the plaintext footprint
+// stays bounded to fn's execution.
+func (s *SecureString) WithPlaintext(fn func([]byte)) {
+	if s == nil || fn == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.data) == 0 {
+		fn(nil)
+		return
+	}
+	cp := make([]byte, len(s.data))
+	copy(cp, s.data)
+	defer func() {
+		for i := range cp {
+			cp[i] = 0
+		}
+	}()
+	fn(cp)
+}
+
+// Clear zeroes the stored credential buffer and releases the underlying
+// slice. Subsequent calls to String / WithPlaintext return the empty
+// value and IsEmpty returns true.
 func (s *SecureString) Clear() {
 	if s == nil {
 		return
 	}
-
-	// Clear ciphertext
-	for i := range s.ciphertext {
-		s.ciphertext[i] = 0
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.data {
+		s.data[i] = 0
 	}
-
-	// Clear nonce
-	for i := range s.nonce {
-		s.nonce[i] = 0
-	}
-
-	// Clear references
-	s.ciphertext = nil
-	s.nonce = nil
-	s.aead = nil
+	s.data = nil
 }
 
-// IsEmpty checks if the SecureString is empty or cleared
+// IsEmpty reports whether the SecureString has no stored credential.
 func (s *SecureString) IsEmpty() bool {
-	return s == nil || len(s.ciphertext) == 0 || s.aead == nil
+	if s == nil {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.data) == 0
 }

@@ -4,9 +4,21 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"testing"
 )
+
+// TestMain trusts only the httptest default peer address (192.0.2.0/24)
+// so GetClientIP tests that rely on X-Forwarded-For / X-Real-IP still
+// honor those headers. Using a narrow CIDR avoids the "every IP is a
+// proxy, skip them all" failure mode that a permissive 0.0.0.0/0 would
+// trigger. Production deployments keep the secure default (empty trust
+// list, proxy headers ignored entirely).
+func TestMain(m *testing.M) {
+	SetTrustedProxies([]string{"192.0.2.0/24"})
+	os.Exit(m.Run())
+}
 
 // TestLDAPValidation tests LDAP DN and filter validation
 func TestLDAPValidation(t *testing.T) {
@@ -351,8 +363,8 @@ func TestLDAPDNValidationComprehensive(t *testing.T) {
 		{"Multi-component DN", "cn=test,ou=users,dc=example,dc=com", true},
 		{"DN with spaces", "cn=test user,ou=users", true},
 		{"DN with unicode", "cn=tëst,ou=üsers", true},
-		{"Invalid escaping", "cn=test\\", true},     // Actually allowed
-		{"Invalid component", "invalid=test", true}, // Actually allowed - validation is basic
+		{"Invalid escaping", "cn=test\\", false},    // ldap.ParseDN rejects a dangling escape
+		{"Invalid component", "invalid=test", true}, // attribute name "invalid" is syntactically fine
 		{"Too long DN", "cn=" + string(make([]byte, 1025)), false},
 		{"DN with control chars", "cn=test\r\n,ou=users", false},
 	}
@@ -503,7 +515,7 @@ func TestValidateLDAPDNEdgeCases(t *testing.T) {
 		{
 			name:     "DN with invalid escaping",
 			dn:       "cn=test\\invalid,ou=users",
-			expected: true, // Actually allowed - validation is basic
+			expected: false, // ldap.ParseDN rejects \i (not a legal escape)
 		},
 		{
 			name:     "DN with control characters",

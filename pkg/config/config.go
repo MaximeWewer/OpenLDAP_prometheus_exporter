@@ -67,7 +67,8 @@ type Config struct {
 	AuthMethod string // "simple" (default) or "external" (SASL EXTERNAL for mTLS)
 
 	// Rate limiting options
-	RateLimitEnabled bool // Enable/disable rate limiting (RATE_LIMIT_ENABLED)
+	RateLimitEnabled bool     // Enable/disable rate limiting (RATE_LIMIT_ENABLED)
+	TrustedProxies   []string // CIDR ranges of proxies whose X-Forwarded-For / X-Real-IP headers we honor (HTTP_TRUSTED_PROXIES)
 
 	// Events exporter options (JSON event stream derived from the accesslog overlay).
 	// Independent of Prometheus scrapes: runs its own ticker and its own reqStart cursor
@@ -193,6 +194,7 @@ func LoadConfig() (*Config, error) {
 
 	// Load rate limiting configuration
 	config.RateLimitEnabled = getEnvBoolOrDefault("RATE_LIMIT_ENABLED", true)
+	config.TrustedProxies = parseMetricsList(getEnvOrDefault("HTTP_TRUSTED_PROXIES", ""))
 
 	// Load events exporter configuration
 	config.EventsEnabled = getEnvBoolOrDefault("OPENLDAP_EVENTS_ENABLED", false)

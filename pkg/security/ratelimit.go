@@ -171,62 +171,143 @@ func (rl *RateLimiter) cleanupClients() {
 	}
 }
 
-// GetClientIP extracts the real client IP from the request
-func GetClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header first (proxy/load balancer)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// X-Forwarded-For can contain multiple IPs separated by commas
-		// Format: "client, proxy1, proxy2" - we want the first (client) IP
-		ips := strings.Split(xff, ",")
-		for _, ipStr := range ips {
-			cleanIP := strings.TrimSpace(ipStr)
-			if cleanIP != "" {
-				// Validate IP format and exclude private/reserved ranges for security
-				if ip := net.ParseIP(cleanIP); ip != nil && !isPrivateIP(ip) {
-					return ip.String()
+// trustedProxies holds the set of CIDR ranges from which X-Forwarded-For
+// and X-Real-IP headers are trusted. It is empty by default, which means
+// GetClientIP ignores those headers entirely — without a configured
+// trust list any anonymous client could spoof its address and rotate
+// per-IP rate-limit buckets at will.
+//
+// Configure via SetTrustedProxies at startup, typically from the
+// HTTP_TRUSTED_PROXIES environment variable.
+var (
+	trustedProxies   []*net.IPNet
+	trustedProxiesMu sync.RWMutex
+)
+
+// SetTrustedProxies replaces the list of CIDR ranges from which proxy
+// headers are trusted. Invalid entries are logged and skipped. Passing
+// an empty slice (or a slice containing only invalid entries) disables
+// proxy-header trust entirely, which is the secure default.
+func SetTrustedProxies(cidrs []string) {
+	parsed := make([]*net.IPNet, 0, len(cidrs))
+	for _, raw := range cidrs {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		// Allow bare IPs by converting them to /32 (IPv4) or /128 (IPv6).
+		if !strings.Contains(raw, "/") {
+			if ip := net.ParseIP(raw); ip != nil {
+				if ip.To4() != nil {
+					raw += "/32"
+				} else {
+					raw += "/128"
 				}
 			}
 		}
+		_, ipnet, err := net.ParseCIDR(raw)
+		if err != nil {
+			logger.SafeWarn("ratelimit", "Invalid trusted proxy CIDR, ignored", map[string]interface{}{
+				"cidr":  raw,
+				"error": err.Error(),
+			})
+			continue
+		}
+		parsed = append(parsed, ipnet)
+	}
 
-		// If no public IP found, use the first valid IP (even if private)
-		for _, ipStr := range ips {
-			cleanIP := strings.TrimSpace(ipStr)
-			if ip := net.ParseIP(cleanIP); ip != nil {
+	trustedProxiesMu.Lock()
+	trustedProxies = parsed
+	trustedProxiesMu.Unlock()
+
+	if len(parsed) == 0 {
+		logger.SafeInfo("ratelimit", "No trusted proxies configured; X-Forwarded-For and X-Real-IP headers will be ignored")
+	} else {
+		logger.SafeInfo("ratelimit", "Trusted proxies configured", map[string]interface{}{
+			"count": len(parsed),
+		})
+	}
+}
+
+// isTrustedProxy reports whether the given IP belongs to one of the
+// configured trusted proxy CIDRs.
+func isTrustedProxy(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	trustedProxiesMu.RLock()
+	defer trustedProxiesMu.RUnlock()
+	for _, ipnet := range trustedProxies {
+		if ipnet.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// remoteAddrIP parses r.RemoteAddr (which may or may not carry a port)
+// and returns the underlying net.IP, or nil if it cannot be parsed.
+func remoteAddrIP(r *http.Request) net.IP {
+	if r == nil || r.RemoteAddr == "" {
+		return nil
+	}
+	host := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		host = h
+	}
+	return net.ParseIP(strings.TrimSpace(host))
+}
+
+// GetClientIP extracts the real client IP from the request. It only
+// honors X-Forwarded-For and X-Real-IP when r.RemoteAddr is itself the
+// address of a configured trusted proxy — otherwise any client could
+// spoof its source address and defeat the per-IP rate limiter.
+func GetClientIP(r *http.Request) string {
+	remote := remoteAddrIP(r)
+
+	// Only consult proxy headers when the request came from a trusted
+	// source. Without this gate, an attacker sets X-Forwarded-For: 1.2.3.4
+	// from anywhere on the internet and gets a fresh rate-limit bucket.
+	if remote != nil && isTrustedProxy(remote) {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			// Left-most non-proxy IP wins, per convention — walk from
+			// left and skip entries that are themselves trusted proxies.
+			ips := strings.Split(xff, ",")
+			for _, ipStr := range ips {
+				cleanIP := strings.TrimSpace(ipStr)
+				ip := net.ParseIP(cleanIP)
+				if ip == nil {
+					continue
+				}
+				if !isTrustedProxy(ip) {
+					return ip.String()
+				}
+			}
+			// All entries are trusted proxies → fall through to X-Real-IP
+			// or RemoteAddr rather than returning a proxy address.
+		}
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			if ip := net.ParseIP(strings.TrimSpace(xri)); ip != nil {
 				return ip.String()
 			}
 		}
 	}
 
-	// Check X-Real-IP header
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		cleanIP := strings.TrimSpace(xri)
-		if ip := net.ParseIP(cleanIP); ip != nil {
-			return ip.String()
-		}
-	}
-
-	// Fall back to RemoteAddr
+	// Fall back to the direct peer address.
 	if r.RemoteAddr == "" {
 		return "127.0.0.1"
 	}
-
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		// If RemoteAddr doesn't contain port, return the raw address
-		// First check if it's a valid IP
 		if ip := net.ParseIP(strings.TrimSpace(r.RemoteAddr)); ip != nil {
 			return ip.String()
 		}
-		// If not a valid IP, check if it looks like an invalid IP format
-		// For test compatibility, return it if it's not clearly invalid
 		trimmedAddr := strings.TrimSpace(r.RemoteAddr)
 		if trimmedAddr != "" && trimmedAddr != "invalid" {
 			return trimmedAddr
 		}
 		return "127.0.0.1"
 	}
-
-	// Return the extracted host part (even if it's not a valid IP)
 	return host
 }
 

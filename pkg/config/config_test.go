@@ -529,15 +529,11 @@ func TestSecureStringEdgeCases(t *testing.T) {
 		t.Errorf("Expected empty string for nil SecureString, got %s", result)
 	}
 
-	// Test String method on empty ciphertext
-	secureStr := &SecureString{
-		ciphertext: []byte{},
-		nonce:      []byte{1, 2, 3},
-		aead:       nil,
-	}
+	// Test String method on an empty/cleared SecureString
+	secureStr := &SecureString{}
 	result = secureStr.String()
 	if result != "" {
-		t.Errorf("Expected empty string for SecureString with empty ciphertext, got %s", result)
+		t.Errorf("Expected empty string for SecureString with empty data, got %s", result)
 	}
 
 	// Test Clear on nil SecureString (should not panic)
@@ -548,13 +544,28 @@ func TestSecureStringEdgeCases(t *testing.T) {
 		t.Error("nil SecureString should be empty")
 	}
 
-	secureStr2 := &SecureString{
-		ciphertext: []byte{},
-		nonce:      []byte{},
-		aead:       nil,
-	}
+	secureStr2 := &SecureString{}
 	if !secureStr2.IsEmpty() {
-		t.Error("SecureString with empty ciphertext should be empty")
+		t.Error("SecureString with empty data should be empty")
+	}
+
+	// Populated SecureString → WithPlaintext delivers the original bytes.
+	pw := "secret-password-1234"
+	full, err := NewSecureString(pw)
+	if err != nil {
+		t.Fatalf("NewSecureString: %v", err)
+	}
+	defer full.Clear()
+
+	var observed string
+	full.WithPlaintext(func(pt []byte) {
+		observed = string(pt)
+	})
+	if observed != pw {
+		t.Errorf("WithPlaintext saw %q, want %q", observed, pw)
+	}
+	if full.String() != pw {
+		t.Errorf("String() returned %q, want %q", full.String(), pw)
 	}
 }
 
