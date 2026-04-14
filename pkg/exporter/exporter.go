@@ -183,8 +183,10 @@ func (e *OpenLDAPExporter) Collect(ch chan<- prometheus.Metric) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.Timeout)
 	defer cancel()
 
-	// Update scrape counter
-	e.totalScrapes.Store(e.totalScrapes.Load() + 1)
+	// Update scrape counter atomically so concurrent scrapes (Prometheus
+	// scraping /metrics while Grafana alerting hits it in parallel) do
+	// not lose increments on a plain Load+Store race.
+	e.totalScrapes.Add(1)
 	e.lastScrapeTime.Store(float64(time.Now().Unix()))
 
 	// Collect all metrics with error handling
@@ -194,7 +196,7 @@ func (e *OpenLDAPExporter) Collect(ch chan<- prometheus.Metric) {
 		logger.SafeError("exporter", "Failed to collect metrics", err)
 		e.metricsRegistry.Up.WithLabelValues(e.config.ServerName).Set(0)
 		e.metricsRegistry.ScrapeErrors.WithLabelValues(e.config.ServerName).Inc()
-		e.totalErrors.Store(e.totalErrors.Load() + 1)
+		e.totalErrors.Add(1)
 	} else {
 		e.metricsRegistry.Up.WithLabelValues(e.config.ServerName).Set(1)
 	}

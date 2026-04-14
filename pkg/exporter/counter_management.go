@@ -81,7 +81,13 @@ func (e *OpenLDAPExporter) updateCounterCommon(
 		logger.SafeWarn("exporter", "Unreasonably large counter value detected", logFields)
 	}
 
-	// Get or create the map for this server and the entry for this key
+	// Get or create the map for this server and the entry for this key,
+	// and acquire the per-entry modification flag BEFORE releasing
+	// counterMutex. Otherwise cleanupOldCountersSync could delete the
+	// entry between the unlock and the CAS, and this goroutine would end
+	// up writing into a zombie *counterEntry whose increments never reach
+	// the live map (the next scrape would recreate a fresh entry at 0
+	// and observe a spurious negative delta).
 	e.counterMutex.Lock()
 	serverMap, exists := e.counterValues[server]
 	if !exists {
@@ -106,10 +112,12 @@ func (e *OpenLDAPExporter) updateCounterCommon(
 		}
 		serverMap[key] = entry
 	}
-	e.counterMutex.Unlock()
 
-	// Try to acquire modification lock
+	// Try to acquire the modification flag while still holding counterMutex.
+	// Cleanup only deletes entries whose flag it can claim, so holding
+	// this flag guarantees the entry stays alive for the whole update.
 	if !atomic.CompareAndSwapInt32(&entry.modifying, 0, 1) {
+		e.counterMutex.Unlock()
 		// Another goroutine is modifying this entry, skip this update
 		logFields := map[string]interface{}{
 			"server":       server,
@@ -122,6 +130,7 @@ func (e *OpenLDAPExporter) updateCounterCommon(
 		logger.SafeDebug("exporter", "Counter update skipped due to concurrent modification", logFields)
 		return
 	}
+	e.counterMutex.Unlock()
 	defer atomic.StoreInt32(&entry.modifying, 0)
 
 	// Update last seen time

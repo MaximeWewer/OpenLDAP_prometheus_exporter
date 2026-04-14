@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
 
 // Get retrieves a connection from the pool or creates a new one
@@ -68,11 +70,11 @@ func (p *ConnectionPool) Put(conn *PooledConnection) {
 		return
 	}
 
-	conn.mutex.Lock()
-	valid := p.isConnectionValidLocked(conn)
-	conn.mutex.Unlock()
-
-	if !valid {
+	// Use the snapshot-based validity check so the (potentially blocking)
+	// health-check ping does not run under conn.mutex — previously any
+	// Put on a connection idle >30s serialized every concurrent Put on
+	// the same pool entry behind a network round-trip.
+	if !p.isConnectionUsable(conn) {
 		if p.monitoring != nil && p.serverName != "" {
 			p.monitoring.RecordPoolPutRejection(p.serverName, "ldap", "invalid_connection")
 		}
@@ -103,12 +105,15 @@ func (p *ConnectionPool) checkPoolClosed() error {
 	return nil
 }
 
-// tryGetExistingConnection attempts to get a connection from the pool
+// tryGetExistingConnection attempts to get a connection from the pool.
+// The pool-size counter is decremented exactly once per channel receive,
+// here at the call site, so validateAndPrepareConnection can be called
+// from multiple code paths without worrying about duplicate accounting.
 func (p *ConnectionPool) tryGetExistingConnection(ctx context.Context, start time.Time) *PooledConnection {
 	select {
 	case conn := <-p.pool:
+		atomic.AddInt64(&p.poolSize, -1)
 		if conn == nil {
-			atomic.AddInt64(&p.poolSize, -1)
 			return nil
 		}
 		return p.validateAndPrepareConnection(conn, start)
@@ -119,34 +124,83 @@ func (p *ConnectionPool) tryGetExistingConnection(ctx context.Context, start tim
 	}
 }
 
-// validateAndPrepareConnection validates and prepares a connection for use
+// validateAndPrepareConnection validates and prepares a connection for use.
+// It never touches p.poolSize — the caller is responsible for decrementing
+// it when consuming from the pool channel — so it is safe to call from any
+// site that has already taken exclusive ownership of the connection.
+//
+// Validity is checked against a snapshot of the connection state taken
+// under conn.mutex; the (potentially blocking) ping then runs without the
+// lock so that Put on the scrape hot path never serializes itself behind
+// a network round-trip.
 func (p *ConnectionPool) validateAndPrepareConnection(conn *PooledConnection, start time.Time) *PooledConnection {
-	conn.mutex.Lock()
-	defer conn.mutex.Unlock()
-
-	atomic.AddInt64(&p.poolSize, -1)
-
-	if !p.isConnectionValidLocked(conn) {
+	if !p.isConnectionUsable(conn) {
 		p.closeConnectionWithReason(conn, "error")
 		return nil
 	}
 
+	conn.mutex.Lock()
 	conn.inUse = true
 	conn.lastUsed = time.Now()
+	conn.mutex.Unlock()
+
 	p.recordConnectionReused()
 	p.recordWaitTime(time.Since(start))
 	return conn
 }
 
-// tryCreateNewConnection attempts to create a new connection
-func (p *ConnectionPool) tryCreateNewConnection(start time.Time) (*PooledConnection, error) {
-	currentActive := atomic.LoadInt64(&p.activeConns)
-	if int(currentActive) >= p.maxConnections {
-		return nil, nil
+// isConnectionUsable checks if a connection is still valid without holding
+// conn.mutex across network I/O. It snapshots the mutable fields, then
+// pings outside the critical section when the connection has been idle
+// long enough to warrant a health check.
+func (p *ConnectionPool) isConnectionUsable(conn *PooledConnection) bool {
+	if conn == nil || conn.conn == nil {
+		return false
 	}
 
-	if !atomic.CompareAndSwapInt64(&p.activeConns, currentActive, currentActive+1) {
-		return nil, nil
+	conn.mutex.Lock()
+	inUse := conn.inUse
+	lastUsed := conn.lastUsed
+	createdAt := conn.createdAt
+	conn.mutex.Unlock()
+
+	if time.Since(createdAt) > p.maxIdleTime {
+		return false
+	}
+	if !inUse && time.Since(lastUsed) > p.idleTimeout {
+		return false
+	}
+	// Only ping connections that have been idle for more than 30 seconds
+	// to avoid adding latency to every Get/Put. The ping runs without the
+	// per-connection mutex held so concurrent scrapes are not serialized
+	// behind network round-trips.
+	if !inUse && time.Since(lastUsed) > 30*time.Second {
+		if !p.pingConnection(conn) {
+			logger.SafeDebug("pool", "Connection failed health check", map[string]interface{}{
+				"server":   p.config.ServerName,
+				"conn_age": time.Since(createdAt).Truncate(10 * time.Millisecond).String(),
+			})
+			return false
+		}
+	}
+	return true
+}
+
+// tryCreateNewConnection attempts to reserve a slot in the active-connection
+// budget and then dial a fresh LDAP connection. The reservation is a retry
+// loop on CompareAndSwap: without the loop a lost CAS would return nil to
+// the caller (signaling "pool full") even when capacity was in fact free,
+// and a racing decrement could briefly admit more than maxConnections
+// connections in flight.
+func (p *ConnectionPool) tryCreateNewConnection(start time.Time) (*PooledConnection, error) {
+	for {
+		currentActive := atomic.LoadInt64(&p.activeConns)
+		if int(currentActive) >= p.maxConnections {
+			return nil, nil
+		}
+		if atomic.CompareAndSwapInt64(&p.activeConns, currentActive, currentActive+1) {
+			break
+		}
 	}
 
 	return p.createAndRecordConnection(start)
@@ -166,12 +220,15 @@ func (p *ConnectionPool) createAndRecordConnection(start time.Time) (*PooledConn
 	return conn, nil
 }
 
-// waitForConnection waits for a connection to become available
+// waitForConnection waits for a connection to become available. As with
+// tryGetExistingConnection, poolSize is decremented exactly once here at
+// the channel-receive site so validateAndPrepareConnection stays
+// accounting-free.
 func (p *ConnectionPool) waitForConnection(ctx context.Context, start time.Time) (*PooledConnection, error) {
 	select {
 	case conn := <-p.pool:
+		atomic.AddInt64(&p.poolSize, -1)
 		if conn == nil {
-			atomic.AddInt64(&p.poolSize, -1)
 			return nil, errors.New("nil connection in pool")
 		}
 

@@ -44,6 +44,20 @@ func (af *atomicFloat64) CompareAndSwap(old, new float64) bool {
 	return atomic.CompareAndSwapUint64(&af.value, math.Float64bits(old), math.Float64bits(new))
 }
 
+// Add atomically adds delta to the stored value and returns the new value.
+// Implemented via a CompareAndSwap loop so concurrent scrapes can bump a
+// shared counter without losing updates — a plain Load+Store pair races
+// on its own read-modify-write interval and silently drops increments.
+func (af *atomicFloat64) Add(delta float64) float64 {
+	for {
+		oldBits := atomic.LoadUint64(&af.value)
+		newValue := math.Float64frombits(oldBits) + delta
+		if atomic.CompareAndSwapUint64(&af.value, oldBits, math.Float64bits(newValue)) {
+			return newValue
+		}
+	}
+}
+
 // validateKey performs comprehensive key validation for map operations
 func validateKey(key string) error {
 	if key == "" {
