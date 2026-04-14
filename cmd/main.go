@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	stdlog "log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -36,6 +37,13 @@ const (
 	defaultHealthRequests    = 60
 	defaultHealthBurst       = 20
 )
+
+// jsonStdlibLogger is a stdlib *log.Logger that forwards to a slog JSON
+// handler. It is used as ErrorLog for net/http and promhttp so third-party
+// code that only accepts a *log.Logger still emits JSON lines on stderr
+// instead of unstructured text. Initialised in main() before setupHTTPRoutes
+// so test helpers that call setupHTTPRoutes directly do not crash on nil.
+var jsonStdlibLogger *stdlog.Logger = stdlog.New(os.Stderr, "", 0)
 
 // Environment variable helper functions
 
@@ -156,12 +164,21 @@ func main() {
 	idleTimeout := getEnvDuration("HTTP_IDLE_TIMEOUT", defaultIdleTimeout)
 	shutdownTimeout := getEnvDuration("HTTP_SHUTDOWN_TIMEOUT", defaultShutdownTimeout)
 
+	// JSON slog shared between the exporter-toolkit web package, net/http's
+	// ErrorLog and promhttp handlers: without this override all three fall
+	// back to the stdlib `log` package and emit unstructured text lines
+	// ("time=... level=INFO msg=...") that break log shippers expecting
+	// one JSON object per line.
+	slogger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	jsonStdlibLogger = slog.NewLogLogger(slogger.Handler(), slog.LevelError)
+
 	server := &http.Server{
 		Addr:         *listenAddr,
 		Handler:      mux,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
 		IdleTimeout:  idleTimeout,
+		ErrorLog:     jsonStdlibLogger,
 	}
 
 	// Build exporter-toolkit FlagConfig for TLS/basic auth support
@@ -178,7 +195,6 @@ func main() {
 			"version":         Version,
 			"web_config_file": *webConfigFile,
 		})
-		slogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 		if err := web.ListenAndServe(server, toolkitFlags, slogger); err != nil && err != http.ErrServerClosed {
 			serverErrCh <- err
 		}
@@ -259,8 +275,13 @@ func setupHTTPRoutes(exp *exporter.OpenLDAPExporter) http.Handler {
 		handleRoot(w, r, cfg)
 	})))
 
-	// Metrics endpoint (rate limited + security headers)
-	mux.Handle("/metrics", chainMiddleware(rateLimitMiddleware, promhttp.Handler()))
+	// Metrics endpoint (rate limited + security headers).
+	// Use HandlerFor with our JSON ErrorLog so scrape failures do not leak
+	// unstructured text lines through promhttp's default log.Default() path.
+	metricsHandler := promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{
+		ErrorLog: jsonStdlibLogger,
+	})
+	mux.Handle("/metrics", chainMiddleware(rateLimitMiddleware, metricsHandler))
 
 	// Health check endpoint (rate limited but more generous + security headers)
 	mux.Handle("/health", chainMiddleware(healthMiddleware, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -481,6 +502,7 @@ func handleInternalMetrics(w http.ResponseWriter, r *http.Request, exp *exporter
 	// Create a Prometheus handler for the internal registry
 	handler := promhttp.HandlerFor(internalRegistry, promhttp.HandlerOpts{
 		EnableOpenMetrics: true,
+		ErrorLog:          jsonStdlibLogger,
 	})
 
 	// Serve the internal metrics in Prometheus format
