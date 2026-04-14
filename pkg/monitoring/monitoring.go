@@ -13,9 +13,6 @@ const (
 	MaxEvents = 1000
 	EventTTL  = 24 * time.Hour
 
-	// Rate calculation window
-	RateWindow = 60 * time.Second
-
 	// Placeholder for unknown client IP
 	UnknownClientIP = "unknown"
 )
@@ -84,12 +81,17 @@ type InternalMonitoring struct {
 	startTime time.Time
 }
 
-// EventCounter tracks events over time with cleanup capability
+// EventCounter tracks events over time with cleanup capability.
+//
+// The Rate field was dropped intentionally: it was computed as
+// 1/elapsedSinceLastEvent which is not an actual rate but a very noisy
+// instantaneous sample (two events 1 ms apart would report ~1000/s until
+// the next event landed). Downstream observers should use Prometheus's
+// rate() on the underlying counters instead.
 type EventCounter struct {
 	Count      int64
 	LastEvent  time.Time
 	FirstEvent time.Time
-	Rate       float64 // Events per second
 	mutex      sync.RWMutex
 }
 

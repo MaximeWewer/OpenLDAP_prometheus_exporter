@@ -128,11 +128,8 @@ var mapPool = sync.Pool{
 // sync.Pool is already concurrency-safe, no external mutex needed
 func getMapFromPool() map[string]interface{} {
 	m := mapPool.Get().(map[string]interface{})
-
-	// Clear the map in case it has leftover data
-	for k := range m {
-		delete(m, k)
-	}
+	// Single-intrinsic clear replaces the old per-key delete loop.
+	clear(m)
 	return m
 }
 

@@ -20,18 +20,6 @@ func (im *InternalMonitoring) RecordEvent(eventType string) {
 	if counter, exists := im.events[eventType]; exists {
 		counter.mutex.Lock()
 		counter.Count++
-
-		if !counter.LastEvent.IsZero() {
-			elapsed := now.Sub(counter.LastEvent)
-			if elapsed < RateWindow {
-				counter.Rate = 1.0 / elapsed.Seconds()
-			} else {
-				counter.Rate = 0
-			}
-		} else {
-			counter.Rate = 0
-		}
-
 		counter.LastEvent = now
 		counter.mutex.Unlock()
 	} else {
@@ -39,7 +27,6 @@ func (im *InternalMonitoring) RecordEvent(eventType string) {
 			Count:      1,
 			FirstEvent: now,
 			LastEvent:  now,
-			Rate:       0,
 		}
 	}
 }
@@ -56,7 +43,6 @@ func (im *InternalMonitoring) GetEventStats() map[string]map[string]interface{} 
 		stats[eventType] = map[string]interface{}{
 			"count":      counter.Count,
 			"last_event": counter.LastEvent,
-			"rate":       counter.Rate,
 		}
 		counter.mutex.RUnlock()
 	}

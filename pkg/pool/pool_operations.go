@@ -248,12 +248,19 @@ func (p *ConnectionPool) waitForConnection(ctx context.Context, start time.Time)
 	}
 }
 
-// retryDelay implements a small delay before retry
+// retryDelay implements a small delay before retry. time.NewTimer +
+// explicit Stop is used instead of time.After so a canceled ctx does
+// not leak a timer for 10 ms each call — under a cancel storm that
+// adds up to real pressure on the scheduler's timer heap.
 func (p *ConnectionPool) retryDelay(ctx context.Context) error {
+	timer := time.NewTimer(10 * time.Millisecond)
 	select {
-	case <-time.After(10 * time.Millisecond):
+	case <-timer.C:
 		return nil
 	case <-ctx.Done():
+		if !timer.Stop() {
+			<-timer.C
+		}
 		p.recordContextTimeout(ctx)
 		return ctx.Err()
 	}

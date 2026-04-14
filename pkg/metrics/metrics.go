@@ -458,8 +458,11 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 	}
 }
 
-// getAllMetrics returns a slice of all metric collectors to reduce code duplication
-func (m *OpenLDAPMetrics) getAllMetrics() []prometheus.Collector {
+// Collectors returns every Prometheus collector managed by this registry.
+// It is the single source of truth the exporter's Describe / Collect
+// loops iterate over, so adding a new metric in one place is enough —
+// there is no parallel list to keep in sync.
+func (m *OpenLDAPMetrics) Collectors() []prometheus.Collector {
 	return []prometheus.Collector{
 		// Connection metrics
 		m.ConnectionsCurrent,
@@ -546,14 +549,14 @@ func (m *OpenLDAPMetrics) getAllMetrics() []prometheus.Collector {
 
 // Describe implements the prometheus.Collector interface
 func (m *OpenLDAPMetrics) Describe(ch chan<- *prometheus.Desc) {
-	for _, metric := range m.getAllMetrics() {
+	for _, metric := range m.Collectors() {
 		metric.Describe(ch)
 	}
 }
 
 // Collect implements the prometheus.Collector interface
 func (m *OpenLDAPMetrics) Collect(ch chan<- prometheus.Metric) {
-	for _, metric := range m.getAllMetrics() {
+	for _, metric := range m.Collectors() {
 		metric.Collect(ch)
 	}
 }

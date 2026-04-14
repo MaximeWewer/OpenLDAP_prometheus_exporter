@@ -125,55 +125,12 @@ func NewOpenLDAPExporter(cfg *config.Config) *OpenLDAPExporter {
 	return exporter
 }
 
-// getAllMetrics returns all metrics collectors for Describe and Collect operations
+// getAllMetrics forwards to metricsRegistry.Collectors() so there is a
+// single source of truth for the set of metrics the exporter exposes —
+// previously an identical slice literal lived here AND in pkg/metrics,
+// silently drifting apart every time a new metric was added.
 func (e *OpenLDAPExporter) getAllMetrics() []prometheus.Collector {
-	return []prometheus.Collector{
-		e.metricsRegistry.Up,
-		e.metricsRegistry.ScrapeErrors,
-		e.metricsRegistry.ConnectionsCurrent,
-		e.metricsRegistry.ConnectionsTotal,
-		e.metricsRegistry.BytesTotal,
-		e.metricsRegistry.EntriesTotal,
-		e.metricsRegistry.ReferralsTotal,
-		e.metricsRegistry.PduTotal,
-		e.metricsRegistry.OperationsInitiated,
-		e.metricsRegistry.OperationsCompleted,
-		e.metricsRegistry.ThreadsMax,
-		e.metricsRegistry.ThreadsMaxPending,
-		e.metricsRegistry.ThreadsOpen,
-		e.metricsRegistry.ThreadsStarting,
-		e.metricsRegistry.ThreadsActive,
-		e.metricsRegistry.ThreadsPending,
-		e.metricsRegistry.ThreadsBackload,
-		e.metricsRegistry.ThreadsState,
-		e.metricsRegistry.ServerTime,
-		e.metricsRegistry.ServerUptime,
-		e.metricsRegistry.WaitersRead,
-		e.metricsRegistry.WaitersWrite,
-		e.metricsRegistry.OverlaysInfo,
-		e.metricsRegistry.TlsInfo,
-		e.metricsRegistry.BackendsInfo,
-		e.metricsRegistry.ListenersInfo,
-		e.metricsRegistry.HealthStatus,
-		e.metricsRegistry.ResponseTime,
-		e.metricsRegistry.DatabaseEntries,
-		e.metricsRegistry.DatabaseInfo,
-		e.metricsRegistry.ServerInfo,
-		e.metricsRegistry.LogLevels,
-		e.metricsRegistry.SaslInfo,
-		e.metricsRegistry.ReplicationCSN,
-		e.metricsRegistry.ReplicationLag,
-		e.metricsRegistry.ConnectionsByProtocol,
-		e.metricsRegistry.ConnectionOpsAggregate,
-		e.metricsRegistry.SupportedControlInfo,
-		e.metricsRegistry.PpolicyPwdChangedTimestamp,
-		e.metricsRegistry.PpolicyPwdLastSuccess,
-		e.metricsRegistry.PpolicyPwdGraceUseCount,
-		e.metricsRegistry.PpolicyPwdReset,
-		e.metricsRegistry.AccesslogBindTotal,
-		e.metricsRegistry.AccesslogWriteTotal,
-		e.metricsRegistry.AccesslogLockEventsTotal,
-	}
+	return e.metricsRegistry.Collectors()
 }
 
 // GetInternalMonitoring returns the internal monitoring instance

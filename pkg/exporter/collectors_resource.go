@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-ldap/ldap/v3"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
@@ -199,8 +200,12 @@ func (e *OpenLDAPExporter) collectIndividualConnections(server string) {
 	var totalExecuting, totalPending, totalReceived, totalCompleted float64
 
 	for _, entry := range result.Entries {
-		// Skip the parent entry cn=Connections,cn=Monitor itself
-		if !strings.Contains(entry.DN, "cn=Connection ") {
+		// Skip the parent entry cn=Connections,cn=Monitor itself.
+		// Use ldap.ParseDN so we match by the first RDN regardless of
+		// attribute-name case (RFC 4514 allows "CN=Connection 42"); the
+		// previous strings.Contains missed any entry whose DN differed
+		// from the literal "cn=Connection " prefix.
+		if !hasConnectionRDN(entry.DN) {
 			continue
 		}
 
@@ -247,4 +252,21 @@ func (e *OpenLDAPExporter) collectIndividualConnections(server string) {
 		"server":    server,
 		"protocols": protocolCounts,
 	})
+}
+
+// hasConnectionRDN returns true when the first RDN of dn is a cn=
+// attribute whose value starts with "Connection " (case-insensitive).
+// It tolerates any RFC-legal DN casing and escaping that slapd might
+// emit on different builds.
+func hasConnectionRDN(dn string) bool {
+	parsed, err := ldap.ParseDN(dn)
+	if err != nil || len(parsed.RDNs) == 0 {
+		return false
+	}
+	for _, attr := range parsed.RDNs[0].Attributes {
+		if strings.EqualFold(attr.Type, "cn") && strings.HasPrefix(strings.ToLower(attr.Value), "connection ") {
+			return true
+		}
+	}
+	return false
 }

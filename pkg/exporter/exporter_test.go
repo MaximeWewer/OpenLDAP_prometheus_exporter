@@ -3,10 +3,13 @@ package exporter
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/go-ldap/ldap/v3"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
@@ -855,7 +858,9 @@ func TestValidateKey(t *testing.T) {
 	}
 }
 
-// TestIsRetryableError tests the isRetryableError function
+// TestIsRetryableError tests the isRetryableError function. The
+// implementation matches typed errors (errors.Is / errors.As) rather
+// than substrings, so tests use the real sentinels it recognizes.
 func TestIsRetryableError(t *testing.T) {
 	testCases := []struct {
 		name      string
@@ -868,27 +873,37 @@ func TestIsRetryableError(t *testing.T) {
 			retryable: false,
 		},
 		{
-			name:      "Connection timeout",
-			err:       fmt.Errorf("connection timeout"),
+			name:      "Context deadline exceeded",
+			err:       fmt.Errorf("upstream call failed: %w", context.DeadlineExceeded),
 			retryable: true,
 		},
 		{
-			name:      "Network unreachable",
-			err:       fmt.Errorf("network is unreachable"),
+			name:      "Connection refused (ECONNREFUSED)",
+			err:       fmt.Errorf("dial tcp: %w", syscall.ECONNREFUSED),
 			retryable: true,
 		},
 		{
-			name:      "Connection refused",
-			err:       fmt.Errorf("connection refused"),
+			name:      "Connection reset (ECONNRESET)",
+			err:       fmt.Errorf("read: %w", syscall.ECONNRESET),
 			retryable: true,
 		},
 		{
-			name:      "Authentication error",
+			name:      "Unexpected EOF",
+			err:       io.ErrUnexpectedEOF,
+			retryable: true,
+		},
+		{
+			name:      "LDAP server down",
+			err:       &ldap.Error{ResultCode: ldap.ErrorNetwork, Err: fmt.Errorf("server down")},
+			retryable: true,
+		},
+		{
+			name:      "Authentication error (not retryable)",
 			err:       fmt.Errorf("authentication failed"),
 			retryable: false,
 		},
 		{
-			name:      "Generic error",
+			name:      "Generic unwrapped error",
 			err:       fmt.Errorf("some other error"),
 			retryable: false,
 		},
@@ -969,7 +984,7 @@ func TestRetryOperation(t *testing.T) {
 	err = exporter.retryOperation(context.Background(), "test_retryable", func() error {
 		failCount++
 		if failCount < 3 {
-			return fmt.Errorf("connection timeout")
+			return fmt.Errorf("dial tcp: %w", syscall.ECONNREFUSED)
 		}
 		return nil
 	})

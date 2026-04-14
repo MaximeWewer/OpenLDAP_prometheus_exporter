@@ -4,12 +4,17 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"io"
 	"math"
 	"math/big"
+	"net"
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
+
+	"github.com/go-ldap/ldap/v3"
 
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
@@ -85,31 +90,51 @@ func validateKey(key string) error {
 	return nil
 }
 
-// isRetryableError determines if an error should be retried
+// isRetryableError determines if an error should be retried. Uses typed
+// error matching (errors.Is / errors.As) so an upstream fmt.Errorf
+// wrapping ("%w") does not silently break retry classification the way
+// a substring match on err.Error() would.
 func isRetryableError(err error) bool {
 	if err == nil {
 		return false
 	}
 
-	// Check for common retryable error patterns
-	errorStr := strings.ToLower(err.Error())
-	retryablePatterns := []string{
-		"connection refused",
-		"timeout",
-		"network is unreachable",
-		"temporary failure",
-		"server closed",
-		"broken pipe",
-		"no such host",
-		"connection reset",
+	// Context deadline / cancellation propagate naturally from the
+	// scrape context and are the cleanest retry signal we get.
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
 	}
-
-	for _, pattern := range retryablePatterns {
-		if strings.Contains(errorStr, pattern) {
+	// Common network primitives that surface during slapd restarts,
+	// socket resets and DNS hiccups.
+	if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ETIMEDOUT) ||
+		errors.Is(err, syscall.EHOSTUNREACH) || errors.Is(err, syscall.ENETUNREACH) {
+		return true
+	}
+	// Any *net.OpError that the platform flagged as a transient timeout
+	// (wraps the above on most kernels but we catch the outer interface
+	// too in case platform-specific errno values slip through).
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	// LDAP-level signals that map to "server went away, please retry":
+	// serverDown (81), timeLimitExceeded (3), busy (51), unavailable (52).
+	var ldapErr *ldap.Error
+	if errors.As(err, &ldapErr) {
+		switch ldapErr.ResultCode {
+		case ldap.LDAPResultTimeLimitExceeded,
+			ldap.LDAPResultBusy,
+			ldap.LDAPResultUnavailable,
+			ldap.ErrorNetwork:
 			return true
 		}
 	}
-
 	return false
 }
 
