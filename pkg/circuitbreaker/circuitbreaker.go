@@ -76,8 +76,15 @@ type CircuitBreaker struct {
 	failures        int
 	successes       int
 	lastFailureTime time.Time
-	mutex           sync.RWMutex
-	onStateChange   func(from, to State)
+	// halfOpenInFlight caps the number of probes allowed through
+	// simultaneously when the breaker is in half-open state. Without
+	// the cap every concurrent scrape is admitted at once, a single
+	// failure among them re-opens the circuit, and the others still
+	// count as failures in recordResult — producing an open↔half-open
+	// flap instead of the textbook "one probe at a time" semantics.
+	halfOpenInFlight int
+	mutex            sync.RWMutex
+	onStateChange    func(from, to State)
 
 	// Callback management
 	callbackCtx    context.Context
@@ -183,18 +190,34 @@ func (cb *CircuitBreaker) canExecuteUnsafe() bool {
 
 	switch cb.state {
 	case StateClosed:
+		// Age out a stale failure streak after the classic rolling window:
+		// if no failure was recorded for longer than cb.config.Timeout, the
+		// remote is presumed healthy again and the counter resets. Without
+		// this, a slow drip of one failure per hour eventually trips the
+		// breaker even though the service never had an outage.
+		if cb.failures > 0 && now.Sub(cb.lastFailureTime) >= cb.config.Timeout {
+			cb.failures = 0
+		}
 		return true
 
 	case StateOpen:
-		// Check if enough time has passed to try half-open
+		// Check if enough time has passed to try half-open.
 		if now.Sub(cb.lastFailureTime) >= cb.config.Timeout {
 			cb.setStateUnsafe(StateHalfOpen)
+			cb.halfOpenInFlight = 1
 			return true
 		}
 		return false
 
 	case StateHalfOpen:
-		// In half-open state, allow a limited number of requests
+		// Admit at most SuccessThreshold concurrent probes. Further
+		// requests are blocked until the admitted probes finish and
+		// close / reopen the circuit — this is what prevents a burst of
+		// concurrent scrapes from flapping the state.
+		if cb.halfOpenInFlight >= cb.config.SuccessThreshold {
+			return false
+		}
+		cb.halfOpenInFlight++
 		return true
 
 	default:
@@ -206,6 +229,12 @@ func (cb *CircuitBreaker) canExecuteUnsafe() bool {
 func (cb *CircuitBreaker) recordResult(err error) {
 	cb.mutex.Lock()
 	defer cb.mutex.Unlock()
+
+	// If we were admitted as a half-open probe, release the slot back
+	// regardless of outcome so another probe can be admitted next.
+	if cb.state == StateHalfOpen && cb.halfOpenInFlight > 0 {
+		cb.halfOpenInFlight--
+	}
 
 	if err != nil {
 		cb.onFailure()
@@ -269,6 +298,14 @@ func (cb *CircuitBreaker) setStateUnsafe(newState State) {
 	oldState := cb.state
 	cb.state = newState
 	cb.stateChanges++
+
+	// Leaving the half-open state clears any stale probe accounting so
+	// the next transition back in starts from zero. Entering it is
+	// handled in canExecuteUnsafe, which seeds the counter to 1 for the
+	// probe that just got admitted.
+	if oldState == StateHalfOpen && newState != StateHalfOpen {
+		cb.halfOpenInFlight = 0
+	}
 
 	logger.SafeInfo("circuitbreaker", "Circuit breaker state changed", map[string]interface{}{
 		"from": oldState.String(),

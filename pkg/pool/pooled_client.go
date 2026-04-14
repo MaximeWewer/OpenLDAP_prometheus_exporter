@@ -228,7 +228,7 @@ func (c *PooledLDAPClient) Search(baseDN, filter string, attributes []string) (*
 	// Record circuit breaker monitoring
 	if c.cbMonitoring != nil && c.serverName != "" {
 		if err != nil {
-			if strings.Contains(err.Error(), "circuit breaker is open") {
+			if errors.Is(err, circuitbreaker.ErrCircuitBreakerOpen) {
 				// Request was blocked by circuit breaker
 				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
 			} else {
@@ -311,7 +311,7 @@ func (c *PooledLDAPClient) SearchContextCSN(suffixDN string) (*ldap.SearchResult
 
 	if c.cbMonitoring != nil && c.serverName != "" {
 		if err != nil {
-			if strings.Contains(err.Error(), "circuit breaker is open") {
+			if errors.Is(err, circuitbreaker.ErrCircuitBreakerOpen) {
 				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
 			} else {
 				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
@@ -401,7 +401,7 @@ func (c *PooledLDAPClient) SearchSuffix(suffixDN, filter string, attributes []st
 
 	if c.cbMonitoring != nil && c.serverName != "" {
 		if err != nil {
-			if strings.Contains(err.Error(), "circuit breaker is open") {
+			if errors.Is(err, circuitbreaker.ErrCircuitBreakerOpen) {
 				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
 			} else {
 				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
@@ -488,7 +488,7 @@ func (c *PooledLDAPClient) SearchAccessLog(filter string, attributes []string) (
 
 	if c.cbMonitoring != nil && c.serverName != "" {
 		if err != nil {
-			if strings.Contains(err.Error(), "circuit breaker is open") {
+			if errors.Is(err, circuitbreaker.ErrCircuitBreakerOpen) {
 				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
 			} else {
 				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
@@ -559,7 +559,7 @@ func (c *PooledLDAPClient) SearchRootDSE(attributes []string) (*ldap.SearchResul
 
 	if c.cbMonitoring != nil && c.serverName != "" {
 		if err != nil {
-			if strings.Contains(err.Error(), "circuit breaker is open") {
+			if errors.Is(err, circuitbreaker.ErrCircuitBreakerOpen) {
 				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
 			} else {
 				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
