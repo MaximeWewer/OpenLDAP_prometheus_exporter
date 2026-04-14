@@ -59,12 +59,19 @@ type OpenLDAPExporter struct {
 	accesslogBindTracker  *accesslogSeriesTracker
 	accesslogWriteTracker *accesslogSeriesTracker
 	accesslogLockTracker  *accesslogSeriesTracker
-	stopChan              chan struct{} // Signal to stop background goroutines
-	stopped               int32         // Atomic flag to indicate if exporter is stopped
-	closeOnce             sync.Once     // Ensures Close() is called only once
-	totalScrapes          atomicFloat64
-	totalErrors           atomicFloat64
-	lastScrapeTime        atomicFloat64
+	// collectMu serializes Collect() calls so two concurrent Prometheus
+	// scrapes (e.g. Prometheus itself + a Grafana alerting evaluator
+	// hitting /metrics at the same time) do not race on the delta-based
+	// counter updates in counter_management.go — two readers observing
+	// the same oldValue would each Add the same delta and lose one of
+	// the increments.
+	collectMu      sync.Mutex
+	stopChan       chan struct{} // Signal to stop background goroutines
+	stopped        int32         // Atomic flag to indicate if exporter is stopped
+	closeOnce      sync.Once     // Ensures Close() is called only once
+	totalScrapes   atomicFloat64
+	totalErrors    atomicFloat64
+	lastScrapeTime atomicFloat64
 }
 
 // NewOpenLDAPExporter creates a new OpenLDAP exporter with the given configuration
@@ -193,8 +200,22 @@ func (e *OpenLDAPExporter) Describe(ch chan<- *prometheus.Desc) {
 	}
 }
 
-// Collect gathers metrics from OpenLDAP and sends them to Prometheus
+// Collect gathers metrics from OpenLDAP and sends them to Prometheus.
+//
+// The entire body is serialized by collectMu: prometheus/client_golang
+// invokes Collect on its own goroutine and nothing stops two independent
+// HTTP handlers (for example /metrics for Prometheus and the same
+// endpoint hit by Grafana alerting) from calling it concurrently. The
+// delta-based counter update path in counter_management.go reads an old
+// value, computes a delta, and stores the new value — if two callers
+// read the same old value in parallel they both compute the same delta
+// and one of the increments is lost. Serializing Collect closes that
+// race at the cost of scrape concurrency (an acceptable tradeoff because
+// the exporter's bottleneck is the LDAP round-trips, not CPU).
 func (e *OpenLDAPExporter) Collect(ch chan<- prometheus.Metric) {
+	e.collectMu.Lock()
+	defer e.collectMu.Unlock()
+
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.Timeout)
 	defer cancel()

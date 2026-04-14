@@ -178,6 +178,11 @@ func (e *OpenLDAPExporter) collectHealthMetrics(server string) {
 // collectIndividualConnections queries individual connection entries under cn=Connections,cn=Monitor
 // and aggregates metrics by protocol version and operation state.
 func (e *OpenLDAPExporter) collectIndividualConnections(server string) {
+	// Reset so a protocol that no longer has any active connection (e.g.
+	// the last LDAPv2 client disconnected) stops publishing its previous
+	// value as a frozen ghost series.
+	e.metricsRegistry.ConnectionsByProtocol.Reset()
+
 	result, err := e.client.Search(
 		"cn=Connections,cn=Monitor",
 		"(objectClass=*)",

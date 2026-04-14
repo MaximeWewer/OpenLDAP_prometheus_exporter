@@ -19,6 +19,16 @@ func (e *OpenLDAPExporter) collectPpolicyMetrics(server string) {
 		return
 	}
 
+	// Reset the per-user ppolicy gauges at the start of every scrape so
+	// users that disappeared from LDAP (account deleted, filter changed,
+	// DC filter narrowed) stop showing up as flat lines in Grafana. The
+	// set of active series is then fully rebuilt below from the entries
+	// we actually observe on this scan.
+	e.metricsRegistry.PpolicyPwdChangedTimestamp.Reset()
+	e.metricsRegistry.PpolicyPwdLastSuccess.Reset()
+	e.metricsRegistry.PpolicyPwdGraceUseCount.Reset()
+	e.metricsRegistry.PpolicyPwdReset.Reset()
+
 	// Step 1: Get naming contexts from the monitor database entries
 	result, err := e.searchLDAP(
 		"cn=Databases,cn=Monitor",

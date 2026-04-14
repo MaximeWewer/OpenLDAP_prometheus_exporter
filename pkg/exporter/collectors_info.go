@@ -11,11 +11,16 @@ import (
 // ExporterVersion is set at build time via ldflags or defaults to "dev"
 var ExporterVersion = "dev"
 
-// collectOverlaysMetrics collects overlay information metrics
+// collectOverlaysMetrics collects overlay information metrics.
+// The OverlaysInfo vector is reset before every scan so a slapd that had
+// an overlay removed at runtime stops publishing a stale "still active"
+// series.
 func (e *OpenLDAPExporter) collectOverlaysMetrics(server string) {
 	if !e.shouldCollectMetric("overlays") {
 		return
 	}
+
+	e.metricsRegistry.OverlaysInfo.Reset()
 
 	result, err := e.searchLDAP(
 		"cn=Overlays,cn=Monitor",
@@ -39,6 +44,8 @@ func (e *OpenLDAPExporter) collectTLSMetrics(server string) {
 		return
 	}
 
+	e.metricsRegistry.TlsInfo.Reset()
+
 	result, err := e.searchLDAP(
 		"cn=TLS,cn=Monitor",
 		"(objectClass=*)",
@@ -60,6 +67,8 @@ func (e *OpenLDAPExporter) collectBackendsMetrics(server string) {
 	if !e.shouldCollectMetric("backends") {
 		return
 	}
+
+	e.metricsRegistry.BackendsInfo.Reset()
 
 	result, err := e.searchLDAP(
 		"cn=Backends,cn=Monitor",
@@ -122,6 +131,8 @@ func (e *OpenLDAPExporter) collectListenersMetrics(server string) {
 	if !e.shouldCollectMetric("listeners") {
 		return
 	}
+
+	e.metricsRegistry.ListenersInfo.Reset()
 
 	result, err := e.client.Search(
 		"cn=Listeners,cn=Monitor",
@@ -198,6 +209,8 @@ func (e *OpenLDAPExporter) collectLogMetrics(server string) {
 		return
 	}
 
+	e.metricsRegistry.LogLevels.Reset()
+
 	// Common log types based on OpenLDAP documentation
 	logTypes := []string{
 		"Trace", "Packets", "Args", "Conns", "BER", "Filter",
@@ -245,6 +258,8 @@ func (e *OpenLDAPExporter) collectSupportedControlsMetrics(server string) {
 		return
 	}
 
+	e.metricsRegistry.SupportedControlInfo.Reset()
+
 	result, err := e.client.SearchRootDSE([]string{"supportedControl"})
 	if err != nil {
 		logger.SafeDebug("exporter", "Failed to query RootDSE for supportedControl", map[string]interface{}{
@@ -279,6 +294,8 @@ func (e *OpenLDAPExporter) collectSASLMetrics(server string) {
 	if !e.shouldCollectMetric("sasl") {
 		return
 	}
+
+	e.metricsRegistry.SaslInfo.Reset()
 
 	result, err := e.client.Search(
 		"cn=SASL,cn=Monitor",
