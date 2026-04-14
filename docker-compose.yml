@@ -5,6 +5,12 @@ services:
     hostname: openldap-exporter
     container_name: openldap-exporter
     restart: unless-stopped
+    # Run as the host user so a bind-mounted events directory
+    # (OPENLDAP_EVENTS_OUTPUT on a filesystem path) is writable without a
+    # world-writable chmod. Distroless/static images have no /etc/passwd so
+    # passing a numeric UID:GID is mandatory. Override in production via
+    # `UID=... GID=... docker compose up -d` or a `.env` file.
+    user: "${UID:-1000}:${GID:-1000}"
     ports:
       - "9330:9330"
     environment:
@@ -67,14 +73,31 @@ services:
       # JSON events stream (ppolicy + accesslog derived events)
       # ========================================
       # Runs on its own ticker with its own reqStart cursor, independent of Prometheus scrapes.
-      # OPENLDAP_EVENTS_ENABLED: "true"                     # Enable the JSON events stream (default: false)
-      # OPENLDAP_EVENTS_INTERVAL: "30s"                     # Scan interval (default: 30s, min 5s, max 30m)
-      # OPENLDAP_EVENTS_OUTPUT: "stdout"                    # "stdout" (default) or a filesystem path; path may contain {date}
-      # OPENLDAP_EVENTS_ROTATION: "none"                    # "none" (default) or "daily" — file output only
-      # OPENLDAP_EVENTS_TYPES: "bind.failure,account.lock"  # Optional allow-list, comma separated (default: all types)
+      #
+      # stdout (default, zero filesystem coupling) — recommended for container
+      # deployments: let the json-file log driver above capture the stream and
+      # ship it with your existing log pipeline (Promtail, Vector, …).
+      # OPENLDAP_EVENTS_ENABLED: "true"
+      # OPENLDAP_EVENTS_INTERVAL: "30s"
+      # OPENLDAP_EVENTS_OUTPUT: "stdout"
+      #
+      # File output — uncomment the volume bind below as well. The file is
+      # created with mode 0644 and owned by the user: directive above, so the
+      # host directory must already be writable by that UID (or created with
+      # `install -d -o $UID -g $GID ./openldap-events` before `docker compose up`).
+      # OPENLDAP_EVENTS_OUTPUT: "/var/log/openldap-events/openldap-events-{date}.jsonl"
+      # OPENLDAP_EVENTS_ROTATION: "daily"                  # none (default) or daily (rolls at UTC midnight)
+      #
+      # OPENLDAP_EVENTS_TYPES: "bind.failure,account.lock" # Optional allow-list, comma separated (default: all types)
       # Available event types: bind.success, bind.failure, account.lock, account.unlock,
       #                        password.change, password.reset_required,
       #                        write.add, write.modify, write.delete, write.modrdn
+
+    # volumes:
+    #   # Only needed when OPENLDAP_EVENTS_OUTPUT points at a filesystem path.
+    #   # Create the host directory ahead of time with the expected owner:
+    #   #   install -d -o $(id -u) -g $(id -g) ./openldap-events
+    #   - ./openldap-events:/var/log/openldap-events
 
     healthcheck:
       test: ["CMD", "/openldap-exporter", "-version"]

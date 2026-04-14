@@ -126,15 +126,26 @@ func main() {
 	// Optional JSON events stream (ppolicy + accesslog derived events).
 	// Runs on its own ticker with its own cursor so it does not perturb —
 	// and is not perturbed by — Prometheus scrapes.
+	//
+	// Initialisation failures (typically file-permission errors on a
+	// bind-mounted output path) are logged with an actionable message and
+	// the runner is skipped; the metrics side of the exporter keeps running
+	// regardless so `/metrics` and `/health` stay available while the
+	// operator fixes the underlying issue.
 	var eventsRunner *events.Runner
 	if configData.EventsEnabled {
 		r, err := events.NewRunner(configData, exp.Client())
 		if err != nil {
-			logger.Fatal("main", "Failed to initialise events runner", err)
+			logger.SafeError("main", "Events stream disabled: failed to initialise events runner", err, map[string]interface{}{
+				"hint":                "Metrics collection is unaffected; fix the error above and restart the container to re-enable the events stream.",
+				"events_output":       configData.EventsOutput,
+				"events_rotation":     string(configData.EventsRotation),
+			})
+		} else {
+			r.Start()
+			eventsRunner = r
+			defer eventsRunner.Stop()
 		}
-		r.Start()
-		eventsRunner = r
-		defer eventsRunner.Stop()
 	}
 
 	mux := setupHTTPRoutes(exp)

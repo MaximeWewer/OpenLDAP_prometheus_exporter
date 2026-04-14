@@ -2,8 +2,10 @@ package events
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -160,9 +162,29 @@ func (r *fileRotator) ensureDir() error {
 		return nil
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("events: create output directory %s: %w", dir, err)
+		return wrapPermError("create output directory", dir, err)
 	}
 	return nil
+}
+
+// wrapPermError decorates a filesystem error with the current process UID/GID
+// and a concrete remediation hint when the failure is a permission denied on
+// a host-mounted path. The runtime UID is frequently mismatched between the
+// container (distroless/static uses 65532) and the host owner of the bind
+// mount, which is by far the most common failure mode when enabling the
+// events stream on a filesystem path.
+func wrapPermError(action, path string, err error) error {
+	if !errors.Is(err, fs.ErrPermission) {
+		return fmt.Errorf("events: %s %s: %w", action, path, err)
+	}
+	return fmt.Errorf(
+		"events: %s %s: %w — process runs as uid=%d gid=%d; ensure the host path is writable by that uid "+
+			"(e.g. `install -d -o %d -g %d %s` on the host, or set `user: \"%d:%d\"` on the exporter service "+
+			"to match the bind-mount owner)",
+		action, path, err, os.Getuid(), os.Getgid(),
+		os.Getuid(), os.Getgid(), filepath.Dir(path),
+		os.Getuid(), os.Getgid(),
+	)
 }
 
 // resolvePathFor substitutes the {date} token in the configured template. If
@@ -199,7 +221,7 @@ func (r *fileRotator) rollIfNeeded() error {
 	// the stream without having to share a Unix group with it.
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		return fmt.Errorf("events: open %s: %w", path, err)
+		return wrapPermError("open", path, err)
 	}
 	r.file = f
 	r.currentPath = path
