@@ -41,7 +41,7 @@ const (
 // jsonStdlibLogger is a stdlib *log.Logger that forwards to a slog JSON
 // handler. It is used as ErrorLog for net/http and promhttp so third-party
 // code that only accepts a *log.Logger still emits JSON lines on stderr
-// instead of unstructured text. Initialised in main() before setupHTTPRoutes
+// instead of unstructured text. Initialized in main() before setupHTTPRoutes
 // so test helpers that call setupHTTPRoutes directly do not crash on nil.
 var jsonStdlibLogger *stdlog.Logger = stdlog.New(os.Stderr, "", 0)
 
@@ -144,10 +144,10 @@ func main() {
 	if configData.EventsEnabled {
 		r, err := events.NewRunner(configData, exp.Client())
 		if err != nil {
-			logger.SafeError("main", "Events stream disabled: failed to initialise events runner", err, map[string]interface{}{
-				"hint":                "Metrics collection is unaffected; fix the error above and restart the container to re-enable the events stream.",
-				"events_output":       configData.EventsOutput,
-				"events_rotation":     string(configData.EventsRotation),
+			logger.SafeError("main", "Events stream disabled: failed to initialize events runner", err, map[string]interface{}{
+				"hint":            "Metrics collection is unaffected; fix the error above and restart the container to re-enable the events stream.",
+				"events_output":   configData.EventsOutput,
+				"events_rotation": string(configData.EventsRotation),
 			})
 		} else {
 			r.Start()
@@ -452,7 +452,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request, cfg *config.Config) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write([]byte(fmt.Sprintf(rootPageTemplate, Version, includeFilter, excludeFilter))); err != nil {
+	if _, err := fmt.Fprintf(w, rootPageTemplate, Version, includeFilter, excludeFilter); err != nil {
 		logger.Error("main", "Failed to write root page response", err)
 	}
 }

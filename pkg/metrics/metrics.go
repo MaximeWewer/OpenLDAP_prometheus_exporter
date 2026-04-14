@@ -6,38 +6,38 @@ import (
 
 // OpenLDAPMetrics holds all Prometheus metrics for OpenLDAP monitoring
 type OpenLDAPMetrics struct {
-	ConnectionsCurrent  *prometheus.GaugeVec
-	ConnectionsTotal    *prometheus.CounterVec
-	BytesTotal          *prometheus.CounterVec
-	PduTotal            *prometheus.CounterVec
-	ReferralsTotal      *prometheus.CounterVec
-	EntriesTotal        *prometheus.CounterVec
-	ThreadsMax          *prometheus.GaugeVec
-	ThreadsMaxPending   *prometheus.GaugeVec
-	ThreadsBackload     *prometheus.GaugeVec
-	ThreadsActive       *prometheus.GaugeVec
-	ThreadsOpen         *prometheus.GaugeVec
-	ThreadsStarting     *prometheus.GaugeVec
-	ThreadsPending      *prometheus.GaugeVec
-	ThreadsState        *prometheus.GaugeVec
-	OperationsInitiated *prometheus.CounterVec
-	OperationsCompleted *prometheus.CounterVec
-	WaitersRead         *prometheus.GaugeVec
-	WaitersWrite        *prometheus.GaugeVec
-	OverlaysInfo        *prometheus.GaugeVec
-	ServerTime          *prometheus.GaugeVec
-	ServerUptime        *prometheus.GaugeVec
-	TlsInfo             *prometheus.GaugeVec
-	BackendsInfo        *prometheus.GaugeVec
-	ListenersInfo       *prometheus.GaugeVec
-	DatabaseEntries     *prometheus.GaugeVec
-	DatabaseInfo        *prometheus.GaugeVec
-	HealthStatus        *prometheus.GaugeVec
-	ResponseTime        *prometheus.HistogramVec
-	ScrapeErrors        *prometheus.CounterVec
-	Up                  *prometheus.GaugeVec
-	ServerInfo          *prometheus.GaugeVec
-	LogLevels           *prometheus.GaugeVec
+	ConnectionsCurrent     *prometheus.GaugeVec
+	ConnectionsTotal       *prometheus.CounterVec
+	BytesTotal             *prometheus.CounterVec
+	PduTotal               *prometheus.CounterVec
+	ReferralsTotal         *prometheus.CounterVec
+	EntriesTotal           *prometheus.CounterVec
+	ThreadsMax             *prometheus.GaugeVec
+	ThreadsMaxPending      *prometheus.GaugeVec
+	ThreadsBackload        *prometheus.GaugeVec
+	ThreadsActive          *prometheus.GaugeVec
+	ThreadsOpen            *prometheus.GaugeVec
+	ThreadsStarting        *prometheus.GaugeVec
+	ThreadsPending         *prometheus.GaugeVec
+	ThreadsState           *prometheus.GaugeVec
+	OperationsInitiated    *prometheus.CounterVec
+	OperationsCompleted    *prometheus.CounterVec
+	WaitersRead            *prometheus.GaugeVec
+	WaitersWrite           *prometheus.GaugeVec
+	OverlaysInfo           *prometheus.GaugeVec
+	ServerTime             *prometheus.GaugeVec
+	ServerUptime           *prometheus.GaugeVec
+	TlsInfo                *prometheus.GaugeVec
+	BackendsInfo           *prometheus.GaugeVec
+	ListenersInfo          *prometheus.GaugeVec
+	DatabaseEntries        *prometheus.GaugeVec
+	DatabaseInfo           *prometheus.GaugeVec
+	HealthStatus           *prometheus.GaugeVec
+	ResponseTime           *prometheus.HistogramVec
+	ScrapeErrors           *prometheus.CounterVec
+	Up                     *prometheus.GaugeVec
+	ServerInfo             *prometheus.GaugeVec
+	LogLevels              *prometheus.GaugeVec
 	SaslInfo               *prometheus.GaugeVec
 	ReplicationCSN         *prometheus.GaugeVec
 	ReplicationLag         *prometheus.GaugeVec

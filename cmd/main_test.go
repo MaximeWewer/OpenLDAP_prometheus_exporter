@@ -159,7 +159,7 @@ func TestHandleHealth(t *testing.T) {
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 
-	var _ *http.Request = req
+	_ = req
 	handleHealth(w, exp)
 
 	resp := w.Result()
@@ -456,7 +456,7 @@ func BenchmarkHandleHealth(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		w := httptest.NewRecorder()
-		var _ *http.Request = req
+		_ = req
 		handleHealth(w, exp)
 	}
 }

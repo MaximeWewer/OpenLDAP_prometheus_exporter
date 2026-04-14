@@ -62,13 +62,13 @@ type ConnectionPool struct {
 	pool           chan *PooledConnection
 	mutex          sync.RWMutex
 	maxConnections int
-	activeConns    int64          // Atomic counter for active connections
-	poolSize       int64          // Atomic counter for pool size
+	activeConns    int64 // Atomic counter for active connections
+	poolSize       int64 // Atomic counter for pool size
 	connTimeout    time.Duration
 	idleTimeout    time.Duration
 	maxIdleTime    time.Duration
 	closed         int32          // Atomic flag for closed state
-	shutdownChan   chan struct{}   // Channel to signal shutdown
+	shutdownChan   chan struct{}  // Channel to signal shutdown
 	maintainWG     sync.WaitGroup // WaitGroup to track maintenance goroutine
 	closeOnce      sync.Once      // Ensures Close() is called only once
 	monitoring     PoolMonitoring // Interface for monitoring integration

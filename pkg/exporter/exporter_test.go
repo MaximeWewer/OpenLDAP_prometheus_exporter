@@ -1795,7 +1795,7 @@ func TestCollectAllMetricsWithCancelledContext(t *testing.T) {
 	exporter := NewOpenLDAPExporter(cfg)
 	defer exporter.Close()
 
-	// Create a cancelled context
+	// Create a canceled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -2343,7 +2343,7 @@ func TestCollectAllMetricsWithContextAdvanced(t *testing.T) {
 			expectTimeout: true,
 		},
 		{
-			name: "cancelled_context",
+			name: "canceled_context",
 			setupExporter: func() *OpenLDAPExporter {
 				return NewOpenLDAPExporter(cfg)
 			},

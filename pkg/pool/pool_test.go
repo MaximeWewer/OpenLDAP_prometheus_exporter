@@ -23,7 +23,6 @@ const (
 	testSmallMaxConnections = 2
 )
 
-
 // newTestConnectionPool creates a connection pool without maintenance goroutine for testing
 func newTestConnectionPool(cfg *config.Config, maxConnections int) *ConnectionPool {
 	pool := &ConnectionPool{

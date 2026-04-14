@@ -47,7 +47,7 @@ func AllTypes() []Type {
 	}
 }
 
-// Event is the serialised record emitted on the events stream. Fields are
+// Event is the serialized record emitted on the events stream. Fields are
 // designed to be stable across versions so downstream consumers (Loki, Vector,
 // …) can match on them without brittle parsing.
 type Event struct {

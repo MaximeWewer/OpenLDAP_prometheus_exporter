@@ -1,0 +1,67 @@
+# golangci-lint configuration — single source of truth for the static
+# analysis gate. Runs every linter the ad-hoc jobs used to invoke one by
+# one (gofmt/goimports, govet+shadow, errcheck, ineffassign, staticcheck,
+# gocyclo, misspell) so CI only has to shell out to a single tool.
+#
+# gosec stays in its own security job because it produces SARIF and
+# uploads to GitHub's security tab — golangci-lint's gosec linter cannot
+# emit SARIF on its own.
+
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - gocyclo
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unused
+  settings:
+    staticcheck:
+      # Keep real correctness checks (SA*, S*) but drop the stylistic
+      # "ST*" and the "QF*" quick-fix hints — they are opinionated
+      # suggestions, not defects, and would fight existing code.
+      checks:
+        - "all"
+        - "-ST*"
+        - "-QF*"
+    gocyclo:
+      min-complexity: 20
+    govet:
+      enable:
+        - shadow
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+    misspell:
+      # Codebase mostly uses US English; flag the few UK spellings that
+      # slipped in via recently added comments.
+      locale: US
+  exclusions:
+    paths:
+      - tests/docker
+    rules:
+      # Test files may legitimately ignore errors, have higher cyclomatic
+      # complexity, and shadow `err` in nested `if err := …` blocks.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gocyclo
+          - govet
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

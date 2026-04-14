@@ -91,8 +91,10 @@ func LoadConfig() (*Config, error) {
 		if err != nil {
 			logger.Fatal("config", "Failed to create secure password storage", err)
 		}
-		// Clear the plaintext password from the local variable
-		passwordValue = ""
+		// Go strings are immutable, assigning "" to passwordValue would not
+		// actually zero the underlying backing array — the secure copy lives
+		// in securePassword from this point on. The local string is left to
+		// the garbage collector.
 	}
 
 	config := &Config{

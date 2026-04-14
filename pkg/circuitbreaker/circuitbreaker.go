@@ -263,7 +263,6 @@ func (cb *CircuitBreaker) onSuccess() {
 	}
 }
 
-
 // setStateUnsafe changes the circuit breaker state without acquiring mutex
 // This method assumes the caller already holds the mutex
 func (cb *CircuitBreaker) setStateUnsafe(newState State) {

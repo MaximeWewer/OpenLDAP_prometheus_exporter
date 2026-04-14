@@ -16,7 +16,7 @@ import (
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
 
-// Emitter serialises Event values to JSON Lines and writes them to a
+// Emitter serializes Event values to JSON Lines and writes them to a
 // destination (stdout or a rotating file). It is safe for concurrent use.
 type Emitter struct {
 	mu       sync.Mutex

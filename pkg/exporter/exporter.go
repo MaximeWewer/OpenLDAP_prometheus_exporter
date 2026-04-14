@@ -56,9 +56,9 @@ type OpenLDAPExporter struct {
 	counterMutex    sync.RWMutex                        // Protects counterValues map
 	accesslogCursor map[string]*accesslogCursorState    // Per-server accesslog incremental scan cursors
 	accesslogMutex  sync.Mutex                          // Protects accesslogCursor map
-	stopChan        chan struct{}        // Signal to stop background goroutines
-	stopped         int32                // Atomic flag to indicate if exporter is stopped
-	closeOnce       sync.Once            // Ensures Close() is called only once
+	stopChan        chan struct{}                       // Signal to stop background goroutines
+	stopped         int32                               // Atomic flag to indicate if exporter is stopped
+	closeOnce       sync.Once                           // Ensures Close() is called only once
 	totalScrapes    atomicFloat64
 	totalErrors     atomicFloat64
 	lastScrapeTime  atomicFloat64
@@ -301,7 +301,7 @@ func (e *OpenLDAPExporter) collectAllMetricsWithContext(ctx context.Context) err
 					errorMutex.Lock()
 					collectErrors = append(collectErrors, taskCtx.Err())
 					errorMutex.Unlock()
-					logger.SafeWarn("exporter", "Metric collection cancelled", map[string]interface{}{
+					logger.SafeWarn("exporter", "Metric collection canceled", map[string]interface{}{
 						"metric_group": t.name,
 					})
 					return

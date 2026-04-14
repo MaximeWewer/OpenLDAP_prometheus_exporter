@@ -807,4 +807,8 @@ The exporter uses a structured logging system in JSON format:
 
 ## Development
 
-For development information, see [DEVELOPMENT.md](DEVELOPMENT.md) and [TESTING.md](TESTING.md).
+- **Unit tests:** `go test ./...`
+- **Lint:** `golangci-lint run` (config in `.golangci.yml`)
+- **Integration tests:** boot the local stack in `tests/docker/` (`./setup.sh && docker compose up -d openldap tools`) then `go test -tags=integration ./tests/...`
+- **End-to-end events validation:** same stack + `./tests/docker/scripts/trigger-events.sh`, then inspect `tests/docker/output/openldap-events-$(date -u +%F).jsonl`
+- **CI:** `.github/workflows/quality-assurance.yml` runs the same `tests/docker/` stack on every push/PR.

@@ -1,6 +1,13 @@
 //go:build integration
 // +build integration
 
+// Package tests contains the integration tests exercised by the CI
+// Quality Assurance pipeline. They assume a running OpenLDAP server
+// provisioned exactly like tests/docker/ — i.e. cleanstart/openldap:2.6.13
+// with the slapo-accesslog and slapo-ppolicy overlays pre-seeded and the
+// users / policies defined under init-ldifs/. The same stack is used
+// locally by developers, so what CI runs is what the dev sees on their
+// laptop.
 package tests
 
 import (
@@ -19,47 +26,45 @@ import (
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/pool"
 )
 
-// Test environment configuration
+// Defaults mirror tests/docker/docker-compose.yml and
+// tests/docker/init-config/slapd-config.ldif so developers can run
+// `go test -tags=integration ./tests/...` against the local stack without
+// setting any environment variable.
 const (
 	defaultLDAPURL      = "ldap://localhost:1389"
 	defaultLDAPUser     = "cn=adminconfig,cn=config"
-	defaultLDAPPassword = "configpassword"
-	defaultServerName   = "openldap-test"
+	defaultLDAPPassword = "adminpasswordconfig"
+	defaultServerName   = "openldap-events-test"
 )
 
-// getTestConfig returns a test configuration for OpenLDAP
+// getTestConfig returns a Config populated from the TEST_LDAP_* environment
+// variables with a fall-through to the local tests/docker/ defaults.
 func getTestConfig(t *testing.T) *config.Config {
+	t.Helper()
 	logger.InitLogger("integration-test", "INFO")
 
 	url := getEnvOrDefault("TEST_LDAP_URL", defaultLDAPURL)
 	username := getEnvOrDefault("TEST_LDAP_USERNAME", defaultLDAPUser)
 	password := getEnvOrDefault("TEST_LDAP_PASSWORD", defaultLDAPPassword)
 
-	// Set required environment variables for config.LoadConfig()
-	originalURL := os.Getenv("LDAP_URL")
-	originalUsername := os.Getenv("LDAP_USERNAME")
-	originalPassword := os.Getenv("LDAP_PASSWORD")
-
+	// config.LoadConfig() reads from the real LDAP_* environment; set them
+	// for the duration of the call and restore afterwards so concurrent
+	// tests on the same process do not stomp on each other.
+	saved := map[string]string{
+		"LDAP_URL":      os.Getenv("LDAP_URL"),
+		"LDAP_USERNAME": os.Getenv("LDAP_USERNAME"),
+		"LDAP_PASSWORD": os.Getenv("LDAP_PASSWORD"),
+	}
 	os.Setenv("LDAP_URL", url)
 	os.Setenv("LDAP_USERNAME", username)
 	os.Setenv("LDAP_PASSWORD", password)
-
-	// Restore original environment variables after test
 	defer func() {
-		if originalURL == "" {
-			os.Unsetenv("LDAP_URL")
-		} else {
-			os.Setenv("LDAP_URL", originalURL)
-		}
-		if originalUsername == "" {
-			os.Unsetenv("LDAP_USERNAME")
-		} else {
-			os.Setenv("LDAP_USERNAME", originalUsername)
-		}
-		if originalPassword == "" {
-			os.Unsetenv("LDAP_PASSWORD")
-		} else {
-			os.Setenv("LDAP_PASSWORD", originalPassword)
+		for k, v := range saved {
+			if v == "" {
+				os.Unsetenv(k)
+			} else {
+				os.Setenv(k, v)
+			}
 		}
 	}()
 
@@ -82,44 +87,39 @@ func getEnvOrDefault(key, defaultValue string) string {
 	return defaultValue
 }
 
-// TestConnectionPool tests the Go connection pool functionality
+// TestConnectionPool exercises the Go connection pool against a live slapd.
 func TestConnectionPool(t *testing.T) {
 	cfg := getTestConfig(t)
 	defer cfg.Clear()
 
 	t.Run("Pool Creation and Stats", func(t *testing.T) {
-		pool := pool.NewConnectionPool(cfg, 3)
-		defer pool.Close()
+		p := pool.NewConnectionPool(cfg, 3)
+		defer p.Close()
 
-		stats := pool.Stats()
+		stats := p.Stats()
 		if stats["max_connections"] != 3 {
 			t.Errorf("Expected max_connections=3, got %v", stats["max_connections"])
 		}
 	})
 
 	t.Run("Connection Lifecycle", func(t *testing.T) {
-		pool := pool.NewConnectionPool(cfg, 2)
-		defer pool.Close()
+		p := pool.NewConnectionPool(cfg, 2)
+		defer p.Close()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		// Get connection
-		conn, err := pool.Get(ctx)
+		conn, err := p.Get(ctx)
 		if err != nil {
 			t.Fatalf("Failed to get connection: %v", err)
 		}
+		p.Put(conn)
 
-		// Return connection
-		pool.Put(conn)
-
-		// Verify pool stats
-		stats := pool.Stats()
-		t.Logf("Pool stats after connection cycle: %+v", stats)
+		t.Logf("Pool stats after connection cycle: %+v", p.Stats())
 	})
 }
 
-// TestPooledLDAPClient tests the Go LDAP client wrapper
+// TestPooledLDAPClient exercises the pooled client wrapper.
 func TestPooledLDAPClient(t *testing.T) {
 	cfg := getTestConfig(t)
 	defer cfg.Clear()
@@ -135,8 +135,6 @@ func TestPooledLDAPClient(t *testing.T) {
 
 	t.Run("Client Stats", func(t *testing.T) {
 		stats := client.Stats()
-
-		// Verify expected stats structure
 		expectedKeys := []string{"pool_max_connections", "circuit_breaker_state", "is_adaptive"}
 		for _, key := range expectedKeys {
 			if _, exists := stats[key]; !exists {
@@ -145,142 +143,68 @@ func TestPooledLDAPClient(t *testing.T) {
 		}
 	})
 
-	t.Run("Basic LDAP Search", func(t *testing.T) {
-		// Test basic connectivity with a simple Monitor search
+	t.Run("Monitor Search", func(t *testing.T) {
+		// tests/docker seeds a monitor database accessible only to
+		// cn=adminconfig,cn=config; any successful result with >= 1 entry
+		// confirms the client can talk to slapd end-to-end.
 		result, err := client.Search("cn=Monitor", "(objectClass=*)", []string{"cn"})
-
-		// This may fail if Monitor backend is not configured, which is OK
-		if err == nil && result != nil {
-			t.Logf("Successfully performed LDAP search, found %d entries", len(result.Entries))
-		} else {
-			t.Logf("LDAP search failed (expected if Monitor not configured): %v", err)
+		if err != nil {
+			t.Fatalf("Monitor search failed: %v", err)
+		}
+		if len(result.Entries) == 0 {
+			t.Error("Expected at least one entry under cn=Monitor")
 		}
 	})
 }
 
-// TestExporterIntegration tests the Go exporter integration
+// TestExporterIntegration registers the exporter against a Prometheus
+// registry and verifies that a gather returns both internal housekeeping
+// metrics and at least one openldap_* family sourced from the real slapd.
 func TestExporterIntegration(t *testing.T) {
 	cfg := getTestConfig(t)
 	defer cfg.Clear()
 
-	t.Run("Exporter Creation", func(t *testing.T) {
-		exp := exporter.NewOpenLDAPExporter(cfg)
-		defer exp.Close()
+	exp := exporter.NewOpenLDAPExporter(cfg)
+	defer exp.Close()
 
-		if exp == nil {
-			t.Fatal("Exporter should not be nil")
+	registry := prometheus.NewRegistry()
+	if err := registry.Register(exp); err != nil {
+		t.Fatalf("Failed to register exporter: %v", err)
+	}
+
+	metricFamilies, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("Failed to gather metrics: %v", err)
+	}
+	if len(metricFamilies) == 0 {
+		t.Fatal("Expected metric families from registry.Gather()")
+	}
+
+	var sawUp, sawMonitor bool
+	for _, mf := range metricFamilies {
+		if mf.Name == nil {
+			continue
 		}
-	})
-
-	t.Run("Prometheus Registration", func(t *testing.T) {
-		exp := exporter.NewOpenLDAPExporter(cfg)
-		defer exp.Close()
-
-		registry := prometheus.NewRegistry()
-		err := registry.Register(exp)
-		if err != nil {
-			t.Fatalf("Failed to register exporter: %v", err)
+		name := *mf.Name
+		switch {
+		case name == "openldap_up":
+			sawUp = true
+		case strings.HasPrefix(name, "openldap_connections") ||
+			strings.HasPrefix(name, "openldap_threads") ||
+			strings.HasPrefix(name, "openldap_operations"):
+			sawMonitor = true
 		}
-
-		// Gather metrics to verify registration
-		metricFamilies, err := registry.Gather()
-		if err != nil {
-			t.Fatalf("Failed to gather metrics: %v", err)
-		}
-
-		t.Logf("Successfully gathered %d metric families", len(metricFamilies))
-	})
-
-	t.Run("Metric Collection Structure", func(t *testing.T) {
-		exp := exporter.NewOpenLDAPExporter(cfg)
-		defer exp.Close()
-
-		registry := prometheus.NewRegistry()
-		registry.Register(exp)
-
-		metricFamilies, err := registry.Gather()
-		if err != nil {
-			t.Fatalf("Failed to gather metrics: %v", err)
-		}
-
-		// Verify we get some metrics (even if LDAP is not fully configured)
-		if len(metricFamilies) == 0 {
-			t.Error("Expected at least some metrics to be available")
-		}
-
-		// Check for internal metrics that should always be present
-		var foundInternalMetrics []string
-		for _, mf := range metricFamilies {
-			if mf.Name != nil {
-				name := *mf.Name
-				if strings.HasPrefix(name, "openldap_scrape") ||
-					strings.HasPrefix(name, "openldap_up") {
-					foundInternalMetrics = append(foundInternalMetrics, name)
-				}
-			}
-		}
-
-		if len(foundInternalMetrics) == 0 {
-			t.Error("Expected at least some internal metrics (scrape duration, up status)")
-		} else {
-			t.Logf("Found internal metrics: %v", foundInternalMetrics)
-		}
-	})
+	}
+	if !sawUp {
+		t.Error("openldap_up metric missing from gather output")
+	}
+	if !sawMonitor {
+		t.Error("No metric sourced from cn=Monitor was gathered — accesslog DB might be missing or ACLs are wrong")
+	}
 }
 
-// TestDCFiltering tests the Domain Component filtering logic
-func TestDCFiltering(t *testing.T) {
-	t.Run("DC Include Filtering", func(t *testing.T) {
-		cfg := getTestConfig(t)
-		defer cfg.Clear()
-
-		cfg.DCInclude = []string{"example", "test"}
-		cfg.DCExclude = nil
-
-		exp := exporter.NewOpenLDAPExporter(cfg)
-		defer exp.Close()
-
-		// Test that the exporter was created with DC filtering
-		if len(cfg.DCInclude) != 2 {
-			t.Errorf("Expected 2 DC include filters, got %d", len(cfg.DCInclude))
-		}
-	})
-
-	t.Run("DC Exclude Filtering", func(t *testing.T) {
-		cfg := getTestConfig(t)
-		defer cfg.Clear()
-
-		cfg.DCInclude = nil
-		cfg.DCExclude = []string{"production", "staging"}
-
-		exp := exporter.NewOpenLDAPExporter(cfg)
-		defer exp.Close()
-
-		// Test that the exporter was created with DC filtering
-		if len(cfg.DCExclude) != 2 {
-			t.Errorf("Expected 2 DC exclude filters, got %d", len(cfg.DCExclude))
-		}
-	})
-
-	t.Run("DC Filtering Conflict", func(t *testing.T) {
-		cfg := getTestConfig(t)
-		defer cfg.Clear()
-
-		// Test conflicting configuration (both include and exclude)
-		cfg.DCInclude = []string{"example"}
-		cfg.DCExclude = []string{"test"}
-
-		exp := exporter.NewOpenLDAPExporter(cfg)
-		defer exp.Close()
-
-		// Should handle conflicting config gracefully
-		if exp == nil {
-			t.Error("Exporter should handle conflicting DC config gracefully")
-		}
-	})
-}
-
-// TestConcurrentMetrics tests concurrent metric collection (Go-specific)
+// TestConcurrentMetrics ensures that running multiple Gather() calls in
+// parallel does not corrupt internal state or deadlock.
 func TestConcurrentMetrics(t *testing.T) {
 	cfg := getTestConfig(t)
 	defer cfg.Clear()
@@ -289,31 +213,27 @@ func TestConcurrentMetrics(t *testing.T) {
 	defer exp.Close()
 
 	registry := prometheus.NewRegistry()
-	registry.Register(exp)
+	if err := registry.Register(exp); err != nil {
+		t.Fatalf("Failed to register exporter: %v", err)
+	}
 
-	t.Run("Concurrent Metric Gathering", func(t *testing.T) {
-		const numGoroutines = 5
-		results := make(chan error, numGoroutines)
-
-		// Start multiple goroutines gathering metrics concurrently
-		for i := 0; i < numGoroutines; i++ {
-			go func(id int) {
-				_, err := registry.Gather()
-				results <- err
-			}(i)
+	const numGoroutines = 5
+	results := make(chan error, numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			_, err := registry.Gather()
+			results <- err
+		}()
+	}
+	for i := 0; i < numGoroutines; i++ {
+		if err := <-results; err != nil {
+			t.Errorf("Goroutine %d failed: %v", i, err)
 		}
-
-		// Wait for all goroutines to complete
-		for i := 0; i < numGoroutines; i++ {
-			err := <-results
-			if err != nil {
-				t.Errorf("Goroutine %d failed: %v", i, err)
-			}
-		}
-	})
+	}
 }
 
-// TestMetricConsistency tests that metrics are consistent across multiple collections
+// TestMetricConsistency checks that two successive Gather() calls expose
+// the same set of metric family names.
 func TestMetricConsistency(t *testing.T) {
 	cfg := getTestConfig(t)
 	defer cfg.Clear()
@@ -322,53 +242,48 @@ func TestMetricConsistency(t *testing.T) {
 	defer exp.Close()
 
 	registry := prometheus.NewRegistry()
-	registry.Register(exp)
+	if err := registry.Register(exp); err != nil {
+		t.Fatalf("Failed to register exporter: %v", err)
+	}
 
-	t.Run("Metric Stability", func(t *testing.T) {
-		// Collect metrics twice
-		metrics1, err1 := registry.Gather()
-		if err1 != nil {
-			t.Fatalf("First metric collection failed: %v", err1)
+	metrics1, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("First metric collection failed: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	metrics2, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("Second metric collection failed: %v", err)
+	}
+
+	if len(metrics1) != len(metrics2) {
+		t.Errorf("Metric family count changed: %d -> %d", len(metrics1), len(metrics2))
+	}
+
+	names1 := metricNames(metrics1)
+	names2 := metricNames(metrics2)
+	for _, name := range names1 {
+		if !contains(names2, name) {
+			t.Errorf("Metric %s disappeared between collections", name)
 		}
-
-		time.Sleep(100 * time.Millisecond)
-
-		metrics2, err2 := registry.Gather()
-		if err2 != nil {
-			t.Fatalf("Second metric collection failed: %v", err2)
-		}
-
-		// Verify we get the same number of metric families
-		if len(metrics1) != len(metrics2) {
-			t.Errorf("Metric family count changed: %d -> %d", len(metrics1), len(metrics2))
-		}
-
-		// Verify metric names are consistent
-		names1 := getMetricNames(metrics1)
-		names2 := getMetricNames(metrics2)
-
-		for _, name := range names1 {
-			found := false
-			for _, name2 := range names2 {
-				if name == name2 {
-					found = true
-					break
-				}
-			}
-			if !found {
-				t.Errorf("Metric %s disappeared between collections", name)
-			}
-		}
-	})
+	}
 }
 
-// Helper function to extract metric names
-func getMetricNames(metricFamilies []*dto.MetricFamily) []string {
-	var names []string
+func metricNames(metricFamilies []*dto.MetricFamily) []string {
+	names := make([]string, 0, len(metricFamilies))
 	for _, mf := range metricFamilies {
 		if mf.Name != nil {
 			names = append(names, *mf.Name)
 		}
 	}
 	return names
+}
+
+func contains(list []string, name string) bool {
+	for _, v := range list {
+		if v == name {
+			return true
+		}
+	}
+	return false
 }

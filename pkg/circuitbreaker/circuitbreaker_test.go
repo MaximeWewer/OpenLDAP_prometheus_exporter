@@ -25,7 +25,6 @@ func createTestCircuitBreaker() *CircuitBreaker {
 	return NewCircuitBreaker(config)
 }
 
-
 // TestCircuitBreaker tests the circuit breaker functionality
 func TestCircuitBreaker(t *testing.T) {
 	cb := createTestCircuitBreaker()
@@ -907,7 +906,7 @@ func TestExecuteCallbackContextCancellation(t *testing.T) {
 		mu.Lock()
 		callbackStarted = true
 		mu.Unlock()
-		// Simulate some work that might be cancelled
+		// Simulate some work that might be canceled
 		time.Sleep(50 * time.Millisecond)
 		mu.Lock()
 		callbackFinished = true
@@ -935,6 +934,6 @@ func TestExecuteCallbackContextCancellation(t *testing.T) {
 		t.Error("Callback should have started")
 	}
 	if !finished {
-		t.Log("Callback may have been cancelled or completed quickly")
+		t.Log("Callback may have been canceled or completed quickly")
 	}
 }

@@ -22,7 +22,7 @@ type accesslogSearcher interface {
 // The "ready" flag exists so that a stream which is empty on the first scan
 // still transitions out of baseline mode — otherwise the very first real event
 // on an idle stream would be silently dropped because cursor=="" would still
-// look like "not yet initialised".
+// look like "not yet initialized".
 type cursorState struct {
 	bind       string
 	write      string
@@ -322,7 +322,7 @@ func maxString(a, b string) string {
 // failure it falls back to the current wall clock so the emitted event still
 // carries a usable timestamp instead of a zero value.
 //
-// The result is truncated to second precision so the marshalled "ts" field
+// The result is truncated to second precision so the marshaled "ts" field
 // reads `2026-04-14T07:32:45Z` instead of `2026-04-14T07:32:45.000001Z`. The
 // sub-second part is only an accesslog tie-breaker (slapd bumps it to keep
 // reqStart unique when two operations land in the same second); the
