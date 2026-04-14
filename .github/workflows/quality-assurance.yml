@@ -31,9 +31,6 @@ on:
 
 env:
   GO_VERSION: "1.26.2"
-  # Normalised test selection: empty on push/PR → "all"; respected verbatim
-  # on workflow_dispatch so manual runs can still pick a subset.
-  TEST_SELECTION: ${{ inputs.test_selection || 'all' }}
 
 # Default permissions for all jobs
 permissions:
@@ -47,9 +44,26 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions:
+      contents: read
+    outputs:
+      # Normalised test selection: empty on push/PR → "all"; respected
+      # verbatim on workflow_dispatch so manual runs can still pick a
+      # subset. Exposed as a job output because GitHub Actions does not
+      # allow `env.*` references inside job-level `if:` expressions.
+      selection: ${{ steps.normalise.outputs.selection }}
+    steps:
+      - id: normalise
+        run: echo "selection=${{ inputs.test_selection || 'all' }}" >> "$GITHUB_OUTPUT"
+
   pre-check:
     name: Pre-Check
     runs-on: ubuntu-latest
+    needs: setup
     timeout-minutes: 5
     permissions:
       contents: read
@@ -79,9 +93,9 @@ jobs:
   lint:
     name: Lint (golangci-lint)
     runs-on: ubuntu-latest
-    needs: pre-check
+    needs: [setup, pre-check]
     timeout-minutes: 10
-    if: ${{ contains(env.TEST_SELECTION, 'all') || contains(env.TEST_SELECTION, 'static-analysis') || contains(env.TEST_SELECTION, 'analysis') && env.TEST_SELECTION != 'coverage-only' }}
+    if: ${{ contains(needs.setup.outputs.selection, 'all') || contains(needs.setup.outputs.selection, 'static-analysis') || (contains(needs.setup.outputs.selection, 'analysis') && needs.setup.outputs.selection != 'coverage-only') }}
     permissions:
       contents: read
 
@@ -103,9 +117,9 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
-    needs: pre-check
+    needs: [setup, pre-check]
     timeout-minutes: 10
-    if: ${{ contains(env.TEST_SELECTION, 'all') || contains(env.TEST_SELECTION, 'unit') || env.TEST_SELECTION == 'coverage-only' }}
+    if: ${{ contains(needs.setup.outputs.selection, 'all') || contains(needs.setup.outputs.selection, 'unit') || needs.setup.outputs.selection == 'coverage-only' }}
     permissions:
       contents: read
 
@@ -145,9 +159,9 @@ jobs:
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
-    needs: pre-check
+    needs: [setup, pre-check]
     timeout-minutes: 15
-    if: ${{ contains(env.TEST_SELECTION, 'all') || contains(env.TEST_SELECTION, 'integration') || env.TEST_SELECTION == 'coverage-only' }}
+    if: ${{ contains(needs.setup.outputs.selection, 'all') || contains(needs.setup.outputs.selection, 'integration') || needs.setup.outputs.selection == 'coverage-only' }}
     permissions:
       contents: read
 
@@ -225,9 +239,9 @@ jobs:
   security:
     name: Security Analysis
     runs-on: ubuntu-latest
-    needs: pre-check
+    needs: [setup, pre-check]
     timeout-minutes: 10
-    if: ${{ contains(env.TEST_SELECTION, 'all') || contains(env.TEST_SELECTION, 'security') || contains(env.TEST_SELECTION, 'analysis') && env.TEST_SELECTION != 'coverage-only' }}
+    if: ${{ contains(needs.setup.outputs.selection, 'all') || contains(needs.setup.outputs.selection, 'security') || (contains(needs.setup.outputs.selection, 'analysis') && needs.setup.outputs.selection != 'coverage-only') }}
 
     permissions:
       actions: read
@@ -382,6 +396,7 @@ jobs:
     timeout-minutes: 2
     needs:
       [
+        setup,
         lint,
         unit-tests,
         integration-tests,
@@ -405,4 +420,4 @@ jobs:
           echo "| Security Analysis | ${{ needs.security.result == 'success' && '✅ Passed' || (needs.security.result == 'skipped' && '⏭️ Skipped' || '❌ Failed') }} |" >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Test Selection:** ${{ env.TEST_SELECTION }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Test Selection:** ${{ needs.setup.outputs.selection }}" >> $GITHUB_STEP_SUMMARY
