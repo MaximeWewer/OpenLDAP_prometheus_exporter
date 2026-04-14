@@ -627,9 +627,15 @@ These metrics require the `slapo-ppolicy` overlay to be configured on the OpenLD
 
 | Metric | Type | Labels | Description | LDAP Source |
 |----------|------|---------|-------------|-------------|
-| `openldap_accesslog_bind_total` | Counter | `server`, `user_dn`, `user`, `result` | Cumulative bind operations per user and result | `cn=accesslog` `auditBind` entries |
-| `openldap_accesslog_write_total` | Counter | `server`, `user_dn`, `user`, `operation` | Cumulative write operations per user and type | `cn=accesslog` `auditAdd/Modify/Delete/ModRDN` entries |
-| `openldap_accesslog_account_lock_events_total` | Counter | `server`, `user_dn`, `user` | Cumulative account lock events (auditModify setting `pwdAccountLockedTime`) | `cn=accesslog` `auditModify` entries with `reqMod=pwdAccountLockedTime:+...` |
+| `openldap_accesslog_bind_total` | Counter | `server`, `user`, `result` | Cumulative bind operations per user and result | `cn=accesslog` `auditBind` entries |
+| `openldap_accesslog_write_total` | Counter | `server`, `user`, `operation` | Cumulative write operations per user and type | `cn=accesslog` `auditAdd/Modify/Delete/ModRDN` entries |
+| `openldap_accesslog_account_lock_events_total` | Counter | `server`, `user` | Cumulative account lock events (auditModify setting `pwdAccountLockedTime`) | `cn=accesslog` `auditModify` entries with `reqMod=pwdAccountLockedTime:+...` |
+
+**Cardinality safety.** The `user` label is driven by the first RDN of the binding DN, which is effectively controlled by clients. To stop a malicious or buggy client from exploding the exporter's memory with rotating bind DNs, every accesslog CounterVec is protected by a per-metric TTL sweeper and a hard cap:
+
+- **Hard cap:** at most `10000` distinct label tuples per metric. New tuples beyond that limit are dropped (with a rate-limited warning) until the sweeper reclaims capacity.
+- **TTL:** series idle for more than `1h` are deleted on the next sweep.
+- **Sweep interval:** every `10m` the exporter walks the tracker and reaps stale entries.
 
 These metrics require the `slapo-accesslog` overlay and a dedicated `cn=accesslog` MDB database (see [Accesslog overlay configuration](#4-accesslog-overlay-optional)).
 

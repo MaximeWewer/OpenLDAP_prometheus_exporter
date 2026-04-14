@@ -430,14 +430,14 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			[]string{"server", "user_dn", "user", "base_dn"},
 		),
 
-		// Accesslog metrics (event-based counters)
+		// Accesslog metrics (event-based counters).
 		AccesslogBindTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "openldap",
 				Name:      "accesslog_bind_total",
 				Help:      "Cumulative bind operations per user and result observed via accesslog incremental scan (from cn=accesslog)",
 			},
-			[]string{"server", "user_dn", "user", "result"},
+			[]string{"server", "user", "result"},
 		),
 		AccesslogWriteTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -445,7 +445,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 				Name:      "accesslog_write_total",
 				Help:      "Cumulative write operations per user and type observed via accesslog incremental scan (from cn=accesslog)",
 			},
-			[]string{"server", "user_dn", "user", "operation"},
+			[]string{"server", "user", "operation"},
 		),
 		AccesslogLockEventsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -453,7 +453,7 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 				Name:      "accesslog_account_lock_events_total",
 				Help:      "Cumulative account lock events per user observed via accesslog (auditModify touching pwdAccountLockedTime)",
 			},
-			[]string{"server", "user_dn", "user"},
+			[]string{"server", "user"},
 		),
 	}
 }

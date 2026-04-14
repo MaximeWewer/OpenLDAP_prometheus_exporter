@@ -48,20 +48,23 @@ type collectionTask struct {
 
 // OpenLDAPExporter implements the Prometheus collector interface for OpenLDAP metrics
 type OpenLDAPExporter struct {
-	client          *pool.PooledLDAPClient
-	metricsRegistry *metrics.OpenLDAPMetrics
-	config          *config.Config
-	monitoring      *monitoring.InternalMonitoring
-	counterValues   map[string]map[string]*counterEntry // Per-server counter tracking (typed map)
-	counterMutex    sync.RWMutex                        // Protects counterValues map
-	accesslogCursor map[string]*accesslogCursorState    // Per-server accesslog incremental scan cursors
-	accesslogMutex  sync.Mutex                          // Protects accesslogCursor map
-	stopChan        chan struct{}                       // Signal to stop background goroutines
-	stopped         int32                               // Atomic flag to indicate if exporter is stopped
-	closeOnce       sync.Once                           // Ensures Close() is called only once
-	totalScrapes    atomicFloat64
-	totalErrors     atomicFloat64
-	lastScrapeTime  atomicFloat64
+	client                *pool.PooledLDAPClient
+	metricsRegistry       *metrics.OpenLDAPMetrics
+	config                *config.Config
+	monitoring            *monitoring.InternalMonitoring
+	counterValues         map[string]map[string]*counterEntry // Per-server counter tracking (typed map)
+	counterMutex          sync.RWMutex                        // Protects counterValues map
+	accesslogCursor       map[string]*accesslogCursorState    // Per-server accesslog incremental scan cursors
+	accesslogMutex        sync.Mutex                          // Protects accesslogCursor map
+	accesslogBindTracker  *accesslogSeriesTracker
+	accesslogWriteTracker *accesslogSeriesTracker
+	accesslogLockTracker  *accesslogSeriesTracker
+	stopChan              chan struct{} // Signal to stop background goroutines
+	stopped               int32         // Atomic flag to indicate if exporter is stopped
+	closeOnce             sync.Once     // Ensures Close() is called only once
+	totalScrapes          atomicFloat64
+	totalErrors           atomicFloat64
+	lastScrapeTime        atomicFloat64
 }
 
 // NewOpenLDAPExporter creates a new OpenLDAP exporter with the given configuration
@@ -75,14 +78,24 @@ func NewOpenLDAPExporter(cfg *config.Config) *OpenLDAPExporter {
 	// Use pooled LDAP client with monitoring support
 	client := pool.NewPooledLDAPClientWithMonitoring(cfg, internalMonitoring, cfg.ServerName)
 
+	registry := metrics.NewOpenLDAPMetrics()
 	exporter := &OpenLDAPExporter{
 		client:          client,
-		metricsRegistry: metrics.NewOpenLDAPMetrics(),
+		metricsRegistry: registry,
 		config:          cfg,
 		monitoring:      internalMonitoring,
 		counterValues:   make(map[string]map[string]*counterEntry),
 		accesslogCursor: make(map[string]*accesslogCursorState),
 		stopChan:        make(chan struct{}),
+		accesslogBindTracker: newAccesslogSeriesTracker(
+			"accesslog_bind_total", registry.AccesslogBindTotal, MaxAccesslogSeriesPerVec,
+		),
+		accesslogWriteTracker: newAccesslogSeriesTracker(
+			"accesslog_write_total", registry.AccesslogWriteTotal, MaxAccesslogSeriesPerVec,
+		),
+		accesslogLockTracker: newAccesslogSeriesTracker(
+			"accesslog_account_lock_events_total", registry.AccesslogLockEventsTotal, MaxAccesslogSeriesPerVec,
+		),
 	}
 
 	// Initialize Up metric to indicate exporter is running
@@ -90,6 +103,9 @@ func NewOpenLDAPExporter(cfg *config.Config) *OpenLDAPExporter {
 
 	// Start cleanup routine for old counter entries
 	go exporter.cleanupOldCounters()
+	// Start sweeper that evicts stale accesslog series so a bad-actor
+	// bind-DN rotation cannot grow the CounterVecs unbounded.
+	go exporter.sweepAccesslogTrackers()
 
 	logger.SafeInfo("exporter", "OpenLDAP exporter created", map[string]interface{}{
 		"server":          cfg.ServerName,

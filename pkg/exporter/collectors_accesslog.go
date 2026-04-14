@@ -123,12 +123,14 @@ func (e *OpenLDAPExporter) collectAccesslogBinds(server string, cursor *accesslo
 			continue
 		}
 		userName := extractUserNameFromDN(userDN)
-		e.metricsRegistry.AccesslogBindTotal.With(prometheus.Labels{
-			"server":  server,
-			"user_dn": userDN,
-			"user":    userName,
-			"result":  classifyBindResult(resultCode),
-		}).Inc()
+		if userName == "" {
+			continue
+		}
+		e.accesslogBindTracker.Inc(prometheus.Labels{
+			"server": server,
+			"user":   userName,
+			"result": classifyBindResult(resultCode),
+		})
 		count++
 	}
 
@@ -172,12 +174,14 @@ func (e *OpenLDAPExporter) collectAccesslogWrites(server string, cursor *accessl
 			continue
 		}
 		userName := extractUserNameFromDN(authzID)
-		e.metricsRegistry.AccesslogWriteTotal.With(prometheus.Labels{
+		if userName == "" {
+			continue
+		}
+		e.accesslogWriteTracker.Inc(prometheus.Labels{
 			"server":    server,
-			"user_dn":   authzID,
 			"user":      userName,
 			"operation": strings.ToLower(opType),
-		}).Inc()
+		})
 		count++
 	}
 
@@ -227,11 +231,13 @@ func (e *OpenLDAPExporter) collectAccesslogLockEvents(server string, cursor *acc
 			continue
 		}
 		userName := extractUserNameFromDN(userDN)
-		e.metricsRegistry.AccesslogLockEventsTotal.With(prometheus.Labels{
-			"server":  server,
-			"user_dn": userDN,
-			"user":    userName,
-		}).Inc()
+		if userName == "" {
+			continue
+		}
+		e.accesslogLockTracker.Inc(prometheus.Labels{
+			"server": server,
+			"user":   userName,
+		})
 		count++
 	}
 
