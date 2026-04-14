@@ -1,27 +1,24 @@
 package exporter
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 
-	"github.com/go-ldap/ldap/v3"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/accesslog"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
 
-// accesslogCursorState holds per-collector incremental scan cursors for a server.
-// Each cursor is the last reqStart (GeneralizedTime) we processed for that stream.
-// The format is lexicographically sortable, so string comparison is used for ordering.
-// An empty cursor means the collector has not yet established a baseline — on the
-// first scrape we record the current max reqStart without emitting counter increments
-// to avoid back-filling historical events as a spike.
+// accesslogCursorState wraps the shared accesslog.CursorState with a
+// mutex so a single scrape does not overlap with itself while walking
+// the same server's streams. Both the metric collector here and the
+// JSON events runner in pkg/events use the identical underlying cursor
+// type, so the baseline semantics (per-stream Ready flag that survives
+// an empty first scan) stay consistent across the two consumers.
 type accesslogCursorState struct {
-	mu    sync.Mutex
-	bind  string
-	write string
-	lock  string
+	mu sync.Mutex
+	accesslog.CursorState
 }
 
 // getAccesslogCursor returns the cursor state for the given server, creating it if needed.
@@ -79,101 +76,74 @@ func (e *OpenLDAPExporter) collectAccesslogMetrics(server string) {
 	logMetricCollection(server, "accesslog", count)
 }
 
-// buildIncrementalFilter wraps a base object-class filter with a reqStart lower bound
-// when the cursor is set. The reqStart value is a GeneralizedTime which contains only
-// digits, '.', and 'Z' — safe to embed directly in an LDAP filter.
-func buildIncrementalFilter(base, cursor string) string {
-	if cursor == "" {
-		return base
-	}
-	return fmt.Sprintf("(&%s(reqStart>=%s))", base, cursor)
-}
-
 // collectAccesslogBinds queries bind operations newer than the cursor and increments counters.
 func (e *OpenLDAPExporter) collectAccesslogBinds(server string, cursor *accesslogCursorState) (int, error) {
-	filter := buildIncrementalFilter("(objectClass=auditBind)", cursor.bind)
+	cur, ready := cursor.Get(accesslog.StreamBind)
+	filter := accesslog.BuildIncrementalFilter(accesslog.BindBaseFilter, cur)
 	result, err := e.client.SearchAccessLog(filter, []string{"reqStart", "reqDN", "reqResult"})
 	if err != nil {
 		return 0, err
 	}
 
-	baseline := cursor.bind == ""
-	maxSeen := cursor.bind
+	baseline := !ready
+	maxSeen := cur
 	count := 0
 
 	for _, entry := range result.Entries {
-		reqStart, userDN, resultCode := extractAccesslogBindInfo(entry)
-		if reqStart == "" {
+		reqStart := accesslog.Attr(entry, "reqStart")
+		emit, next := accesslog.ShouldEmit(reqStart, cur, baseline, maxSeen)
+		maxSeen = next
+		if !emit {
 			continue
 		}
-		// reqStart>= is inclusive; skip the exact cursor value to avoid double counting
-		if !baseline && reqStart == cursor.bind {
-			if reqStart > maxSeen {
-				maxSeen = reqStart
-			}
-			continue
-		}
-		if reqStart > maxSeen {
-			maxSeen = reqStart
-		}
-		if baseline {
-			continue
-		}
+
+		userDN := accesslog.Attr(entry, "reqDN")
 		if userDN == "" {
 			continue
 		}
-		userName := extractUserNameFromDN(userDN)
+		userName := accesslog.ExtractUserNameFromDN(userDN)
 		if userName == "" {
 			continue
 		}
 		e.accesslogBindTracker.Inc(prometheus.Labels{
 			"server": server,
 			"user":   userName,
-			"result": classifyBindResult(resultCode),
+			"result": accesslog.ClassifyBindResult(accesslog.Attr(entry, "reqResult")),
 		})
 		count++
 	}
 
-	cursor.bind = maxSeen
+	cursor.Advance(accesslog.StreamBind, maxSeen)
 	return count, nil
 }
 
 // collectAccesslogWrites queries write operations newer than the cursor and increments counters.
 func (e *OpenLDAPExporter) collectAccesslogWrites(server string, cursor *accesslogCursorState) (int, error) {
-	filter := buildIncrementalFilter(
-		"(|(objectClass=auditAdd)(objectClass=auditModify)(objectClass=auditDelete)(objectClass=auditModRDN))",
-		cursor.write,
-	)
+	cur, ready := cursor.Get(accesslog.StreamWrite)
+	filter := accesslog.BuildIncrementalFilter(accesslog.WriteBaseFilter, cur)
 	result, err := e.client.SearchAccessLog(filter, []string{"reqStart", "reqType", "reqAuthzID"})
 	if err != nil {
 		return 0, err
 	}
 
-	baseline := cursor.write == ""
-	maxSeen := cursor.write
+	baseline := !ready
+	maxSeen := cur
 	count := 0
 
 	for _, entry := range result.Entries {
-		reqStart, authzID, opType := extractAccesslogWriteInfo(entry)
-		if reqStart == "" {
+		reqStart := accesslog.Attr(entry, "reqStart")
+		emit, next := accesslog.ShouldEmit(reqStart, cur, baseline, maxSeen)
+		maxSeen = next
+		if !emit {
 			continue
 		}
-		if !baseline && reqStart == cursor.write {
-			if reqStart > maxSeen {
-				maxSeen = reqStart
-			}
-			continue
-		}
-		if reqStart > maxSeen {
-			maxSeen = reqStart
-		}
-		if baseline {
-			continue
-		}
+
+		opType := accesslog.Attr(entry, "reqType")
+		authzID := accesslog.TrimDNPrefix(accesslog.Attr(entry, "reqAuthzID"))
 		if authzID == "" || opType == "" {
 			continue
 		}
-		userName := extractUserNameFromDN(authzID)
+		userName := accesslog.ExtractUserNameFromDN(authzID)
 		if userName == "" {
 			continue
 		}
@@ -185,52 +155,43 @@ func (e *OpenLDAPExporter) collectAccesslogWrites(server string, cursor *accessl
 		count++
 	}
 
-	cursor.write = maxSeen
+	cursor.Advance(accesslog.StreamWrite, maxSeen)
 	return count, nil
 }
 
 // collectAccesslogLockEvents queries auditModify entries whose reqMod touches
 // pwdAccountLockedTime and increments a per-user lock-event counter.
 func (e *OpenLDAPExporter) collectAccesslogLockEvents(server string, cursor *accesslogCursorState) (int, error) {
-	// reqMod values look like "pwdAccountLockedTime:+ 20250101120000Z"
-	base := "(&(objectClass=auditModify)(reqMod=pwdAccountLockedTime:*))"
-	filter := buildIncrementalFilter(base, cursor.lock)
+	cur, ready := cursor.Get(accesslog.StreamLock)
+	filter := accesslog.BuildIncrementalFilter(accesslog.LockBaseFilter, cur)
 	result, err := e.client.SearchAccessLog(filter, []string{"reqStart", "reqDN", "reqMod"})
 	if err != nil {
 		return 0, err
 	}
 
-	baseline := cursor.lock == ""
-	maxSeen := cursor.lock
+	baseline := !ready
+	maxSeen := cur
 	count := 0
 
 	for _, entry := range result.Entries {
-		reqStart := getEntryValue(entry, "reqStart")
-		if reqStart == "" {
+		reqStart := accesslog.Attr(entry, "reqStart")
+		emit, next := accesslog.ShouldEmit(reqStart, cur, baseline, maxSeen)
+		maxSeen = next
+		if !emit {
 			continue
 		}
-		if !baseline && reqStart == cursor.lock {
-			if reqStart > maxSeen {
-				maxSeen = reqStart
-			}
+
+		// Only count additions/replacements of pwdAccountLockedTime
+		// (lock events), not deletions (unlocks) — a delete line reads
+		// "pwdAccountLockedTime:-".
+		if !accesslog.HasReqModAddition(entry, "pwdAccountLockedTime") {
 			continue
 		}
-		if reqStart > maxSeen {
-			maxSeen = reqStart
-		}
-		if baseline {
-			continue
-		}
-		// Only count additions/replacements of pwdAccountLockedTime (lock events),
-		// not deletions (unlocks) — a delete line reads "pwdAccountLockedTime:-".
-		if !hasLockAddition(entry) {
-			continue
-		}
-		userDN := getEntryValue(entry, "reqDN")
+		userDN := accesslog.Attr(entry, "reqDN")
 		if userDN == "" {
 			continue
 		}
-		userName := extractUserNameFromDN(userDN)
+		userName := accesslog.ExtractUserNameFromDN(userDN)
 		if userName == "" {
 			continue
 		}
@@ -241,114 +202,6 @@ func (e *OpenLDAPExporter) collectAccesslogLockEvents(server string, cursor *acc
 		count++
 	}
 
-	cursor.lock = maxSeen
+	cursor.Advance(accesslog.StreamLock, maxSeen)
 	return count, nil
-}
-
-// getEntryValue returns the first value of the named attribute, or "" if absent.
-func getEntryValue(entry *ldap.Entry, name string) string {
-	for _, attr := range entry.Attributes {
-		if attr.Name == name && len(attr.Values) > 0 {
-			return attr.Values[0]
-		}
-	}
-	return ""
-}
-
-// hasLockAddition reports whether any reqMod value describes an add/replace of
-// pwdAccountLockedTime (format: "pwdAccountLockedTime:+ ..." or ":="), which
-// corresponds to the account being locked rather than unlocked.
-func hasLockAddition(entry *ldap.Entry) bool {
-	for _, attr := range entry.Attributes {
-		if attr.Name != "reqMod" {
-			continue
-		}
-		for _, v := range attr.Values {
-			lower := strings.ToLower(v)
-			if !strings.HasPrefix(lower, "pwdaccountlockedtime:") {
-				continue
-			}
-			rest := lower[len("pwdaccountlockedtime:"):]
-			if strings.HasPrefix(rest, "+") || strings.HasPrefix(rest, "=") {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// extractAccesslogBindInfo extracts reqStart, reqDN, reqResult from an auditBind entry
-func extractAccesslogBindInfo(entry *ldap.Entry) (string, string, string) {
-	var reqStart, userDN, resultCode string
-	for _, attr := range entry.Attributes {
-		if len(attr.Values) == 0 {
-			continue
-		}
-		switch attr.Name {
-		case "reqStart":
-			reqStart = attr.Values[0]
-		case "reqDN":
-			userDN = attr.Values[0]
-		case "reqResult":
-			resultCode = attr.Values[0]
-		}
-	}
-	return reqStart, userDN, resultCode
-}
-
-// extractAccesslogWriteInfo extracts reqStart, reqAuthzID, reqType from an audit write entry
-func extractAccesslogWriteInfo(entry *ldap.Entry) (string, string, string) {
-	var reqStart, authzID, opType string
-	for _, attr := range entry.Attributes {
-		if len(attr.Values) == 0 {
-			continue
-		}
-		switch attr.Name {
-		case "reqStart":
-			reqStart = attr.Values[0]
-		case "reqAuthzID":
-			// Format: "dn:cn=admin,dc=example,dc=org"
-			authzID = strings.TrimPrefix(attr.Values[0], "dn:")
-		case "reqType":
-			opType = attr.Values[0]
-		}
-	}
-	return reqStart, authzID, opType
-}
-
-// classifyBindResult converts an LDAP result code into a human-readable label
-func classifyBindResult(resultCode string) string {
-	switch resultCode {
-	case "0":
-		return "success"
-	case "49":
-		return "invalid_credentials"
-	case "50":
-		return "insufficient_access"
-	case "53":
-		return "unwilling_to_perform"
-	case "19":
-		return "constraint_violation"
-	default:
-		if resultCode == "" {
-			return "unknown"
-		}
-		return "error_" + resultCode
-	}
-}
-
-// extractUserNameFromDN extracts a human-readable name from a DN string.
-// It takes the first RDN value (e.g., "uid=john,ou=users,dc=example,dc=org" -> "john")
-func extractUserNameFromDN(dn string) string {
-	if dn == "" {
-		return ""
-	}
-	parts := strings.SplitN(dn, ",", 2)
-	if len(parts) > 0 {
-		kv := strings.SplitN(parts[0], "=", 2)
-		if len(kv) == 2 {
-			return kv[1]
-		}
-	}
-	return dn
 }

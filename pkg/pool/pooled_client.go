@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-ldap/ldap/v3"
@@ -41,6 +42,15 @@ type PooledLDAPClient struct {
 	isAdaptive     bool
 	cbMonitoring   CircuitBreakerMonitoring // Optional circuit breaker monitoring
 	serverName     string                   // Server name for monitoring
+
+	// baseCtx is the scrape-scoped context the Search* methods derive
+	// their per-request timeout from. It is set by the exporter at the
+	// top of Collect() via SetBaseContext so canceling a scrape (or
+	// the process shutting down) propagates all the way down to any
+	// in-flight LDAP round-trip, instead of each search running against
+	// a fresh context.Background() that ignores the outer deadline.
+	baseCtxMu sync.RWMutex
+	baseCtx   context.Context
 }
 
 // PoolInterface defines the interface that both ConnectionPool and AdaptiveConnectionPool implement
@@ -49,6 +59,36 @@ type PoolInterface interface {
 	Put(conn *PooledConnection)
 	Close()
 	Stats() map[string]interface{}
+}
+
+// SetBaseContext installs a scrape-scoped context that every subsequent
+// Search* call will derive its per-request timeout from. Pass
+// context.Background() when a scrape ends so background probes (e.g.
+// the maintenance goroutine) do not end up waiting on a canceled
+// context that belonged to the previous scrape. The exporter calls this
+// at the top of Collect() under its own serialization lock so there is
+// at most one in-flight scrape at a time.
+func (c *PooledLDAPClient) SetBaseContext(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	c.baseCtxMu.Lock()
+	c.baseCtx = ctx
+	c.baseCtxMu.Unlock()
+}
+
+// currentBaseContext returns the installed scrape context, or
+// context.Background() when none has been set. Used internally by every
+// Search* method so canceling the outer scrape propagates to any
+// in-flight LDAP round-trip.
+func (c *PooledLDAPClient) currentBaseContext() context.Context {
+	c.baseCtxMu.RLock()
+	ctx := c.baseCtx
+	c.baseCtxMu.RUnlock()
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }
 
 // createCircuitBreakerConfig creates a standard circuit breaker configuration
@@ -178,7 +218,7 @@ func (c *PooledLDAPClient) Search(baseDN, filter string, attributes []string) (*
 
 	err := c.circuitBreaker.Call(func() error {
 		// Get connection from pool with timeout
-		ctx, cancel := context.WithTimeout(context.Background(), DefaultSearchTimeout)
+		ctx, cancel := context.WithTimeout(c.currentBaseContext(), DefaultSearchTimeout)
 		defer cancel()
 
 		conn, err := c.pool.Get(ctx)
@@ -275,7 +315,7 @@ func (c *PooledLDAPClient) SearchContextCSN(suffixDN string) (*ldap.SearchResult
 	var result *ldap.SearchResult
 
 	err := c.circuitBreaker.Call(func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), DefaultSearchTimeout)
+		ctx, cancel := context.WithTimeout(c.currentBaseContext(), DefaultSearchTimeout)
 		defer cancel()
 
 		conn, err := c.pool.Get(ctx)
@@ -366,7 +406,7 @@ func (c *PooledLDAPClient) SearchSuffix(suffixDN, filter string, attributes []st
 	var result *ldap.SearchResult
 
 	err := c.circuitBreaker.Call(func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), DefaultSearchTimeout)
+		ctx, cancel := context.WithTimeout(c.currentBaseContext(), DefaultSearchTimeout)
 		defer cancel()
 
 		conn, err := c.pool.Get(ctx)
@@ -453,7 +493,7 @@ func (c *PooledLDAPClient) SearchAccessLog(filter string, attributes []string) (
 	var result *ldap.SearchResult
 
 	err := c.circuitBreaker.Call(func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), DefaultSearchTimeout)
+		ctx, cancel := context.WithTimeout(c.currentBaseContext(), DefaultSearchTimeout)
 		defer cancel()
 
 		conn, err := c.pool.Get(ctx)
@@ -524,7 +564,7 @@ func (c *PooledLDAPClient) SearchRootDSE(attributes []string) (*ldap.SearchResul
 	var result *ldap.SearchResult
 
 	err := c.circuitBreaker.Call(func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), DefaultSearchTimeout)
+		ctx, cancel := context.WithTimeout(c.currentBaseContext(), DefaultSearchTimeout)
 		defer cancel()
 
 		conn, err := c.pool.Get(ctx)

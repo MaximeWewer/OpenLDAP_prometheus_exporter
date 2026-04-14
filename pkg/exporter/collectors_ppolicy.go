@@ -7,6 +7,7 @@ import (
 	"github.com/go-ldap/ldap/v3"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/accesslog"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
 
@@ -190,41 +191,11 @@ func extractUserName(entry *ldap.Entry) string {
 	return dn
 }
 
-// parseGeneralizedTime parses an LDAP GeneralizedTime string.
-// Format: YYYYMMDDHHmmssZ or YYYYMMDDHHmmss.fracZ
+// parseGeneralizedTime parses an LDAP GeneralizedTime string. It
+// delegates to the shared accesslog helper so reqStart values with
+// more than six fractional digits (slapd emits seven on some builds)
+// are truncated rather than rejected, which used to drop ppolicy
+// timestamps entirely.
 func parseGeneralizedTime(value string) (time.Time, error) {
-	// Try common GeneralizedTime formats
-	formats := []string{
-		"20060102150405Z",
-		"20060102150405.0Z",
-		"20060102150405.00Z",
-		"20060102150405.000Z",
-		"20060102150405.0000Z",
-		"20060102150405.00000Z",
-		"20060102150405.000000Z",
-	}
-
-	for _, format := range formats {
-		if t, err := time.Parse(format, value); err == nil {
-			return t, nil
-		}
-	}
-
-	// Try without timezone suffix and assume UTC
-	formats = []string{
-		"20060102150405",
-	}
-	for _, format := range formats {
-		if t, err := time.Parse(format, value); err == nil {
-			return t.UTC(), nil
-		}
-	}
-
-	return time.Time{}, &time.ParseError{
-		Layout:     "20060102150405Z",
-		Value:      value,
-		LayoutElem: "",
-		ValueElem:  "",
-		Message:    "unrecognized GeneralizedTime format",
-	}
+	return accesslog.ParseGeneralizedTime(value)
 }

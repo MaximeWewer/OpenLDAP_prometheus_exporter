@@ -220,6 +220,15 @@ func (e *OpenLDAPExporter) Collect(ch chan<- prometheus.Metric) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.Timeout)
 	defer cancel()
 
+	// Install the scrape-scoped context on the pool client so every
+	// LDAP round-trip issued by this Collect() honors the outer
+	// deadline / cancellation instead of running under a detached
+	// context.Background() internally. Cleared on exit so background
+	// probes (e.g. the maintenance loop) fall back to a plain
+	// background context.
+	e.client.SetBaseContext(ctx)
+	defer e.client.SetBaseContext(context.Background())
+
 	// Update scrape counter atomically so concurrent scrapes (Prometheus
 	// scraping /metrics while Grafana alerting hits it in parallel) do
 	// not lose increments on a plain Load+Store race.

@@ -159,10 +159,10 @@ func TestCollector_WriteDerivesPasswordChangeAndLock(t *testing.T) {
 	if _, err := c.scan(cur, func(Event) {}); err != nil {
 		t.Fatalf("baseline: %v", err)
 	}
-	if cur.write != "20260101100000.000000Z" {
-		t.Fatalf("write cursor not advanced on baseline: %q", cur.write)
+	if cur.Write != "20260101100000.000000Z" {
+		t.Fatalf("write cursor not advanced on baseline: %q", cur.Write)
 	}
-	if !cur.lockReady {
+	if !cur.LockReady {
 		t.Fatalf("lock stream must be marked ready after baseline even with no entries")
 	}
 
@@ -337,20 +337,20 @@ func TestCollector_SkipsFailedWritesAndLocks(t *testing.T) {
 
 	// Cursors must still advance so the same failed entries are not
 	// reconsidered on the next tick.
-	if cur.write != "20260101120000.000000Z" {
-		t.Errorf("write cursor not advanced: %q", cur.write)
+	if cur.Write != "20260101120000.000000Z" {
+		t.Errorf("write cursor not advanced: %q", cur.Write)
 	}
-	if cur.lock != "20260101120001.000000Z" {
-		t.Errorf("lock cursor not advanced: %q", cur.lock)
+	if cur.Lock != "20260101120001.000000Z" {
+		t.Errorf("lock cursor not advanced: %q", cur.Lock)
 	}
 }
 
-func TestParseReqStart_FallsBackOnBadInput(t *testing.T) {
-	ts := parseReqStart("not-a-date")
+func TestParseEventTimestamp_FallsBackOnBadInput(t *testing.T) {
+	ts := parseEventTimestamp("not-a-date")
 	if ts.IsZero() {
 		t.Error("expected non-zero fallback timestamp")
 	}
-	ts = parseReqStart("20260413142201Z")
+	ts = parseEventTimestamp("20260413142201Z")
 	if ts.Year() != 2026 || ts.Month() != 4 || ts.Day() != 13 {
 		t.Errorf("unexpected parsed time: %v", ts)
 	}

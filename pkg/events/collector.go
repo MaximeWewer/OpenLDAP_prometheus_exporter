@@ -6,31 +6,32 @@ import (
 	"time"
 
 	"github.com/go-ldap/ldap/v3"
+
+	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/accesslog"
 )
 
-// accesslogSearcher is the narrow interface the event collector needs from the
-// LDAP client. The production implementation is *pool.PooledLDAPClient, but
-// tests supply a fake so the mapping logic can be exercised in isolation.
+// parseEventTimestamp parses a GeneralizedTime reqStart value and
+// truncates it to second precision so the marshaled "ts" field reads
+// `2026-04-14T07:32:45Z` instead of `2026-04-14T07:32:45.000001Z`. The
+// sub-second part is only an accesslog tie-breaker (slapd bumps it to
+// keep reqStart unique when two operations land in the same second);
+// the full-precision string stays available via the `req_start` field
+// for anyone who needs to correlate back to the raw LDAP entry.
+func parseEventTimestamp(reqStart string) time.Time {
+	return accesslog.ParseReqStart(reqStart).Truncate(time.Second)
+}
+
+// accesslogSearcher is the narrow interface the event collector needs
+// from the LDAP client. The production implementation is
+// *pool.PooledLDAPClient, but tests supply a fake so the mapping logic
+// can be exercised in isolation.
 type accesslogSearcher interface {
 	SearchAccessLog(filter string, attributes []string) (*ldap.SearchResult, error)
 }
 
-// cursorState holds the per-stream reqStart bookmarks the event runner uses to
-// query only newer entries on each tick. Each stream (bind / write / lock) has
-// its own cursor so that an error on one does not freeze the others.
-//
-// The "ready" flag exists so that a stream which is empty on the first scan
-// still transitions out of baseline mode — otherwise the very first real event
-// on an idle stream would be silently dropped because cursor=="" would still
-// look like "not yet initialized".
-type cursorState struct {
-	bind       string
-	write      string
-	lock       string
-	bindReady  bool
-	writeReady bool
-	lockReady  bool
-}
+// cursorState is a thin alias over the shared cursor so existing test
+// helpers can keep the short package-local name.
+type cursorState = accesslog.CursorState
 
 // collector turns accesslog entries into Event values. It is deliberately
 // stateful only through the cursor it is given — the runner owns both the
@@ -44,11 +45,12 @@ func newCollector(client accesslogSearcher, server string) *collector {
 	return &collector{client: client, server: server}
 }
 
-// scan performs a single tick: it queries each audit stream with its current
-// cursor, hands the decoded events to emit, and advances the cursor to the
-// highest reqStart seen. Baseline semantics mirror the metric collector: the
-// first scan for a given stream (cursor == "") only establishes a starting
-// point, it does not back-fill historical events.
+// scan performs a single tick: it queries each audit stream with its
+// current cursor, hands the decoded events to emit, and advances the
+// cursor to the highest reqStart seen. Baseline semantics mirror the
+// metric collector via the shared accesslog.CursorState Ready flag: the
+// first scan for a given stream only establishes a starting point, it
+// does not back-fill historical events.
 func (c *collector) scan(cursor *cursorState, emit func(Event)) (int, error) {
 	total := 0
 
@@ -73,15 +75,9 @@ func (c *collector) scan(cursor *cursorState, emit func(Event)) (int, error) {
 	return total, nil
 }
 
-func buildIncrementalFilter(base, cursor string) string {
-	if cursor == "" {
-		return base
-	}
-	return fmt.Sprintf("(&%s(reqStart>=%s))", base, cursor)
-}
-
 func (c *collector) scanBinds(cursor *cursorState, emit func(Event)) (int, error) {
-	filter := buildIncrementalFilter("(objectClass=auditBind)", cursor.bind)
+	cur, ready := cursor.Get(accesslog.StreamBind)
+	filter := accesslog.BuildIncrementalFilter(accesslog.BindBaseFilter, cur)
 	result, err := c.client.SearchAccessLog(filter, []string{
 		"reqStart", "reqDN", "reqResult", "reqSession", "reqAuthzID",
 	})
@@ -89,54 +85,46 @@ func (c *collector) scanBinds(cursor *cursorState, emit func(Event)) (int, error
 		return 0, err
 	}
 
-	baseline := !cursor.bindReady
-	maxSeen := cursor.bind
+	baseline := !ready
+	maxSeen := cur
 	count := 0
 
 	for _, entry := range result.Entries {
-		reqStart := attr(entry, "reqStart")
-		if reqStart == "" {
-			continue
-		}
-		if !baseline && reqStart == cursor.bind {
-			maxSeen = maxString(maxSeen, reqStart)
-			continue
-		}
-		maxSeen = maxString(maxSeen, reqStart)
-		if baseline {
+		reqStart := accesslog.Attr(entry, "reqStart")
+		emitNow, next := accesslog.ShouldEmit(reqStart, cur, baseline, maxSeen)
+		maxSeen = next
+		if !emitNow {
 			continue
 		}
 
-		userDN := attr(entry, "reqDN")
-		resultCode := attr(entry, "reqResult")
+		resultCode := accesslog.Attr(entry, "reqResult")
 		eventType := TypeBindSuccess
 		if resultCode != "0" {
 			eventType = TypeBindFailure
 		}
 
 		emit(Event{
-			Timestamp:  parseReqStart(reqStart),
+			Timestamp:  parseEventTimestamp(reqStart),
 			Event:      eventType,
 			Server:     c.server,
 			Source:     "accesslog",
 			ReqStart:   reqStart,
-			ReqSession: attr(entry, "reqSession"),
-			Actor:      trimDNPrefix(attr(entry, "reqAuthzID")),
-			UserDN:     userDN,
-			Result:     classifyBindResult(resultCode),
+			ReqSession: accesslog.Attr(entry, "reqSession"),
+			Actor:      accesslog.TrimDNPrefix(accesslog.Attr(entry, "reqAuthzID")),
+			UserDN:     accesslog.Attr(entry, "reqDN"),
+			Result:     accesslog.ClassifyBindResult(resultCode),
 			ResultCode: resultCode,
 		})
 		count++
 	}
 
-	cursor.bind = maxSeen
-	cursor.bindReady = true
+	cursor.Advance(accesslog.StreamBind, maxSeen)
 	return count, nil
 }
 
 func (c *collector) scanWrites(cursor *cursorState, emit func(Event)) (int, error) {
-	base := "(|(objectClass=auditAdd)(objectClass=auditModify)(objectClass=auditDelete)(objectClass=auditModRDN))"
-	filter := buildIncrementalFilter(base, cursor.write)
+	cur, ready := cursor.Get(accesslog.StreamWrite)
+	filter := accesslog.BuildIncrementalFilter(accesslog.WriteBaseFilter, cur)
 	result, err := c.client.SearchAccessLog(filter, []string{
 		"reqStart", "reqType", "reqDN", "reqAuthzID", "reqSession", "reqMod", "reqResult",
 	})
@@ -144,36 +132,30 @@ func (c *collector) scanWrites(cursor *cursorState, emit func(Event)) (int, erro
 		return 0, err
 	}
 
-	baseline := !cursor.writeReady
-	maxSeen := cursor.write
+	baseline := !ready
+	maxSeen := cur
 	count := 0
 
 	for _, entry := range result.Entries {
-		reqStart := attr(entry, "reqStart")
-		if reqStart == "" {
-			continue
-		}
-		if !baseline && reqStart == cursor.write {
-			maxSeen = maxString(maxSeen, reqStart)
-			continue
-		}
-		maxSeen = maxString(maxSeen, reqStart)
-		if baseline {
+		reqStart := accesslog.Attr(entry, "reqStart")
+		emitNow, next := accesslog.ShouldEmit(reqStart, cur, baseline, maxSeen)
+		maxSeen = next
+		if !emitNow {
 			continue
 		}
 
 		// Skip modifications that the server rejected — accesslog is
-		// configured with olcAccessLogSuccess=FALSE so failures are recorded
-		// too. Emitting them would produce phantom events for operations
-		// that never took effect (e.g. ACL denials).
-		if rc := attr(entry, "reqResult"); rc != "" && rc != "0" {
+		// configured with olcAccessLogSuccess=FALSE so failures are
+		// recorded too. Emitting them would produce phantom events for
+		// operations that never took effect (e.g. ACL denials).
+		if rc := accesslog.Attr(entry, "reqResult"); rc != "" && rc != "0" {
 			continue
 		}
 
-		opType := attr(entry, "reqType")
-		targetDN := attr(entry, "reqDN")
-		actor := trimDNPrefix(attr(entry, "reqAuthzID"))
-		attrs := touchedAttributes(entry)
+		opType := accesslog.Attr(entry, "reqType")
+		targetDN := accesslog.Attr(entry, "reqDN")
+		actor := accesslog.TrimDNPrefix(accesslog.Attr(entry, "reqAuthzID"))
+		attrs := accesslog.TouchedAttributes(entry)
 
 		eventType := mapWriteOp(opType)
 		if eventType == "" {
@@ -181,7 +163,7 @@ func (c *collector) scanWrites(cursor *cursorState, emit func(Event)) (int, erro
 			continue
 		}
 
-		ts := parseReqStart(reqStart)
+		ts := parseEventTimestamp(reqStart)
 
 		emit(Event{
 			Timestamp:  ts,
@@ -189,7 +171,7 @@ func (c *collector) scanWrites(cursor *cursorState, emit func(Event)) (int, erro
 			Server:     c.server,
 			Source:     "accesslog",
 			ReqStart:   reqStart,
-			ReqSession: attr(entry, "reqSession"),
+			ReqSession: accesslog.Attr(entry, "reqSession"),
 			Actor:      actor,
 			TargetDN:   targetDN,
 			Operation:  strings.ToLower(opType),
@@ -197,9 +179,10 @@ func (c *collector) scanWrites(cursor *cursorState, emit func(Event)) (int, erro
 		})
 		count++
 
-		// Derived ppolicy events: a single auditModify can also indicate a
-		// password change or a "must reset" marker. We emit them in addition
-		// to the write.* event so downstream consumers can filter precisely.
+		// Derived ppolicy events: a single auditModify can also indicate
+		// a password change or a "must reset" marker. Emit them in
+		// addition to the write.* event so downstream consumers can
+		// filter precisely.
 		if eventType == TypeWriteModify {
 			if containsAttr(attrs, "userPassword") || containsAttr(attrs, "pwdChangedTime") {
 				emit(Event{
@@ -208,20 +191,20 @@ func (c *collector) scanWrites(cursor *cursorState, emit func(Event)) (int, erro
 					Server:     c.server,
 					Source:     "accesslog",
 					ReqStart:   reqStart,
-					ReqSession: attr(entry, "reqSession"),
+					ReqSession: accesslog.Attr(entry, "reqSession"),
 					Actor:      actor,
 					UserDN:     targetDN,
 				})
 				count++
 			}
-			if hasReqModAddition(entry, "pwdReset") {
+			if accesslog.HasReqModAddition(entry, "pwdReset") {
 				emit(Event{
 					Timestamp:  ts,
 					Event:      TypePasswordResetRequire,
 					Server:     c.server,
 					Source:     "accesslog",
 					ReqStart:   reqStart,
-					ReqSession: attr(entry, "reqSession"),
+					ReqSession: accesslog.Attr(entry, "reqSession"),
 					Actor:      actor,
 					UserDN:     targetDN,
 				})
@@ -230,14 +213,13 @@ func (c *collector) scanWrites(cursor *cursorState, emit func(Event)) (int, erro
 		}
 	}
 
-	cursor.write = maxSeen
-	cursor.writeReady = true
+	cursor.Advance(accesslog.StreamWrite, maxSeen)
 	return count, nil
 }
 
 func (c *collector) scanLocks(cursor *cursorState, emit func(Event)) (int, error) {
-	base := "(&(objectClass=auditModify)(reqMod=pwdAccountLockedTime:*))"
-	filter := buildIncrementalFilter(base, cursor.lock)
+	cur, ready := cursor.Get(accesslog.StreamLock)
+	filter := accesslog.BuildIncrementalFilter(accesslog.LockBaseFilter, cur)
 	result, err := c.client.SearchAccessLog(filter, []string{
 		"reqStart", "reqDN", "reqAuthzID", "reqSession", "reqMod", "reqResult",
 	})
@@ -245,36 +227,30 @@ func (c *collector) scanLocks(cursor *cursorState, emit func(Event)) (int, error
 		return 0, err
 	}
 
-	baseline := !cursor.lockReady
-	maxSeen := cursor.lock
+	baseline := !ready
+	maxSeen := cur
 	count := 0
 
 	for _, entry := range result.Entries {
-		reqStart := attr(entry, "reqStart")
-		if reqStart == "" {
-			continue
-		}
-		if !baseline && reqStart == cursor.lock {
-			maxSeen = maxString(maxSeen, reqStart)
-			continue
-		}
-		maxSeen = maxString(maxSeen, reqStart)
-		if baseline {
+		reqStart := accesslog.Attr(entry, "reqStart")
+		emitNow, next := accesslog.ShouldEmit(reqStart, cur, baseline, maxSeen)
+		maxSeen = next
+		if !emitNow {
 			continue
 		}
 
-		// Same rationale as scanWrites: ignore rejected modifications so
-		// denied unlocks/locks do not appear as successful events.
-		if rc := attr(entry, "reqResult"); rc != "" && rc != "0" {
+		// Same rationale as scanWrites: ignore rejected modifications
+		// so denied unlocks/locks do not appear as successful events.
+		if rc := accesslog.Attr(entry, "reqResult"); rc != "" && rc != "0" {
 			continue
 		}
 
-		targetDN := attr(entry, "reqDN")
-		actor := trimDNPrefix(attr(entry, "reqAuthzID"))
-		ts := parseReqStart(reqStart)
+		targetDN := accesslog.Attr(entry, "reqDN")
+		actor := accesslog.TrimDNPrefix(accesslog.Attr(entry, "reqAuthzID"))
+		ts := parseEventTimestamp(reqStart)
 
 		eventType := TypeAccountUnlock
-		if hasReqModAddition(entry, "pwdAccountLockedTime") {
+		if accesslog.HasReqModAddition(entry, "pwdAccountLockedTime") {
 			eventType = TypeAccountLock
 		}
 
@@ -284,131 +260,15 @@ func (c *collector) scanLocks(cursor *cursorState, emit func(Event)) (int, error
 			Server:     c.server,
 			Source:     "accesslog",
 			ReqStart:   reqStart,
-			ReqSession: attr(entry, "reqSession"),
+			ReqSession: accesslog.Attr(entry, "reqSession"),
 			Actor:      actor,
 			UserDN:     targetDN,
 		})
 		count++
 	}
 
-	cursor.lock = maxSeen
-	cursor.lockReady = true
+	cursor.Advance(accesslog.StreamLock, maxSeen)
 	return count, nil
-}
-
-// attr returns the first value of the named attribute, or "" if absent.
-func attr(entry *ldap.Entry, name string) string {
-	for _, a := range entry.Attributes {
-		if a.Name == name && len(a.Values) > 0 {
-			return a.Values[0]
-		}
-	}
-	return ""
-}
-
-// trimDNPrefix strips the "dn:" prefix slapd prepends to reqAuthzID values.
-func trimDNPrefix(v string) string {
-	return strings.TrimPrefix(v, "dn:")
-}
-
-func maxString(a, b string) string {
-	if b > a {
-		return b
-	}
-	return a
-}
-
-// parseReqStart converts an LDAP GeneralizedTime value into time.Time. On
-// failure it falls back to the current wall clock so the emitted event still
-// carries a usable timestamp instead of a zero value.
-//
-// The result is truncated to second precision so the marshaled "ts" field
-// reads `2026-04-14T07:32:45Z` instead of `2026-04-14T07:32:45.000001Z`. The
-// sub-second part is only an accesslog tie-breaker (slapd bumps it to keep
-// reqStart unique when two operations land in the same second); the
-// full-precision string is still exposed verbatim via the `req_start` field
-// for anyone who needs to correlate back to the raw LDAP entry.
-func parseReqStart(value string) time.Time {
-	layouts := []string{
-		"20060102150405.000000Z",
-		"20060102150405.00000Z",
-		"20060102150405.0000Z",
-		"20060102150405.000Z",
-		"20060102150405.00Z",
-		"20060102150405.0Z",
-		"20060102150405Z",
-	}
-	for _, layout := range layouts {
-		if t, err := time.Parse(layout, value); err == nil {
-			return t.UTC().Truncate(time.Second)
-		}
-	}
-	return time.Now().UTC().Truncate(time.Second)
-}
-
-// touchedAttributes extracts the set of attribute names named in reqMod values.
-// Slapd encodes each value as "<attr>:<op> <value>" where <op> is +, -, =, or #.
-func touchedAttributes(entry *ldap.Entry) []string {
-	seen := map[string]struct{}{}
-	var out []string
-	for _, a := range entry.Attributes {
-		if a.Name != "reqMod" {
-			continue
-		}
-		for _, v := range a.Values {
-			idx := strings.IndexByte(v, ':')
-			if idx <= 0 {
-				continue
-			}
-			name := v[:idx]
-			if _, dup := seen[name]; dup {
-				continue
-			}
-			seen[name] = struct{}{}
-			out = append(out, name)
-		}
-	}
-	return out
-}
-
-func containsAttr(list []string, name string) bool {
-	for _, v := range list {
-		if strings.EqualFold(v, name) {
-			return true
-		}
-	}
-	return false
-}
-
-// hasReqModAddition reports whether any reqMod value encodes an add ("+") or
-// replace ("=") operation on the requested attribute name. This distinguishes
-// "lock the account" from "unlock the account" without re-reading the target
-// entry after the fact.
-func hasReqModAddition(entry *ldap.Entry, attrName string) bool {
-	wantLower := strings.ToLower(attrName)
-	for _, a := range entry.Attributes {
-		if a.Name != "reqMod" {
-			continue
-		}
-		for _, v := range a.Values {
-			idx := strings.IndexByte(v, ':')
-			if idx <= 0 {
-				continue
-			}
-			if !strings.EqualFold(v[:idx], wantLower) {
-				continue
-			}
-			rest := v[idx+1:]
-			if len(rest) == 0 {
-				continue
-			}
-			op := rest[0]
-			if op == '+' || op == '=' {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func mapWriteOp(opType string) Type {
@@ -426,21 +286,11 @@ func mapWriteOp(opType string) Type {
 	}
 }
 
-func classifyBindResult(code string) string {
-	switch code {
-	case "0":
-		return "success"
-	case "49":
-		return "invalid_credentials"
-	case "50":
-		return "insufficient_access"
-	case "53":
-		return "unwilling_to_perform"
-	case "19":
-		return "constraint_violation"
-	case "":
-		return "unknown"
-	default:
-		return "error_" + code
+func containsAttr(list []string, name string) bool {
+	for _, v := range list {
+		if strings.EqualFold(v, name) {
+			return true
+		}
 	}
+	return false
 }
