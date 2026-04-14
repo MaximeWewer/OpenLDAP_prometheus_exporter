@@ -321,6 +321,13 @@ func maxString(a, b string) string {
 // parseReqStart converts an LDAP GeneralizedTime value into time.Time. On
 // failure it falls back to the current wall clock so the emitted event still
 // carries a usable timestamp instead of a zero value.
+//
+// The result is truncated to second precision so the marshalled "ts" field
+// reads `2026-04-14T07:32:45Z` instead of `2026-04-14T07:32:45.000001Z`. The
+// sub-second part is only an accesslog tie-breaker (slapd bumps it to keep
+// reqStart unique when two operations land in the same second); the
+// full-precision string is still exposed verbatim via the `req_start` field
+// for anyone who needs to correlate back to the raw LDAP entry.
 func parseReqStart(value string) time.Time {
 	layouts := []string{
 		"20060102150405.000000Z",
@@ -333,10 +340,10 @@ func parseReqStart(value string) time.Time {
 	}
 	for _, layout := range layouts {
 		if t, err := time.Parse(layout, value); err == nil {
-			return t.UTC()
+			return t.UTC().Truncate(time.Second)
 		}
 	}
-	return time.Now().UTC()
+	return time.Now().UTC().Truncate(time.Second)
 }
 
 // touchedAttributes extracts the set of attribute names named in reqMod values.
