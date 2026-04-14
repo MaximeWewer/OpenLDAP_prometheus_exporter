@@ -18,10 +18,18 @@ import (
 
 // Constants for validation thresholds
 const (
-	// MaxReasonableCounterValue represents the maximum reasonable value for a counter (1 billion operations/bytes)
-	MaxReasonableCounterValue = 1e9
-	// MaxReasonableCounterDelta represents the maximum reasonable delta between counter readings (1 million operations per interval)
-	MaxReasonableCounterDelta = 1e6
+	// MaxReasonableCounterValue caps a single absolute counter reading.
+	// uint64 monitorCounter wraps at ~1.8e19, so a real overflow would
+	// be far above this. The previous 1e9 cap was triggered on every
+	// busy slapd whose bytes_total / pdu_total naturally exceed 1 GB /
+	// 1 G PDUs after a few days of uptime — a normal value, not a bug.
+	MaxReasonableCounterValue = 1e15
+	// MaxReasonableCounterDelta caps the per-scrape jump on a counter.
+	// At a 15s scrape interval, 1e9 ops/scrape ≈ 66 M ops/s — orders of
+	// magnitude above what slapd can actually serve, so anything above
+	// that range still indicates wraparound or corruption rather than
+	// real traffic.
+	MaxReasonableCounterDelta = 1e9
 	// MaxCounterEntries is the maximum number of counter entries to keep in memory
 	MaxCounterEntries = 1000
 	// CounterCleanupInterval is how often to clean up old counter entries

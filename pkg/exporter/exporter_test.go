@@ -390,8 +390,8 @@ func TestConstantsValidation(t *testing.T) {
 		minValue interface{}
 		maxValue interface{}
 	}{
-		{"MaxReasonableCounterValue", MaxReasonableCounterValue, float64(1e6), float64(1e12)},
-		{"MaxReasonableCounterDelta", MaxReasonableCounterDelta, float64(1e3), float64(1e9)},
+		{"MaxReasonableCounterValue", MaxReasonableCounterValue, float64(1e12), float64(1e18)},
+		{"MaxReasonableCounterDelta", MaxReasonableCounterDelta, float64(1e6), float64(1e12)},
 		{"MaxCounterEntries", MaxCounterEntries, 100, 10000},
 		{"CounterCleanupInterval", CounterCleanupInterval, 1 * time.Minute, 1 * time.Hour},
 		{"CounterEntryRetentionPeriod", CounterEntryRetentionPeriod, 2 * time.Minute, 2 * time.Hour},
