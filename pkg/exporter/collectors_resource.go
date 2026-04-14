@@ -8,6 +8,7 @@ import (
 	"github.com/go-ldap/ldap/v3"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/accesslog"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
 
@@ -79,7 +80,14 @@ func (e *OpenLDAPExporter) collectThreadsMetrics(server string) {
 		}
 	}
 
-	// Thread pool state is handled within the main cn=Threads,cn=Monitor search above
+	// Thread pool state is exposed as a separate "info" gauge whose
+	// value is always 1 and whose `state` label carries the textual
+	// status reported by slapd (e.g. "ready", "unknown"). The value
+	// lives under cn=State,cn=Threads,cn=Monitor as a monitoredInfo
+	// string, so getMonitorGroup (which only parses numeric counters)
+	// cannot populate it — the gauge used to be declared but never
+	// written.
+	e.collectThreadsState(server)
 
 	logger.SafeDebug("exporter", "Collected thread metrics", map[string]interface{}{
 		"server":         server,
@@ -88,35 +96,115 @@ func (e *OpenLDAPExporter) collectThreadsMetrics(server string) {
 	})
 }
 
-// collectTimeMetrics collects time-related metrics
+// collectThreadsState queries cn=State,cn=Threads,cn=Monitor, reads the
+// textual monitoredInfo value, and exposes it as an info-style gauge on
+// ThreadsState. The vector is Reset() first so a previous state label
+// stops publishing the moment slapd moves to a new state.
+func (e *OpenLDAPExporter) collectThreadsState(server string) {
+	result, err := e.client.Search(
+		"cn=State,cn=Threads,cn=Monitor",
+		"(objectClass=*)",
+		[]string{"monitoredInfo"},
+	)
+	if err != nil {
+		logger.SafeDebug("exporter", "Thread state subtree not available (optional)", map[string]interface{}{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	e.metricsRegistry.ThreadsState.Reset()
+	for _, entry := range result.Entries {
+		for _, attr := range entry.Attributes {
+			if attr.Name != "monitoredInfo" || len(attr.Values) == 0 {
+				continue
+			}
+			e.metricsRegistry.ThreadsState.With(prometheus.Labels{
+				"server": server,
+				"state":  attr.Values[0],
+			}).Set(1)
+		}
+	}
+}
+
+// collectTimeMetrics collects time-related metrics.
+//
+// cn=Time,cn=Monitor is an odd subtree: cn=Uptime carries an integer
+// seconds value in the regular `monitoredInfo` attribute, but cn=Start
+// and cn=Current publish their values only as the operational
+// `monitorTimestamp` attribute (a GeneralizedTime). getMonitorGroup
+// reads neither of those as a time value, so the previous
+// implementation — which relied exclusively on it — silently left
+// ServerTime unset. The fix issues a dedicated search that requests
+// `monitorTimestamp` explicitly and parses it via the shared accesslog
+// helper.
 func (e *OpenLDAPExporter) collectTimeMetrics(server string) {
 	if !e.shouldCollectMetric("time") {
 		return
 	}
 
-	// Get all time metrics in one request
-	timeCounters, err := e.getMonitorGroup("cn=Time,cn=Monitor")
+	result, err := e.client.Search(
+		"cn=Time,cn=Monitor",
+		"(objectClass=*)",
+		[]string{"monitoredInfo", "monitorTimestamp"},
+	)
 	if err != nil {
-		logger.SafeError("exporter", "Failed to get time group metrics", err)
+		logger.SafeError("exporter", "Failed to get time metrics", err)
 		return
 	}
 
-	// Process the time metrics
-	for cnName, value := range timeCounters {
-		switch cnName {
-		case "Start":
-			e.metricsRegistry.ServerTime.With(prometheus.Labels{"server": server}).Set(value)
+	entriesFound := 0
+	for _, entry := range result.Entries {
+		cn := extractCNFromFirstComponent(entry.DN)
+		if cn == "" {
+			continue
+		}
+		var info, ts string
+		for _, attr := range entry.Attributes {
+			if len(attr.Values) == 0 {
+				continue
+			}
+			switch attr.Name {
+			case "monitoredInfo":
+				info = attr.Values[0]
+			case "monitorTimestamp":
+				ts = attr.Values[0]
+			}
+		}
+		switch cn {
 		case "Uptime":
-			e.metricsRegistry.ServerUptime.With(prometheus.Labels{"server": server}).Set(value)
-		case "Current":
-			// Current time updates the server time as well
-			e.metricsRegistry.ServerTime.With(prometheus.Labels{"server": server}).Set(value)
+			if info == "" {
+				continue
+			}
+			if v, err := strconv.ParseFloat(info, 64); err == nil {
+				e.metricsRegistry.ServerUptime.With(prometheus.Labels{"server": server}).Set(v)
+				entriesFound++
+			}
+		case "Current", "Start":
+			if ts == "" {
+				continue
+			}
+			t, err := accesslog.ParseGeneralizedTime(ts)
+			if err != nil {
+				logger.SafeDebug("exporter", "Failed to parse monitorTimestamp", map[string]interface{}{
+					"cn":    cn,
+					"value": ts,
+					"error": err.Error(),
+				})
+				continue
+			}
+			// Both Current and Start feed into ServerTime. Current wins
+			// on the last iteration when both are returned because
+			// callers typically want "now according to slapd" rather
+			// than the startup timestamp.
+			e.metricsRegistry.ServerTime.With(prometheus.Labels{"server": server}).Set(float64(t.Unix()))
+			entriesFound++
 		}
 	}
 
 	logger.SafeDebug("exporter", "Collected time metrics", map[string]interface{}{
 		"server":         server,
-		"counters_found": len(timeCounters),
+		"counters_found": entriesFound,
 	})
 }
 
