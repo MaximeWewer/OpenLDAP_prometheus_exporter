@@ -39,9 +39,15 @@ type RateLimiter struct {
 	stopped         bool          // flag to indicate if rate limiter is stopped
 }
 
-// clientBucket represents the token bucket for a specific client IP
+// clientBucket represents the token bucket for a specific client IP.
+// tokens is kept as float64 so accrual below one-token-per-interval
+// accumulates across calls instead of being truncated to zero on every
+// Allow() — the previous int accounting (int(elapsed.Minutes()*rate))
+// silently dropped fractions, making a rate of 60/min effectively degrade
+// to burst-only service whenever requests arrived faster than one per
+// second.
 type clientBucket struct {
-	tokens   int
+	tokens   float64
 	lastSeen time.Time
 	mutex    sync.Mutex
 }
@@ -85,7 +91,7 @@ func (rl *RateLimiter) Allow(ip string) bool {
 		// Double-check after acquiring write lock
 		if bucket, exists = rl.clients[ip]; !exists {
 			bucket = &clientBucket{
-				tokens:   rl.burst,
+				tokens:   float64(rl.burst),
 				lastSeen: time.Now(),
 			}
 			rl.clients[ip] = bucket
@@ -103,23 +109,24 @@ func (rl *RateLimiter) allowBucket(bucket *clientBucket) bool {
 
 	now := time.Now()
 
-	// Add tokens based on time elapsed
-	elapsed := now.Sub(bucket.lastSeen)
-	tokensToAdd := int(elapsed.Minutes() * float64(rl.rate))
-
-	bucket.tokens += tokensToAdd
-	if bucket.tokens > rl.burst {
-		bucket.tokens = rl.burst
+	// Refill the bucket with fractional precision: a request spaced
+	// under one-token-interval from the previous call now adds the
+	// proportional fraction instead of zero, so sustained traffic
+	// actually converges to the configured rate.
+	elapsed := now.Sub(bucket.lastSeen).Minutes()
+	if elapsed > 0 {
+		bucket.tokens += elapsed * float64(rl.rate)
+		burst := float64(rl.burst)
+		if bucket.tokens > burst {
+			bucket.tokens = burst
+		}
 	}
-
 	bucket.lastSeen = now
 
-	// Check if we have tokens available
-	if bucket.tokens > 0 {
+	if bucket.tokens >= 1 {
 		bucket.tokens--
 		return true
 	}
-
 	return false
 }
 

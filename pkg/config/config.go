@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -81,7 +83,11 @@ type Config struct {
 	EventsTypes    []string           // OPENLDAP_EVENTS_TYPES (comma separated; empty = all types)
 }
 
-// LoadConfig loads configuration from environment variables
+// LoadConfig loads configuration from environment variables. The signature
+// returns an error deliberately — every misconfiguration surfaces as a
+// returned error instead of calling logger.Fatal internally, so the
+// caller (cmd/main.go) decides how to exit and so the function is
+// actually unit-testable without process termination.
 func LoadConfig() (*Config, error) {
 	// Get password: LDAP_PASSWORD_FILE takes precedence over LDAP_PASSWORD
 	passwordValue := loadPassword()
@@ -90,7 +96,7 @@ func LoadConfig() (*Config, error) {
 		var err error
 		securePassword, err = NewSecureString(passwordValue)
 		if err != nil {
-			logger.Fatal("config", "Failed to create secure password storage", err)
+			return nil, fmt.Errorf("failed to create secure password storage: %w", err)
 		}
 		// Go strings are immutable, assigning "" to passwordValue would not
 		// actually zero the underlying backing array — the secure copy lives
@@ -113,17 +119,17 @@ func LoadConfig() (*Config, error) {
 	}
 
 	if config.URL == "" {
-		logger.Fatal("config", "LDAP_URL environment variable is required", nil)
+		return nil, errors.New("LDAP_URL environment variable is required")
 	}
 
 	// SASL EXTERNAL uses client cert — no username/password needed
 	authMethod := strings.ToLower(getEnvOrDefault("LDAP_AUTH_METHOD", "simple"))
 	if authMethod != "external" {
 		if config.Username == "" {
-			logger.Fatal("config", "LDAP_USERNAME environment variable is required", nil)
+			return nil, errors.New("LDAP_USERNAME environment variable is required")
 		}
 		if config.Password == nil || config.Password.IsEmpty() {
-			logger.Fatal("config", "LDAP_PASSWORD or LDAP_PASSWORD_FILE is required", nil)
+			return nil, errors.New("LDAP_PASSWORD or LDAP_PASSWORD_FILE is required")
 		}
 	}
 
