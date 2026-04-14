@@ -227,66 +227,68 @@ jobs:
       id: changelog
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        VERSION: ${{ needs.prepare-build.outputs.version }}
       run: |
         # Fetch all tags from remote to ensure we have the latest
         git fetch --tags
-        
-        # Get the latest tag (previous version)
+
+        # Get the latest tag (previous version) - only used for comparison URL
         LATEST_TAG=$(git tag -l --sort=-version:refname | head -n 1)
 
-        # Determine commit range for comparison URL
-        if [ -z "$LATEST_TAG" ]; then
-          echo "No previous tag found, generating changelog from recent activity"
-          COMPARISON_RANGE=""
+        # Build changelog: last 10 commits and last 10 merged PRs, independent of tags
+        CHANGELOG_CONTENT=""
+
+        # Commit range: since previous tag if any, else all history
+        if [ -n "$LATEST_TAG" ]; then
+          COMMIT_RANGE="${LATEST_TAG}..HEAD"
+          echo "Fetching up to 10 commits in range ${COMMIT_RANGE}..."
         else
-          echo "Getting changes since tag: $LATEST_TAG"
-          COMPARISON_RANGE="${LATEST_TAG}...v${{ needs.prepare-build.outputs.version }}"
+          COMMIT_RANGE=""
+          echo "No previous tag, fetching up to 10 commits from full history..."
+        fi
+        COMMITS_LIST=$(git log ${COMMIT_RANGE} --no-merges -n 10 --pretty=format:"- \`%h\` %s")
+
+        # PRs merged since previous tag date, capped at 10
+        if [ -n "$LATEST_TAG" ]; then
+          SINCE_DATE=$(git log -1 --format=%aI "$LATEST_TAG")
+          echo "Fetching up to 10 PRs merged since ${SINCE_DATE}..."
+          PRS_LIST=$(gh pr list --state merged --base main --limit 10 \
+            --search "merged:>=${SINCE_DATE}" \
+            --json number,title,url \
+            --jq '.[] | "- [#\(.number)](\(.url)) \(.title)"' 2>/dev/null || true)
+        else
+          PRS_LIST=$(gh pr list --state merged --base main --limit 10 \
+            --json number,title,url \
+            --jq '.[] | "- [#\(.number)](\(.url)) \(.title)"' 2>/dev/null || true)
         fi
 
-        # Build changelog content
-        echo "Building changelog..."
-        CHANGELOG_CONTENT=""
-        
-        # Get last 10 events (commits and PRs combined)
-        echo "Fetching last 10 events (commits and pull requests)..."
-        
-        # Create a temporary file to store all events with timestamps
-        TEMP_EVENTS=$(mktemp)
-        
-        # Get all commits with their timestamps (excluding merge commits)
-        git log --all --pretty=format:"%at|commit|%h|%s" --grep="Merge pull request\|Merge branch" --invert-grep -n 20 > "$TEMP_EVENTS"
-        
-        # Get merged PRs with timestamps
-        gh pr list --state merged --limit 20 --json number,title,url,mergedAt --jq '.[] | "\(.mergedAt | fromdateiso8601)|pr|#\(.number)|\(.title)|\(.url)"' >> "$TEMP_EVENTS" 2>/dev/null || true
-        
-        # Sort by timestamp (newest first) and take only the first 10
-        EVENTS_LIST=$(sort -t'|' -k1 -rn "$TEMP_EVENTS" | head -10 | while IFS='|' read -r timestamp type id title url; do
-          if [ "$type" = "commit" ]; then
-            echo "- **Commit** $id: $title"
-          elif [ "$type" = "pr" ]; then
-            echo "- **Pull request** [#${id}](${url}): ${title}"
+        if [ -n "$COMMITS_LIST" ]; then
+          CHANGELOG_CONTENT="#### Commits (last 10)"$'\n'"$COMMITS_LIST"
+        fi
+
+        if [ -n "$PRS_LIST" ]; then
+          if [ -n "$CHANGELOG_CONTENT" ]; then
+            CHANGELOG_CONTENT="$CHANGELOG_CONTENT"$'\n\n'"#### Pull requests (last 10)"$'\n'"$PRS_LIST"
+          else
+            CHANGELOG_CONTENT="#### Pull requests (last 10)"$'\n'"$PRS_LIST"
           fi
-        done)
-        
-        # Clean up temp file
-        rm -f "$TEMP_EVENTS"
-        
-        # Build the changelog content
-        if [ -n "$EVENTS_LIST" ]; then
-          CHANGELOG_CONTENT="#### New in this release (last 10 events)"$'\n'"$EVENTS_LIST"
-        else
+        fi
+
+        if [ -z "$CHANGELOG_CONTENT" ]; then
           CHANGELOG_CONTENT="No changes found."
         fi
 
         # Save outputs
-        echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-        echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        {
+          echo "CHANGELOG<<EOF"
+          echo "$CHANGELOG_CONTENT"
+          echo "EOF"
+        } >> $GITHUB_OUTPUT
 
         if [ -n "$LATEST_TAG" ]; then
-          echo "COMPARISON_URL=https://github.com/${{ github.repository }}/compare/${LATEST_TAG}...v${{ needs.prepare-build.outputs.version }}" >> $GITHUB_OUTPUT
+          echo "COMPARISON_URL=https://github.com/${{ github.repository }}/compare/${LATEST_TAG}...v${VERSION}" >> $GITHUB_OUTPUT
         else
-          echo "COMPARISON_URL=https://github.com/${{ github.repository }}/commits/v${{ needs.prepare-build.outputs.version }}" >> $GITHUB_OUTPUT
+          echo "COMPARISON_URL=https://github.com/${{ github.repository }}/commits/v${VERSION}" >> $GITHUB_OUTPUT
         fi
 
     - name: Create GitHub Release
