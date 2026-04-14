@@ -6,22 +6,24 @@ A Prometheus exporter for OpenLDAP with advanced security features, performance 
 
 ### Security features
 
-- **Password Protection**: Credentials are encrypted in memory using ChaCha20-Poly1305
-- **Input Validation**: Comprehensive LDAP input validation to prevent injection attacks
-- **Rate Limiting**: Configurable rate limiting on all endpoints
+- **Credential Lifecycle**: passwords live in a `SecureString` byte buffer that `Clear()` zeros explicitly; the type also exposes a `WithPlaintext(func([]byte))` closure API so callers can consume the credential without leaking an immutable Go `string` copy onto the heap. (Pure-Go process memory cannot be locked, so the type does not pretend to provide cryptographic at-rest protection — see the godoc threat model.)
+- **LDAP Input Validation**: DN parsing delegates to `ldap.ParseDN` (RFC 4514) and filter values must be escaped via `EscapeFilterValue` (`ldap.EscapeFilter`, RFC 4515) before being interpolated into a search filter
+- **Trusted-Proxy Allowlist**: rate limiting only honors `X-Forwarded-For` / `X-Real-IP` when the immediate peer matches a configured CIDR (`HTTP_TRUSTED_PROXIES`); otherwise the peer's `RemoteAddr` is used and proxy headers are ignored
+- **Rate Limiting**: token-bucket rate limiting per client IP with fractional accrual (no truncated-to-zero starvation) and a per-IP TTL sweeper
 - **Security Headers**: Full set of security headers (CSP, HSTS, X-Frame-Options, etc.)
-- **Circuit Breaker**: Protection against cascading failures
+- **Circuit Breaker**: bounded half-open probes, rolling failure window in closed state, `errors.Is` based detection of the open sentinel
 - **Web Config (exporter-toolkit)**: Optional TLS and basic auth on `/metrics` via `--web.config.file`
 - **SASL EXTERNAL Auth**: Support for mTLS client certificate authentication to LDAP
-- **Safe Logging**: Automatic redaction of sensitive information in logs
+- **Safe Logging**: Automatic redaction of sensitive information in logs; every emitter (zerolog, exporter-toolkit slog, net/http and promhttp `ErrorLog`) outputs structured JSON on stderr
 
 ### Performance optimizations
 
-- **Connection Pooling**: Reusable LDAP connections with configurable pool size
-- **Atomic Operations**: Lock-free metrics updates for better concurrency
+- **Connection Pooling**: Reusable LDAP connections with configurable pool size, snapshot-based health check that never holds the per-connection mutex across network I/O
+- **Serialized Collect()**: a single mutex around the Prometheus `Collect()` body so concurrent scrapes do not race on the delta-based counter updates while the LDAP round-trips remain the actual bottleneck
+- **Scrape-scoped context**: every LDAP `Search*` call derives its timeout from the current scrape context, so cancelling a scrape (or process shutdown) propagates to in-flight requests instead of running under a detached `context.Background()`
 - **Metric Filtering**: Reduce overhead by collecting only needed metrics
 - **Domain Filtering**: Filter by domain components to reduce LDAP queries
-- **Retry Logic**: Exponential backoff with jitter for transient failures
+- **Retry Logic**: Exponential backoff with jitter for transient failures, classified via typed `errors.Is` / `errors.As` (no fragile substring matching)
 
 ## Support
 
@@ -388,6 +390,7 @@ See the full [web configuration documentation](https://github.com/prometheus/exp
 | `RATE_LIMIT_BURST` | Burst size for /metrics | `10` | `20` |
 | `HEALTH_RATE_LIMIT_REQUESTS` | Requests per minute for /health | `60` | `120` |
 | `HEALTH_RATE_LIMIT_BURST` | Burst size for /health | `20` | `40` |
+| `HTTP_TRUSTED_PROXIES` | Comma-separated CIDRs (or bare IPs) of trusted reverse proxies. Only requests whose peer address matches one of these entries are allowed to override the source IP via `X-Forwarded-For` / `X-Real-IP`; everything else uses `RemoteAddr` directly. Empty (the default) disables proxy-header trust entirely. | *(empty)* | `10.0.0.0/8,172.16.0.0/12` |
 
 ### Logging configuration
 
@@ -802,13 +805,13 @@ The exporter uses a structured logging system in JSON format:
 
 ## Technical Architecture
 
-- **Language:** Go
-- **Logging:** [rs/zerolog](https://github.com/rs/zerolog) for high-performance structured logs
-- **LDAP:** [go-ldap/ldap/v3](https://github.com/go-ldap/ldap)
+- **Language:** Go 1.26
+- **Logging:** [rs/zerolog](https://github.com/rs/zerolog) for high-performance structured logs; net/http and promhttp `ErrorLog` are routed through a slog JSON handler so every line on stderr stays parseable
+- **LDAP:** [go-ldap/ldap/v3](https://github.com/go-ldap/ldap), with DN parsing and filter escaping handled by the upstream RFC-compliant helpers
 - **Metrics:** Official Prometheus client with [exporter-toolkit](https://github.com/prometheus/exporter-toolkit) for HTTP auth/TLS
-- **Security:** ChaCha20-Poly1305 for password encryption, comprehensive input validation
-- **Performance:** Connection pooling, circuit breaker pattern, retry with exponential backoff
-- **Container:** Distroless image for security
+- **Security:** explicit credential lifecycle via `SecureString` (zero-on-Clear, closure-based plaintext access) — no fake at-rest encryption claim; trusted-proxy gate on `X-Forwarded-For`; LDAP filter / DN validation via `ldap.ParseDN` / `EscapeFilterValue`
+- **Performance:** Connection pooling with bounded half-open circuit breaker, scrape-scoped context propagation into LDAP Search calls, retry with exponential backoff
+- **Container:** Distroless static image for security
 - **Build:** Multi-stage Docker build with static binary
 
 ## Development
