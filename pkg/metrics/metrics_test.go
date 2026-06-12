@@ -42,6 +42,7 @@ func TestNewOpenLDAPMetrics(t *testing.T) {
 		{"ServerTime", metrics.ServerTime},
 		{"ServerUptime", metrics.ServerUptime},
 		{"TlsInfo", metrics.TlsInfo},
+		{"TlsCertNotAfter", metrics.TlsCertNotAfter},
 		{"BackendsInfo", metrics.BackendsInfo},
 		{"ListenersInfo", metrics.ListenersInfo},
 		{"DatabaseEntries", metrics.DatabaseEntries},

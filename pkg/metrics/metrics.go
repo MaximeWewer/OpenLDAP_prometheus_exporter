@@ -28,6 +28,7 @@ type OpenLDAPMetrics struct {
 	ServerTime             *prometheus.GaugeVec
 	ServerUptime           *prometheus.GaugeVec
 	TlsInfo                *prometheus.GaugeVec
+	TlsCertNotAfter        *prometheus.GaugeVec
 	BackendsInfo           *prometheus.GaugeVec
 	ListenersInfo          *prometheus.GaugeVec
 	DatabaseEntries        *prometheus.GaugeVec
@@ -248,6 +249,19 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 				Help:      "TLS configuration components (value is always 1, cn=TLS,cn=Monitor)",
 			},
 			[]string{"server", "component", "status"},
+		),
+
+		// Expiration (NotAfter) of each certificate the LDAP server presents
+		// on the live TLS handshake. Value is the Unix timestamp in seconds.
+		// usage="server" is the leaf cert, usage="ca" covers the intermediate
+		// and root CAs in the presented chain. Only emitted when TLS is on.
+		TlsCertNotAfter: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "tls_cert_not_after_timestamp_seconds",
+				Help:      "Expiration (NotAfter) of certificates in the server's live TLS chain, as a Unix timestamp",
+			},
+			[]string{"server", "usage", "subject", "issuer", "serial"},
 		),
 
 		// Backend metrics
@@ -501,6 +515,7 @@ func (m *OpenLDAPMetrics) Collectors() []prometheus.Collector {
 
 		// TLS metrics
 		m.TlsInfo,
+		m.TlsCertNotAfter,
 
 		// Backend metrics
 		m.BackendsInfo,

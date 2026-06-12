@@ -5,7 +5,7 @@
 ARG VERSION="dev"
 
 # Build stage with Go 1.26
-FROM --platform=$BUILDPLATFORM golang:1.26.2-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.4-alpine AS builder
 
 # Declare build arguments for cross-compilation
 ARG TARGETOS

@@ -60,6 +60,12 @@ func (e *OpenLDAPExporter) collectTLSMetrics(server string) {
 			e.metricsRegistry.TlsInfo.With(prometheus.Labels{"server": server, "component": component, "status": "configured"}).Set(1)
 		}
 	}
+
+	// Expiration of the certificates the server presents on the live TLS
+	// handshake (leaf + CA chain). Part of the same "tls" group so a single
+	// include/exclude filter covers both the cn=Monitor TLS info and the
+	// certificate expiry series.
+	e.collectTLSCertMetrics(server)
 }
 
 // collectBackendsMetrics collects backend information metrics

@@ -3,6 +3,14 @@ objectClass: olcGlobal
 cn: config
 olcPidFile: /run/openldap/slapd.pid
 olcArgsFile: /run/openldap/slapd.args
+# TLS — certificates are bind-mounted at /etc/openldap/certs by the compose
+# file. The server cert's CN/SAN is "openldap" so the exporter can verify the
+# chain against ca.crt while connecting to ldaps://openldap:636. These let the
+# ldaps:// listener (already in the image entrypoint) complete a handshake,
+# which is what the exporter's tls_cert_not_after metric reads.
+olcTLSCACertificateFile: /etc/openldap/certs/ca.crt
+olcTLSCertificateFile: /etc/openldap/certs/server.crt
+olcTLSCertificateKeyFile: /etc/openldap/certs/server.key
 
 dn: cn=module{0},cn=config
 objectClass: olcModuleList

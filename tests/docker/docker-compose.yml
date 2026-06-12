@@ -25,10 +25,13 @@ services:
     restart: unless-stopped
     ports:
       - "1389:389"
+      - "1636:636"
     volumes:
       - ./data/slapd.d:/etc/openldap/slapd.d
       - ./data/openldap-data:/var/lib/openldap/openldap-data
       - ./data/accesslog-data:/var/lib/openldap/accesslog-data
+      # TLS material referenced by olcTLS* in init-config/slapd-config.ldif.
+      - ./certs:/etc/openldap/certs:ro
     networks:
       - openldap-events-test
     logging:
@@ -46,11 +49,16 @@ services:
     depends_on:
       - openldap
     environment:
-      LDAP_URL: "ldap://openldap:389"
+      # Connect over LDAPS so the exporter reads the server's live TLS chain
+      # for the openldap_tls_cert_not_after_timestamp_seconds metric. The CA
+      # is mounted below and the cert SAN matches "openldap", so full
+      # verification succeeds (no skip-verify needed).
+      LDAP_URL: "ldaps://openldap:636"
       LDAP_USERNAME: "cn=adminconfig,cn=config"
       LDAP_PASSWORD: "adminpasswordconfig"
       LDAP_SERVER_NAME: "openldap-events-test"
-      LDAP_TLS: "false"
+      LDAP_TLS: "true"
+      LDAP_TLS_CA: "/etc/openldap/certs/ca.crt"
       LDAP_UPDATE_EVERY: "15"
       LOG_LEVEL: "DEBUG"
 
@@ -64,6 +72,8 @@ services:
       - "9330:9330"
     volumes:
       - ./output:/var/log/openldap-events
+      # CA used to verify the LDAPS server certificate (LDAP_TLS_CA above).
+      - ./certs:/etc/openldap/certs:ro
     networks:
       - openldap-events-test
 
@@ -71,7 +81,7 @@ services:
   # so trigger-events.sh can invoke them via "docker exec" without requiring the
   # host to have ldap-utils installed.
   tools:
-    image: alpine:3.23
+    image: alpine:3.24
     container_name: openldap-events-test-tools
     command:
       - sh
@@ -79,6 +89,44 @@ services:
       - "apk add --no-cache openldap-clients >/dev/null && exec sleep infinity"
     depends_on:
       - openldap
+    networks:
+      - openldap-events-test
+    restart: unless-stopped
+
+  # Prometheus scraping the exporter — lets Grafana render the dashboards.
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    container_name: openldap-events-test-prometheus
+    depends_on:
+      - exporter
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - openldap-events-test
+    restart: unless-stopped
+
+  # Grafana auto-provisioned with the Prometheus datasource and the repo
+  # dashboards (including the new "TLS Certificates" row). Open
+  # http://localhost:3000 — anonymous access is enabled as Admin for the demo.
+  grafana:
+    image: grafana/grafana:12.2.9
+    container_name: openldap-events-test-grafana
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_USERS_DEFAULT_THEME: "dark"
+    volumes:
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../../grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
       - openldap-events-test
     restart: unless-stopped

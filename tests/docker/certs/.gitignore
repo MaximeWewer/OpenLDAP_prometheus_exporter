@@ -1,0 +1,6 @@
+# Throwaway TLS material — regenerate with ./gen-certs.sh, never commit.
+*.crt
+*.key
+*.csr
+*.srl
+*.ext

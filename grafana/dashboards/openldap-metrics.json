@@ -3160,6 +3160,233 @@
           ]
         }
       ]
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 76
+      },
+      "id": 100,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 14
+                  },
+                  {
+                    "color": "green",
+                    "value": 30
+                  }
+                ]
+              },
+              "unit": "d",
+              "decimals": 0,
+              "mappings": []
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 77
+          },
+          "id": 101,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto",
+            "showPercentChange": false,
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "min((openldap_tls_cert_not_after_timestamp_seconds{server=~\"$server\"} - time()) / 86400)",
+              "format": "time_series",
+              "instant": true,
+              "legendFormat": "Days until expiry",
+              "range": false,
+              "refId": "A"
+            }
+          ],
+          "title": "Nearest TLS Cert Expiry",
+          "description": "Days until the soonest-expiring certificate in the server's live TLS chain. Red < 14d, yellow < 30d.",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "inspect": false
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 14
+                  },
+                  {
+                    "color": "green",
+                    "value": 30
+                  }
+                ]
+              },
+              "mappings": []
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Days Until Expiry"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "d"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background",
+                      "mode": "gradient"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 16,
+            "x": 8,
+            "y": 77
+          },
+          "id": 102,
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "enablePagination": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
+            },
+            "sortBy": [
+              {
+                "displayName": "Days Until Expiry",
+                "desc": false
+              }
+            ]
+          },
+          "pluginVersion": "12.1.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "(openldap_tls_cert_not_after_timestamp_seconds{server=~\"$server\"} - time()) / 86400",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "__auto",
+              "range": false,
+              "refId": "A"
+            }
+          ],
+          "title": "TLS Certificate Expiry",
+          "description": "Each certificate the server presents on the live TLS handshake. usage=server is the leaf, usage=ca the issuing chain.",
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "job": true,
+                  "instance": true
+                },
+                "indexByName": {
+                  "usage": 0,
+                  "subject": 1,
+                  "issuer": 2,
+                  "serial": 3,
+                  "server": 4,
+                  "Value": 5
+                },
+                "renameByName": {
+                  "usage": "Usage",
+                  "subject": "Subject",
+                  "issuer": "Issuer",
+                  "serial": "Serial",
+                  "server": "Server",
+                  "Value": "Days Until Expiry"
+                }
+              }
+            }
+          ],
+          "type": "table"
+        }
+      ],
+      "title": "TLS Certificates",
+      "type": "row"
     }
   ],
   "refresh": "10s",
@@ -3229,6 +3456,6 @@
   "timezone": "",
   "title": "OpenLDAP Metrics",
   "uid": "openldap-metrics",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

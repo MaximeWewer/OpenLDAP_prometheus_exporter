@@ -563,6 +563,7 @@ These metrics are collected in different configurable groups. Use `OPENLDAP_METR
 | Metric | Type | Labels | Description | LDAP Source |
 |----------|------|---------|-------------|-------------|
 | `openldap_tls_info` | Gauge | `server`, `component`, `status` | TLS configuration information | `cn=TLS,cn=Monitor` |
+| `openldap_tls_cert_not_after_timestamp_seconds` | Gauge | `server`, `usage`, `subject`, `issuer`, `serial` | Expiration (NotAfter) of the certificates in the server's live TLS chain, as a Unix timestamp. `usage="server"` is the leaf certificate, `usage="ca"` covers the intermediate/root CAs. Only emitted when TLS is enabled. | Live TLS handshake |
 
 ### Backends (`backends`)
 

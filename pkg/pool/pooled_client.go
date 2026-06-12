@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"strings"
 	"sync"
@@ -615,6 +616,45 @@ func (c *PooledLDAPClient) SearchRootDSE(attributes []string) (*ldap.SearchResul
 	}
 
 	return result, nil
+}
+
+// PeerCertificates returns the x509 chain the LDAP server presented on the
+// live TLS handshake, leaf first. It returns (nil, nil) when TLS is disabled
+// or the pooled connection is not TLS, so callers can simply skip emitting
+// metrics in that case. The connection is borrowed from the pool and returned
+// untouched — reading the handshake state issues no LDAP round-trip.
+func (c *PooledLDAPClient) PeerCertificates() ([]*x509.Certificate, error) {
+	if !c.config.TLS {
+		return nil, nil
+	}
+
+	var certs []*x509.Certificate
+
+	err := c.circuitBreaker.Call(func() error {
+		ctx, cancel := context.WithTimeout(c.currentBaseContext(), DefaultSearchTimeout)
+		defer cancel()
+
+		conn, err := c.pool.Get(ctx)
+		if err != nil {
+			return err
+		}
+		defer c.pool.Put(conn)
+
+		state, ok := conn.conn.TLSConnectionState()
+		if !ok {
+			// Connection is not TLS despite TLS being configured; nothing
+			// to report rather than an error.
+			return nil
+		}
+		certs = state.PeerCertificates
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return certs, nil
 }
 
 // Close closes the connection pool
