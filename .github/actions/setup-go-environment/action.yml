@@ -5,13 +5,13 @@ inputs:
   go-version:
     description: "Go version to use"
     required: false
-    default: "1.26.2"
+    default: "1.26.4"
 
 runs:
   using: "composite"
   steps:
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v6
       with:
         go-version: ${{ inputs.go-version }}
 
@@ -24,7 +24,7 @@ runs:
         go clean -cache 2>/dev/null || true
 
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/.cache/go-build

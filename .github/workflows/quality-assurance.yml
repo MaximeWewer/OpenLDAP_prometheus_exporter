@@ -30,7 +30,7 @@ on:
           - "analysis-security"
 
 env:
-  GO_VERSION: "1.26.2"
+  GO_VERSION: "1.26.4"
 
 # Default permissions for all jobs
 permissions:
@@ -70,7 +70,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go environment
         uses: ./.github/actions/setup-go-environment
@@ -101,7 +101,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go environment
         uses: ./.github/actions/setup-go-environment
@@ -109,7 +109,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.10.1
           args: --timeout=5m
@@ -125,7 +125,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go environment
         uses: ./.github/actions/setup-go-environment
@@ -144,14 +144,14 @@ jobs:
           echo "UNIT_COVERAGE=$COVERAGE" >> $GITHUB_ENV
 
       - name: Upload unit test coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-coverage
           path: unit-coverage.out
           retention-days: 1
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: ./unit-coverage.out
           flags: unittests
@@ -167,7 +167,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go environment
         uses: ./.github/actions/setup-go-environment
@@ -224,14 +224,14 @@ jobs:
           echo "INTEGRATION_COVERAGE=$COVERAGE" >> $GITHUB_ENV
 
       - name: Upload integration test coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: integration-coverage
           path: integration-coverage.out
           retention-days: 1
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: ./integration-coverage.out
           flags: integrationtests
@@ -250,7 +250,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go environment
         uses: ./.github/actions/setup-go-environment
@@ -267,7 +267,7 @@ jobs:
           gosec -fmt sarif -out results.sarif ./... || true
 
       - name: Upload SARIF file
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
 
@@ -278,7 +278,7 @@ jobs:
 
       - name: Dependency review (Pull Request only)
         if: github.event_name == 'pull_request'
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@v5
 
       - name: Check dependencies (Push events)
         if: github.event_name == 'push'
@@ -302,7 +302,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go environment
         uses: ./.github/actions/setup-go-environment
@@ -311,14 +311,14 @@ jobs:
 
       - name: Download unit test coverage
         if: needs.unit-tests.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: unit-coverage
           path: ./coverage-reports/
 
       - name: Download integration test coverage
         if: needs.integration-tests.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: integration-coverage
           path: ./coverage-reports/
@@ -378,7 +378,7 @@ jobs:
           echo "HTML coverage report generated"
 
       - name: Upload combined coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: combined-coverage-report
           path: |
@@ -388,7 +388,7 @@ jobs:
           retention-days: 7
 
       - name: Upload to Codecov (combined)
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: ./combined-coverage.out
           flags: combined
