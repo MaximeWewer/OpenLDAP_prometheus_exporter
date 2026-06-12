@@ -27,6 +27,17 @@ ACCESSLOG_DIR="${DATA_ROOT}/accesslog-data"
 
 log() { printf '[setup] %s\n' "$*"; }
 
+# --- TLS certificates ----------------------------------------------------
+# slapd's cn=config references olcTLSCertificateFile/KeyFile/CACertificateFile
+# under ./certs and the image entrypoint listens on ldaps://, so slapd will
+# refuse to start if those files are missing. The certs are gitignored (they
+# hold a private key), so generate them here when absent — this makes both
+# local `./setup.sh` and CI work without committing key material.
+if [[ ! -f ./certs/server.crt ]]; then
+  log "Generating TLS certificates (./certs/gen-certs.sh)"
+  ./certs/gen-certs.sh >/dev/null
+fi
+
 # --- reset handling ------------------------------------------------------
 if [[ -d "$SLAPD_DIR" ]] && [[ -n "$(ls -A "$SLAPD_DIR" 2>/dev/null || true)" ]]; then
   if [[ "${1:-}" == "--reset" ]]; then
