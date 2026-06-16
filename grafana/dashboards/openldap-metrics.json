@@ -2021,7 +2021,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "Replication lag in seconds between the provider and consumer. Only available when replication is configured.",
+          "description": "True inter-node propagation lag per server_id: seconds each node is behind the most-advanced node's contextCSN for that RID. The most up-to-date node reads 0; a value rising on one node means it is falling behind its peers. Requires every node to be scraped (one series per `server`). Unlike now-minus-CSN, an idle master does not show as lag here.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -2110,13 +2110,13 @@
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "expr": "openldap_replication_lag_seconds",
-              "legendFormat": "{{base_dn}} (server_id={{server_id}})",
+              "expr": "max by (base_dn, server_id) (openldap_replication_csn_timestamp) - on (base_dn, server_id) group_right () openldap_replication_csn_timestamp",
+              "legendFormat": "{{server}} — {{base_dn}} (server_id={{server_id}})",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "Replication Lag",
+          "title": "Replication Propagation Lag",
           "type": "timeseries"
         },
         {

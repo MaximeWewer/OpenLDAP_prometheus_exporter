@@ -624,9 +624,23 @@ These metrics are collected in different configurable groups. Use `OPENLDAP_METR
 | Metric | Type | Labels | Description | LDAP Source |
 |----------|------|---------|-------------|-------------|
 | `openldap_replication_csn_timestamp` | Gauge | `server`, `base_dn`, `server_id` | Unix timestamp from contextCSN per database and server ID | `contextCSN` on suffix entry |
-| `openldap_replication_lag_seconds` | Gauge | `server`, `base_dn`, `server_id` | Seconds since last contextCSN update | Calculated |
+| `openldap_replication_lag_seconds` | Gauge | `server`, `base_dn`, `server_id` | Age of the last write per master: `now − contextCSN` | Calculated |
 
-These metrics are only populated when `contextCSN` is present on database suffix entries (i.e., when replication is configured). In multi-master setups, one series per server ID (SID) is exposed, allowing lag detection between replicas.
+These metrics are only populated when `contextCSN` is present on database suffix entries (i.e., when replication is configured). In multi-master setups, `contextCSN` is multi-valued — one value per master RID — so one series per server ID (SID) is exposed.
+
+> **`openldap_replication_lag_seconds` is write-age, not propagation lag.** It is `now − contextCSN[server_id]`, i.e. how long ago that master last produced a write. An **idle** master therefore shows a large value even when replication is perfectly healthy — it is not "behind". Use it to spot a master that has gone silent, not to measure replication delay.
+
+#### True inter-node propagation lag
+
+Propagation lag is inherently **cross-node** and cannot be computed by a single exporter (each instance scrapes one node and cannot see its peers' CSNs). With every node scraped, compute it in Prometheus — for each RID, how far a node's CSN trails the most-advanced node:
+
+```promql
+max by (base_dn, server_id) (openldap_replication_csn_timestamp)
+  - on (base_dn, server_id) group_right ()
+openldap_replication_csn_timestamp
+```
+
+The most up-to-date node reads `0`; a rising value on one node means it is falling behind its peers. An idle master does **not** register as lag here. A ready-to-use recording rule (`openldap:replication_propagation_lag_seconds`) and a sample alert ship in [`tests/docker/monitoring/rules/openldap-replication.rules.yml`](tests/docker/monitoring/rules/openldap-replication.rules.yml), and the bundled Grafana dashboard's **Replication Propagation Lag** panel uses this expression directly.
 
 ### Password Policy (`ppolicy`)
 

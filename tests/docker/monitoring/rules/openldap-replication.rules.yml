@@ -1,0 +1,35 @@
+groups:
+  - name: openldap-replication
+    rules:
+      # True inter-node propagation lag, in seconds, per (server, base_dn, server_id).
+      #
+      # The exporter exposes one openldap_replication_csn_timestamp series per
+      # scraped node (the `server` label), per naming context (base_dn) and per
+      # master RID (server_id) — the value being that node's contextCSN time for
+      # that RID. The most-advanced node for a given RID holds the ground-truth
+      # latest CSN, so the lag of any node is simply how far its CSN sits behind
+      # the per-RID maximum across all nodes:
+      #
+      #     max_over_nodes(CSN[base_dn, server_id]) - CSN[server, base_dn, server_id]
+      #
+      # group_right() keeps the right-hand (many) side's `server` label so the
+      # result is per node. The most up-to-date node reads 0. Unlike
+      # now()-minus-CSN, an idle master does not register as lag. Resolution is
+      # 1s (contextCSN is exported at whole-second precision).
+      - record: openldap:replication_propagation_lag_seconds
+        expr: |
+          max by (base_dn, server_id) (openldap_replication_csn_timestamp)
+            - on (base_dn, server_id) group_right ()
+          openldap_replication_csn_timestamp
+
+  - name: openldap-replication-alerts
+    rules:
+      - alert: OpenLDAPReplicationLagHigh
+        # A node trailing the most-advanced peer by >60s for 5m on some RID.
+        expr: openldap:replication_propagation_lag_seconds > 60
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OpenLDAP node {{ $labels.server }} lagging in replication"
+          description: "{{ $labels.server }} is {{ $value | humanizeDuration }} behind the most up-to-date node for {{ $labels.base_dn }} (server_id={{ $labels.server_id }})."
