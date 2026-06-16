@@ -52,6 +52,7 @@ type Config struct {
 	TLSCA         string
 	TLSCert       string
 	TLSKey        string
+	TLSServerName string // LDAP_TLS_SERVER_NAME: overrides the TLS SNI / certificate verification hostname (defaults to the host in LDAP_URL)
 	Timeout       time.Duration
 	UpdateEvery   time.Duration
 	Username      string
@@ -112,6 +113,7 @@ func LoadConfig() (*Config, error) {
 		TLSCA:         getEnvOrDefault("LDAP_TLS_CA", ""),
 		TLSCert:       getEnvOrDefault("LDAP_TLS_CERT", ""),
 		TLSKey:        getEnvOrDefault("LDAP_TLS_KEY", ""),
+		TLSServerName: getEnvOrDefault("LDAP_TLS_SERVER_NAME", ""),
 		Timeout:       time.Duration(getEnvIntOrDefault("LDAP_TIMEOUT", 10)) * time.Second,
 		UpdateEvery:   time.Duration(getEnvIntOrDefault("LDAP_UPDATE_EVERY", 15)) * time.Second,
 		Username:      getEnvOrDefault("LDAP_USERNAME", ""),

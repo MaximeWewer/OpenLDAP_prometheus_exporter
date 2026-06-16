@@ -115,6 +115,14 @@ func (p *ConnectionPool) buildTLSConfig() (*tls.Config, error) {
 		MinVersion:         tls.VersionTLS12,
 	}
 
+	// Override the SNI / certificate-verification hostname when set. Without
+	// this, Go verifies against the host parsed from LDAP_URL, so connecting
+	// by IP requires an IP SAN in the cert. Setting LDAP_TLS_SERVER_NAME lets
+	// you dial an IP (or any address) while verifying against a DNS SAN.
+	if p.config.TLSServerName != "" {
+		tlsConfig.ServerName = p.config.TLSServerName
+	}
+
 	if p.config.TLSCA != "" {
 		caCert, err := os.ReadFile(p.config.TLSCA)
 		if err != nil {
