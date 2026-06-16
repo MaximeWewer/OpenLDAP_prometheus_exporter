@@ -6,45 +6,47 @@ import (
 
 // OpenLDAPMetrics holds all Prometheus metrics for OpenLDAP monitoring
 type OpenLDAPMetrics struct {
-	ConnectionsCurrent     *prometheus.GaugeVec
-	ConnectionsTotal       *prometheus.CounterVec
-	BytesTotal             *prometheus.CounterVec
-	PduTotal               *prometheus.CounterVec
-	ReferralsTotal         *prometheus.CounterVec
-	EntriesTotal           *prometheus.CounterVec
-	ThreadsMax             *prometheus.GaugeVec
-	ThreadsMaxPending      *prometheus.GaugeVec
-	ThreadsBackload        *prometheus.GaugeVec
-	ThreadsActive          *prometheus.GaugeVec
-	ThreadsOpen            *prometheus.GaugeVec
-	ThreadsStarting        *prometheus.GaugeVec
-	ThreadsPending         *prometheus.GaugeVec
-	ThreadsState           *prometheus.GaugeVec
-	OperationsInitiated    *prometheus.CounterVec
-	OperationsCompleted    *prometheus.CounterVec
-	WaitersRead            *prometheus.GaugeVec
-	WaitersWrite           *prometheus.GaugeVec
-	OverlaysInfo           *prometheus.GaugeVec
-	ServerTime             *prometheus.GaugeVec
-	ServerUptime           *prometheus.GaugeVec
-	TlsInfo                *prometheus.GaugeVec
-	TlsCertNotAfter        *prometheus.GaugeVec
-	BackendsInfo           *prometheus.GaugeVec
-	ListenersInfo          *prometheus.GaugeVec
-	DatabaseEntries        *prometheus.GaugeVec
-	DatabaseInfo           *prometheus.GaugeVec
-	HealthStatus           *prometheus.GaugeVec
-	ResponseTime           *prometheus.HistogramVec
-	ScrapeErrors           *prometheus.CounterVec
-	Up                     *prometheus.GaugeVec
-	ServerInfo             *prometheus.GaugeVec
-	LogLevels              *prometheus.GaugeVec
-	SaslInfo               *prometheus.GaugeVec
-	ReplicationCSN         *prometheus.GaugeVec
-	ReplicationLag         *prometheus.GaugeVec
-	ConnectionsByProtocol  *prometheus.GaugeVec
-	ConnectionOpsAggregate *prometheus.GaugeVec
-	SupportedControlInfo   *prometheus.GaugeVec
+	ConnectionsCurrent         *prometheus.GaugeVec
+	ConnectionsTotal           *prometheus.CounterVec
+	BytesTotal                 *prometheus.CounterVec
+	PduTotal                   *prometheus.CounterVec
+	ReferralsTotal             *prometheus.CounterVec
+	EntriesTotal               *prometheus.CounterVec
+	ThreadsMax                 *prometheus.GaugeVec
+	ThreadsMaxPending          *prometheus.GaugeVec
+	ThreadsBackload            *prometheus.GaugeVec
+	ThreadsActive              *prometheus.GaugeVec
+	ThreadsOpen                *prometheus.GaugeVec
+	ThreadsStarting            *prometheus.GaugeVec
+	ThreadsPending             *prometheus.GaugeVec
+	ThreadsState               *prometheus.GaugeVec
+	OperationsInitiated        *prometheus.CounterVec
+	OperationsCompleted        *prometheus.CounterVec
+	WaitersRead                *prometheus.GaugeVec
+	WaitersWrite               *prometheus.GaugeVec
+	OverlaysInfo               *prometheus.GaugeVec
+	ServerTime                 *prometheus.GaugeVec
+	ServerUptime               *prometheus.GaugeVec
+	TlsInfo                    *prometheus.GaugeVec
+	TlsCertNotAfter            *prometheus.GaugeVec
+	BackendsInfo               *prometheus.GaugeVec
+	ListenersInfo              *prometheus.GaugeVec
+	DatabaseEntries            *prometheus.GaugeVec
+	DatabaseInfo               *prometheus.GaugeVec
+	HealthStatus               *prometheus.GaugeVec
+	ResponseTime               *prometheus.HistogramVec
+	ScrapeErrors               *prometheus.CounterVec
+	Up                         *prometheus.GaugeVec
+	ServerInfo                 *prometheus.GaugeVec
+	LogLevels                  *prometheus.GaugeVec
+	SaslInfo                   *prometheus.GaugeVec
+	ReplicationCSN             *prometheus.GaugeVec
+	ReplicationLag             *prometheus.GaugeVec
+	ReplicationMultiProvider   *prometheus.GaugeVec
+	ReplicationConfiguredPeers *prometheus.GaugeVec
+	ConnectionsByProtocol      *prometheus.GaugeVec
+	ConnectionOpsAggregate     *prometheus.GaugeVec
+	SupportedControlInfo       *prometheus.GaugeVec
 
 	// PPolicy metrics
 	PpolicyPwdChangedTimestamp *prometheus.GaugeVec
@@ -384,6 +386,22 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server", "base_dn", "server_id"},
 		),
+		ReplicationMultiProvider: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "replication_multi_provider",
+				Help:      "Replication topology per database: 1 = multi-provider (active-active, olcMultiProvider/olcMirrorMode TRUE), 0 = single-provider (active-passive). Read from cn=config; only populated when the bind identity can read the config tree",
+			},
+			[]string{"server", "base_dn"},
+		),
+		ReplicationConfiguredPeers: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "replication_configured_peers",
+				Help:      "Number of syncrepl providers (olcSyncrepl entries) configured on this database. Read from cn=config; only populated when the bind identity can read the config tree",
+			},
+			[]string{"server", "base_dn"},
+		),
 
 		ConnectionsByProtocol: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
@@ -541,6 +559,8 @@ func (m *OpenLDAPMetrics) Collectors() []prometheus.Collector {
 		// Replication metrics
 		m.ReplicationCSN,
 		m.ReplicationLag,
+		m.ReplicationMultiProvider,
+		m.ReplicationConfiguredPeers,
 
 		// Individual connection metrics
 		m.ConnectionsByProtocol,

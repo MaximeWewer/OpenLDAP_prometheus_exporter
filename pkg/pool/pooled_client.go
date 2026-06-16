@@ -607,6 +607,96 @@ func (c *PooledLDAPClient) SearchAccessLog(filter string, attributes []string) (
 	return result, nil
 }
 
+// SearchConfig performs a subtree-scoped search on the configuration backend
+// (cn=config). It is used to read replication topology (olcSyncrepl,
+// olcMultiProvider/olcMirrorMode) and is restricted to the cn=config tree.
+//
+// Security note: cn=config can hold secrets (rootDN password hashes, syncrepl
+// bind credentials). Callers MUST request only a narrow, non-sensitive
+// attribute allow-list, and this method deliberately never logs entry values —
+// only the entry count — so an olcSyncrepl credentials= clause can never leak
+// into logs. The search returns nothing (not an error to the scrape) when the
+// bind identity lacks read access to cn=config, so deployments that bind only
+// to the monitor tree simply do not get these metrics.
+func (c *PooledLDAPClient) SearchConfig(filter string, attributes []string) (*ldap.SearchResult, error) {
+	if filter == "" {
+		return nil, errors.New("invalid search parameters: filter cannot be empty")
+	}
+
+	if err := security.ValidateLDAPFilter(filter); err != nil {
+		logger.SafeError("pooled_client", "Filter validation failed", err, map[string]interface{}{"filter": filter})
+		return nil, err
+	}
+
+	for _, attr := range attributes {
+		if err := security.ValidateLDAPAttribute(attr); err != nil {
+			logger.SafeError("pooled_client", "Attribute validation failed", err, map[string]interface{}{"attribute": attr})
+			return nil, err
+		}
+	}
+
+	var result *ldap.SearchResult
+
+	err := c.circuitBreaker.Call(func() error {
+		ctx, cancel := context.WithTimeout(c.currentBaseContext(), DefaultSearchTimeout)
+		defer cancel()
+
+		conn, err := c.pool.Get(ctx)
+		if err != nil {
+			return err
+		}
+		defer c.pool.Put(conn)
+
+		searchRequest := ldap.NewSearchRequest(
+			"cn=config",
+			ldap.ScopeWholeSubtree,
+			ldap.NeverDerefAliases,
+			0,
+			0,
+			false,
+			filter,
+			attributes,
+			nil,
+		)
+
+		searchResult, err := conn.conn.Search(searchRequest)
+		if err != nil {
+			if isNetworkError(err) {
+				c.invalidateConnection(conn)
+			}
+			return err
+		}
+
+		result = searchResult
+		return nil
+	})
+
+	if c.cbMonitoring != nil && c.serverName != "" {
+		if err != nil {
+			if errors.Is(err, circuitbreaker.ErrCircuitBreakerOpen) {
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "blocked")
+			} else {
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "allowed")
+				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName, c.component)
+			}
+		} else {
+			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "allowed")
+		}
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Never log entry values here — see the security note above.
+	logger.SafeDebug("pooled_client", "Config search completed", map[string]interface{}{
+		"filter":        filter,
+		"entries_found": len(result.Entries),
+	})
+
+	return result, nil
+}
+
 // SearchRootDSE performs a base-scoped search on the RootDSE (empty base DN)
 // to retrieve server capabilities like supportedControl, supportedExtension, etc.
 func (c *PooledLDAPClient) SearchRootDSE(attributes []string) (*ldap.SearchResult, error) {

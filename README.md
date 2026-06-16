@@ -625,8 +625,12 @@ These metrics are collected in different configurable groups. Use `OPENLDAP_METR
 |----------|------|---------|-------------|-------------|
 | `openldap_replication_csn_timestamp` | Gauge | `server`, `base_dn`, `server_id` | Unix timestamp from contextCSN per database and server ID | `contextCSN` on suffix entry |
 | `openldap_replication_lag_seconds` | Gauge | `server`, `base_dn`, `server_id` | Age of the last write per master: `now − contextCSN` | Calculated |
+| `openldap_replication_multi_provider` | Gauge | `server`, `base_dn` | Topology: `1` = active-active (multi-provider), `0` = active-passive | `olcMultiProvider`/`olcMirrorMode` in `cn=config` |
+| `openldap_replication_configured_peers` | Gauge | `server`, `base_dn` | Number of configured syncrepl providers | `olcSyncrepl` count in `cn=config` |
 
 These metrics are only populated when `contextCSN` is present on database suffix entries (i.e., when replication is configured). In multi-master setups, `contextCSN` is multi-valued — one value per master RID — so one series per server ID (SID) is exposed.
+
+> **Topology metrics (`multi_provider`, `configured_peers`) require config-tree read access.** They are read from `cn=config` and are only populated when the exporter's bind identity can read it (e.g. binding as the config rootDN). If the bind only reaches `cn=Monitor`/data, these two series are simply absent — the rest of the metrics are unaffected. The raw `olcSyncrepl` values (which can embed bind credentials) are only counted, never exposed or logged. The dashboard derives the **Replication Mode** (Active-Active/Passive) and **Nodes / Configured Peers** stats from these.
 
 > **`openldap_replication_lag_seconds` is write-age, not propagation lag.** It is `now − contextCSN[server_id]`, i.e. how long ago that master last produced a write. An **idle** master therefore shows a large value even when replication is perfectly healthy — it is not "behind". Use it to spot a master that has gone silent, not to measure replication delay.
 
