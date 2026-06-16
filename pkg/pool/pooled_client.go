@@ -33,6 +33,11 @@ const (
 	// one spare for churn is plenty and it never competes with the scrape pool.
 	EventsPoolType = "events"
 	EventsPoolSize = 2
+
+	// AccesslogTimeLimitMargin is subtracted from the configured LDAP timeout
+	// to derive the server-side TimeLimit on accesslog scans, so slapd returns
+	// timeLimitExceeded a beat before the client socket deadline would fire.
+	AccesslogTimeLimitMargin = 1 * time.Second
 )
 
 // CircuitBreakerMonitoring defines the interface for circuit breaker monitoring.
@@ -110,6 +115,19 @@ func createCircuitBreakerConfig() circuitbreaker.CircuitBreakerConfig {
 		ResetTimeout:     DefaultResetTimeout,
 		SuccessThreshold: DefaultSuccessThreshold,
 	}
+}
+
+// accesslogTimeLimitSeconds returns the server-side LDAP TimeLimit (in whole
+// seconds) applied to cn=accesslog scans. It is derived from the configured
+// LDAP timeout less AccesslogTimeLimitMargin so slapd aborts the search with
+// result code 3 before the client socket deadline closes the connection,
+// floored at 1 second.
+func (c *PooledLDAPClient) accesslogTimeLimitSeconds() int {
+	secs := int((c.config.Timeout - AccesslogTimeLimitMargin) / time.Second)
+	if secs < 1 {
+		secs = 1
+	}
+	return secs
 }
 
 // NewPooledLDAPClient creates a new pooled LDAP client with circuit breaker protection
@@ -539,7 +557,16 @@ func (c *PooledLDAPClient) SearchAccessLog(filter string, attributes []string) (
 			ldap.ScopeWholeSubtree,
 			ldap.NeverDerefAliases,
 			0,
-			0,
+			// Server-side time limit (seconds). Unlike the client socket
+			// deadline (conn.SetTimeout = config.Timeout), which tears the
+			// connection down when it fires, an LDAP TimeLimit makes slapd
+			// return result code 3 (timeLimitExceeded) on the live
+			// connection, so the conn is returned to the pool intact instead
+			// of being invalidated and re-dialed. Set just under the socket
+			// deadline so the server wins the race. cn=accesslog can be a
+			// large/unindexed subtree, so this bounds an otherwise unbounded
+			// scan rather than letting it hang until the socket dies.
+			c.accesslogTimeLimitSeconds(),
 			false,
 			filter,
 			attributes,
