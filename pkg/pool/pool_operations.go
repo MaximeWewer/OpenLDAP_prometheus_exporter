@@ -57,7 +57,7 @@ func (p *ConnectionPool) Put(conn *PooledConnection) {
 	}
 
 	if p.monitoring != nil && p.serverName != "" {
-		p.monitoring.RecordPoolPutRequest(p.serverName, "ldap")
+		p.monitoring.RecordPoolPutRequest(p.serverName, p.poolType)
 	}
 
 	conn.mutex.Lock()
@@ -76,7 +76,7 @@ func (p *ConnectionPool) Put(conn *PooledConnection) {
 	// the same pool entry behind a network round-trip.
 	if !p.isConnectionUsable(conn) {
 		if p.monitoring != nil && p.serverName != "" {
-			p.monitoring.RecordPoolPutRejection(p.serverName, "ldap", "invalid_connection")
+			p.monitoring.RecordPoolPutRejection(p.serverName, p.poolType, "invalid_connection")
 		}
 		p.closeConnectionWithReason(conn, "error")
 		return
@@ -89,7 +89,7 @@ func (p *ConnectionPool) Put(conn *PooledConnection) {
 		p.updateMetrics()
 	default:
 		if p.monitoring != nil && p.serverName != "" {
-			p.monitoring.RecordPoolPutRejection(p.serverName, "ldap", "pool_full")
+			p.monitoring.RecordPoolPutRejection(p.serverName, p.poolType, "pool_full")
 		}
 		p.closeConnectionWithReason(conn, "normal")
 	}
@@ -235,8 +235,8 @@ func (p *ConnectionPool) waitForConnection(ctx context.Context, start time.Time)
 		validConn := p.validateAndPrepareConnection(conn, start)
 		if validConn != nil {
 			if p.monitoring != nil && p.serverName != "" {
-				p.monitoring.RecordPoolConnectionReused(p.serverName, "ldap")
-				p.monitoring.RecordPoolWaitTime(p.serverName, "ldap", time.Since(start))
+				p.monitoring.RecordPoolConnectionReused(p.serverName, p.poolType)
+				p.monitoring.RecordPoolWaitTime(p.serverName, p.poolType, time.Since(start))
 			}
 			return validConn, nil
 		}
@@ -278,15 +278,15 @@ func (p *ConnectionPool) recordConnectionCreationFailure(err error) {
 		reason = "auth_error"
 	}
 
-	p.monitoring.RecordPoolConnectionFailed(p.serverName, "ldap", reason)
-	p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", "creation_failed")
+	p.monitoring.RecordPoolConnectionFailed(p.serverName, p.poolType, reason)
+	p.monitoring.RecordPoolGetFailure(p.serverName, p.poolType, "creation_failed")
 }
 
 // recordConnectionCreationSuccess records metrics for successful connection creation
 func (p *ConnectionPool) recordConnectionCreationSuccess(start time.Time) {
 	if p.monitoring != nil && p.serverName != "" {
-		p.monitoring.RecordPoolConnectionCreated(p.serverName, "ldap")
-		p.monitoring.RecordPoolWaitTime(p.serverName, "ldap", time.Since(start))
+		p.monitoring.RecordPoolConnectionCreated(p.serverName, p.poolType)
+		p.monitoring.RecordPoolWaitTime(p.serverName, p.poolType, time.Since(start))
 	}
 	p.recordOperation("get")
 	p.updateMetrics()
@@ -299,7 +299,7 @@ func (p *ConnectionPool) recordContextTimeout(ctx context.Context) {
 	}
 
 	if ctx.Err() == context.DeadlineExceeded {
-		p.monitoring.RecordPoolWaitTimeout(p.serverName, "ldap")
-		p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", "timeout")
+		p.monitoring.RecordPoolWaitTimeout(p.serverName, p.poolType)
+		p.monitoring.RecordPoolGetFailure(p.serverName, p.poolType, "timeout")
 	}
 }

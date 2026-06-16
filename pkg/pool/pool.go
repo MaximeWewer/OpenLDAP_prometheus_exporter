@@ -29,6 +29,9 @@ const (
 	MinPoolSize            = 1
 	MaxPoolSize            = 50
 	DefaultInitialPoolSize = 5
+
+	// DefaultPoolType is the metrics label applied to the main scrape pool.
+	DefaultPoolType = "ldap"
 )
 
 // Error definitions for pool operations
@@ -73,6 +76,7 @@ type ConnectionPool struct {
 	closeOnce      sync.Once      // Ensures Close() is called only once
 	monitoring     PoolMonitoring // Interface for monitoring integration
 	serverName     string         // Server name for metrics labeling
+	poolType       string         // Pool type for metrics labeling ("ldap" for scrape, "events" for the events stream)
 }
 
 // PooledConnection wraps an LDAP connection with pool metadata
@@ -91,6 +95,17 @@ func NewConnectionPool(cfg *config.Config, maxConnections int) *ConnectionPool {
 
 // NewConnectionPoolWithMonitoring creates a new LDAP connection pool with monitoring support
 func NewConnectionPoolWithMonitoring(cfg *config.Config, maxConnections int, monitoring PoolMonitoring, serverName string) *ConnectionPool {
+	return NewConnectionPoolWithType(cfg, maxConnections, monitoring, serverName, DefaultPoolType)
+}
+
+// NewConnectionPoolWithType creates a new LDAP connection pool whose metrics are
+// labeled with the given poolType. This lets a second, independent pool (e.g. the
+// events stream's dedicated pool) report under a distinct pool_type value instead
+// of colliding with the main scrape pool's series.
+func NewConnectionPoolWithType(cfg *config.Config, maxConnections int, monitoring PoolMonitoring, serverName, poolType string) *ConnectionPool {
+	if poolType == "" {
+		poolType = DefaultPoolType
+	}
 	pool := &ConnectionPool{
 		config:         cfg,
 		pool:           make(chan *PooledConnection, maxConnections),
@@ -101,6 +116,7 @@ func NewConnectionPoolWithMonitoring(cfg *config.Config, maxConnections int, mon
 		shutdownChan:   make(chan struct{}),
 		monitoring:     monitoring,
 		serverName:     serverName,
+		poolType:       poolType,
 	}
 
 	// Start connection maintenance goroutine with proper tracking
@@ -109,6 +125,7 @@ func NewConnectionPoolWithMonitoring(cfg *config.Config, maxConnections int, mon
 
 	logger.SafeInfo("pool", "LDAP connection pool created", map[string]interface{}{
 		"max_connections": maxConnections,
+		"pool_type":       poolType,
 		"idle_timeout":    pool.idleTimeout.Truncate(10 * time.Millisecond).String(),
 		"max_idle_time":   pool.maxIdleTime.Truncate(10 * time.Millisecond).String(),
 	})

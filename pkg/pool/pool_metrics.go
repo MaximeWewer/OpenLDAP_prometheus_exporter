@@ -23,43 +23,43 @@ func (p *ConnectionPool) updateMetrics() {
 	}
 	utilization := float64(activeConns) / float64(p.maxConnections)
 
-	p.monitoring.RecordPoolConnections(p.serverName, "ldap", "active", float64(activeConns))
-	p.monitoring.RecordPoolConnections(p.serverName, "ldap", "idle", float64(idleConns))
-	p.monitoring.RecordPoolConnections(p.serverName, "ldap", "total", float64(poolSize))
-	p.monitoring.RecordPoolUtilization(p.serverName, "ldap", utilization)
+	p.monitoring.RecordPoolConnections(p.serverName, p.poolType, "active", float64(activeConns))
+	p.monitoring.RecordPoolConnections(p.serverName, p.poolType, "idle", float64(idleConns))
+	p.monitoring.RecordPoolConnections(p.serverName, p.poolType, "total", float64(poolSize))
+	p.monitoring.RecordPoolUtilization(p.serverName, p.poolType, utilization)
 }
 
 // recordOperation records a pool operation if monitoring is enabled
 func (p *ConnectionPool) recordOperation(operation string) {
 	if p.monitoring != nil && p.serverName != "" {
-		p.monitoring.RecordPoolOperation(p.serverName, "ldap", operation)
+		p.monitoring.RecordPoolOperation(p.serverName, p.poolType, operation)
 	}
 }
 
 // recordGetRequest records a get request metric
 func (p *ConnectionPool) recordGetRequest() {
 	if p.monitoring != nil && p.serverName != "" {
-		p.monitoring.RecordPoolGetRequest(p.serverName, "ldap")
+		p.monitoring.RecordPoolGetRequest(p.serverName, p.poolType)
 	}
 }
 
 // recordGetFailure records a get failure metric
 func (p *ConnectionPool) recordGetFailure(reason string) {
 	if p.monitoring != nil && p.serverName != "" {
-		p.monitoring.RecordPoolGetFailure(p.serverName, "ldap", reason)
+		p.monitoring.RecordPoolGetFailure(p.serverName, p.poolType, reason)
 	}
 }
 
 // recordConnectionReused records a connection reuse metric
 func (p *ConnectionPool) recordConnectionReused() {
 	if p.monitoring != nil && p.serverName != "" {
-		p.monitoring.RecordPoolConnectionReused(p.serverName, "ldap")
+		p.monitoring.RecordPoolConnectionReused(p.serverName, p.poolType)
 	}
 }
 
 // recordWaitTime records connection wait time
 func (p *ConnectionPool) recordWaitTime(duration time.Duration) {
 	if p.monitoring != nil && p.serverName != "" {
-		p.monitoring.RecordPoolWaitTime(p.serverName, "ldap", duration)
+		p.monitoring.RecordPoolWaitTime(p.serverName, p.poolType, duration)
 	}
 }

@@ -21,9 +21,9 @@ func TestInternalMonitoring(t *testing.T) {
 	monitoring.RecordPoolOperation(serverName, "adaptive", "get")
 
 	// Test circuit breaker metrics
-	monitoring.RecordCircuitBreakerState(serverName, circuitbreaker.StateClosed)
-	monitoring.RecordCircuitBreakerRequest(serverName, "allowed")
-	monitoring.RecordCircuitBreakerFailure(serverName)
+	monitoring.RecordCircuitBreakerState(serverName, "ldap", circuitbreaker.StateClosed)
+	monitoring.RecordCircuitBreakerRequest(serverName, "ldap", "allowed")
+	monitoring.RecordCircuitBreakerFailure(serverName, "ldap")
 
 	// Test collection metrics
 	monitoring.RecordCollectionLatency(serverName, "connections", 25*time.Millisecond)

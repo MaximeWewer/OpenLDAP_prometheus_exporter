@@ -26,13 +26,22 @@ const (
 	DefaultTimeout          = 60 * time.Second
 	DefaultResetTimeout     = 15 * time.Second
 	DefaultSuccessThreshold = 2
+
+	// EventsPoolType is the metrics component/pool_type label for the events
+	// stream's dedicated client. EventsPoolSize keeps that pool small: the
+	// events runner drives a single sequential ticker, so one connection plus
+	// one spare for churn is plenty and it never competes with the scrape pool.
+	EventsPoolType = "events"
+	EventsPoolSize = 2
 )
 
-// CircuitBreakerMonitoring defines the interface for circuit breaker monitoring
+// CircuitBreakerMonitoring defines the interface for circuit breaker monitoring.
+// The component label separates the scrape breaker ("ldap") from the events
+// stream breaker ("events").
 type CircuitBreakerMonitoring interface {
-	RecordCircuitBreakerState(server string, state circuitbreaker.State)
-	RecordCircuitBreakerRequest(server, result string)
-	RecordCircuitBreakerFailure(server string)
+	RecordCircuitBreakerState(server, component string, state circuitbreaker.State)
+	RecordCircuitBreakerRequest(server, component, result string)
+	RecordCircuitBreakerFailure(server, component string)
 }
 
 // PooledLDAPClient wraps the connection pool to provide a simple interface with circuit breaker protection
@@ -43,6 +52,7 @@ type PooledLDAPClient struct {
 	isAdaptive     bool
 	cbMonitoring   CircuitBreakerMonitoring // Optional circuit breaker monitoring
 	serverName     string                   // Server name for monitoring
+	component      string                   // Circuit breaker component label ("ldap" scrape, "events" stream)
 
 	// baseCtx is the scrape-scoped context the Search* methods derive
 	// their per-request timeout from. It is set by the exporter at the
@@ -108,9 +118,27 @@ func NewPooledLDAPClient(cfg *config.Config) *PooledLDAPClient {
 }
 
 // NewPooledLDAPClientWithMonitoring creates a new pooled LDAP client with monitoring support
+// for the main metric-scrape path (pool_type / component = "ldap").
 func NewPooledLDAPClientWithMonitoring(cfg *config.Config, monitoring PoolMonitoring, serverName string) *PooledLDAPClient {
-	// Create pool with monitoring support
-	pool := NewConnectionPoolWithMonitoring(cfg, DefaultPoolSize, monitoring, serverName)
+	return newMonitoredClient(cfg, monitoring, serverName, DefaultPoolType, DefaultPoolSize)
+}
+
+// NewEventsLDAPClient creates a pooled LDAP client dedicated to the JSON events
+// stream. It owns a separate connection pool and circuit breaker, labeled with
+// component / pool_type = "events", so a slow or failing accesslog scan on the
+// events ticker can never trip the scrape's breaker or drain the scrape's pool.
+// This isolation is the fix for the events-vs-scrape contention that opened the
+// shared breaker in a loop.
+func NewEventsLDAPClient(cfg *config.Config, monitoring PoolMonitoring, serverName string) *PooledLDAPClient {
+	return newMonitoredClient(cfg, monitoring, serverName, EventsPoolType, EventsPoolSize)
+}
+
+// newMonitoredClient builds a pooled client whose pool and circuit breaker
+// metrics are labeled with the given component (also used as the pool_type) and
+// whose pool is sized to poolSize.
+func newMonitoredClient(cfg *config.Config, monitoring PoolMonitoring, serverName, component string, poolSize int) *PooledLDAPClient {
+	// Create pool with monitoring support, labeled by component.
+	pool := NewConnectionPoolWithType(cfg, poolSize, monitoring, serverName, component)
 
 	// Create circuit breaker with standard configuration
 	cb := circuitbreaker.NewCircuitBreaker(createCircuitBreakerConfig())
@@ -124,15 +152,16 @@ func NewPooledLDAPClientWithMonitoring(cfg *config.Config, monitoring PoolMonito
 	// Set up circuit breaker monitoring callback if monitoring supports it
 	if cbMonitoring != nil {
 		// Record initial state
-		cbMonitoring.RecordCircuitBreakerState(serverName, cb.GetState())
+		cbMonitoring.RecordCircuitBreakerState(serverName, component, cb.GetState())
 
 		// Set up state change callback
 		cb.SetStateChangeCallback(func(from, to circuitbreaker.State) {
-			cbMonitoring.RecordCircuitBreakerState(serverName, to)
+			cbMonitoring.RecordCircuitBreakerState(serverName, component, to)
 			logger.SafeWarn("pooled_client", "LDAP circuit breaker state changed", map[string]interface{}{
-				"server": serverName,
-				"from":   from.String(),
-				"to":     to.String(),
+				"server":    serverName,
+				"component": component,
+				"from":      from.String(),
+				"to":        to.String(),
 			})
 		})
 	}
@@ -144,6 +173,7 @@ func NewPooledLDAPClientWithMonitoring(cfg *config.Config, monitoring PoolMonito
 		isAdaptive:     false,
 		cbMonitoring:   cbMonitoring,
 		serverName:     serverName,
+		component:      component,
 	}
 }
 
@@ -175,6 +205,7 @@ func NewPooledLDAPClientWithOptions(cfg *config.Config, _ bool) *PooledLDAPClien
 		config:         cfg,
 		circuitBreaker: circuitBreakerInstance,
 		isAdaptive:     useAdaptivePool,
+		component:      DefaultPoolType,
 	}
 }
 
@@ -271,15 +302,15 @@ func (c *PooledLDAPClient) Search(baseDN, filter string, attributes []string) (*
 		if err != nil {
 			if errors.Is(err, circuitbreaker.ErrCircuitBreakerOpen) {
 				// Request was blocked by circuit breaker
-				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "blocked")
 			} else {
 				// Request was allowed but failed
-				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
-				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName)
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "allowed")
+				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName, c.component)
 			}
 		} else {
 			// Request was allowed and succeeded
-			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "allowed")
 		}
 	}
 
@@ -353,13 +384,13 @@ func (c *PooledLDAPClient) SearchContextCSN(suffixDN string) (*ldap.SearchResult
 	if c.cbMonitoring != nil && c.serverName != "" {
 		if err != nil {
 			if errors.Is(err, circuitbreaker.ErrCircuitBreakerOpen) {
-				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "blocked")
 			} else {
-				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
-				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName)
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "allowed")
+				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName, c.component)
 			}
 		} else {
-			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "allowed")
 		}
 	}
 
@@ -443,13 +474,13 @@ func (c *PooledLDAPClient) SearchSuffix(suffixDN, filter string, attributes []st
 	if c.cbMonitoring != nil && c.serverName != "" {
 		if err != nil {
 			if errors.Is(err, circuitbreaker.ErrCircuitBreakerOpen) {
-				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "blocked")
 			} else {
-				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
-				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName)
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "allowed")
+				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName, c.component)
 			}
 		} else {
-			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "allowed")
 		}
 	}
 
@@ -530,13 +561,13 @@ func (c *PooledLDAPClient) SearchAccessLog(filter string, attributes []string) (
 	if c.cbMonitoring != nil && c.serverName != "" {
 		if err != nil {
 			if errors.Is(err, circuitbreaker.ErrCircuitBreakerOpen) {
-				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "blocked")
 			} else {
-				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
-				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName)
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "allowed")
+				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName, c.component)
 			}
 		} else {
-			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "allowed")
 		}
 	}
 
@@ -601,13 +632,13 @@ func (c *PooledLDAPClient) SearchRootDSE(attributes []string) (*ldap.SearchResul
 	if c.cbMonitoring != nil && c.serverName != "" {
 		if err != nil {
 			if errors.Is(err, circuitbreaker.ErrCircuitBreakerOpen) {
-				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "blocked")
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "blocked")
 			} else {
-				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
-				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName)
+				c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "allowed")
+				c.cbMonitoring.RecordCircuitBreakerFailure(c.serverName, c.component)
 			}
 		} else {
-			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, "allowed")
+			c.cbMonitoring.RecordCircuitBreakerRequest(c.serverName, c.component, "allowed")
 		}
 	}
 

@@ -295,7 +295,7 @@ func NewInternalMonitoring() *InternalMonitoring {
 				Name:      "state",
 				Help:      "Circuit breaker state (0=closed, 1=half-open, 2=open)",
 			},
-			[]string{"server"},
+			[]string{"server", "component"},
 		),
 
 		circuitBreakerRequests: prometheus.NewCounterVec(
@@ -305,7 +305,7 @@ func NewInternalMonitoring() *InternalMonitoring {
 				Name:      "requests_total",
 				Help:      "Total circuit breaker requests",
 			},
-			[]string{"server", "result"},
+			[]string{"server", "component", "result"},
 		),
 
 		circuitBreakerFailures: prometheus.NewCounterVec(
@@ -315,7 +315,7 @@ func NewInternalMonitoring() *InternalMonitoring {
 				Name:      "failures_total",
 				Help:      "Total circuit breaker failures",
 			},
-			[]string{"server"},
+			[]string{"server", "component"},
 		),
 
 		// Collection metrics

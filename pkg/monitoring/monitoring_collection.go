@@ -6,20 +6,22 @@ import (
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/circuitbreaker"
 )
 
-// RecordCircuitBreakerState records circuit breaker state
-func (im *InternalMonitoring) RecordCircuitBreakerState(server string, state circuitbreaker.State) {
+// RecordCircuitBreakerState records circuit breaker state. The component label
+// distinguishes the main scrape breaker ("ldap") from the events stream's
+// dedicated breaker ("events") so the two never overwrite each other's gauge.
+func (im *InternalMonitoring) RecordCircuitBreakerState(server, component string, state circuitbreaker.State) {
 	stateValue := float64(state)
-	im.circuitBreakerState.WithLabelValues(server).Set(stateValue)
+	im.circuitBreakerState.WithLabelValues(server, component).Set(stateValue)
 }
 
 // RecordCircuitBreakerRequest records circuit breaker requests
-func (im *InternalMonitoring) RecordCircuitBreakerRequest(server, result string) {
-	im.circuitBreakerRequests.WithLabelValues(server, result).Inc()
+func (im *InternalMonitoring) RecordCircuitBreakerRequest(server, component, result string) {
+	im.circuitBreakerRequests.WithLabelValues(server, component, result).Inc()
 }
 
 // RecordCircuitBreakerFailure records circuit breaker failures
-func (im *InternalMonitoring) RecordCircuitBreakerFailure(server string) {
-	im.circuitBreakerFailures.WithLabelValues(server).Inc()
+func (im *InternalMonitoring) RecordCircuitBreakerFailure(server, component string) {
+	im.circuitBreakerFailures.WithLabelValues(server, component).Inc()
 }
 
 // RecordCollectionLatency records metric collection latency

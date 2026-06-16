@@ -117,9 +117,11 @@ func (im *InternalMonitoring) InitializeMetricsForServer(serverName string) {
 	im.poolHealthChecks.WithLabelValues(serverName, poolType, "failure").Add(0)
 	im.poolHealthCheckFailures.WithLabelValues(serverName, poolType).Add(0)
 
-	// Initialize circuit breaker metrics
-	im.circuitBreakerFailures.WithLabelValues(serverName).Add(0)
-	im.circuitBreakerRequests.WithLabelValues(serverName, "blocked").Add(0)
+	// Initialize circuit breaker metrics for the scrape component. The events
+	// stream's breaker (component="events") seeds its own series lazily via the
+	// state-change callback when the events client is constructed.
+	im.circuitBreakerFailures.WithLabelValues(serverName, poolType).Add(0)
+	im.circuitBreakerRequests.WithLabelValues(serverName, poolType, "blocked").Add(0)
 
 	// Initialize collection failure metrics
 	im.collectionFailures.WithLabelValues(serverName, "scrape").Add(0)

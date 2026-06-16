@@ -20,6 +20,7 @@ import (
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/events"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/exporter"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
+	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/pool"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/security"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -146,18 +147,31 @@ func main() {
 	// regardless so `/metrics` and `/health` stay available while the
 	// operator fixes the underlying issue.
 	var eventsRunner *events.Runner
+	var eventsClient *pool.PooledLDAPClient
 	if configData.EventsEnabled {
-		r, err := events.NewRunner(configData, exp.Client())
+		// The events runner gets its OWN pooled client (separate connection
+		// pool + circuit breaker, labeled component="events") instead of
+		// sharing the scrape client. Sharing meant a slow/failing accesslog
+		// scan on the 5s events ticker tripped the same breaker the scrape
+		// used and drained the same 5-connection pool, opening the breaker
+		// in a loop and flapping openldap_up. Isolation removes that coupling.
+		eventsClient = pool.NewEventsLDAPClient(configData, exp.GetInternalMonitoring(), configData.ServerName)
+		r, err := events.NewRunner(configData, eventsClient)
 		if err != nil {
 			logger.SafeError("main", "Events stream disabled: failed to initialize events runner", err, map[string]interface{}{
 				"hint":            "Metrics collection is unaffected; fix the error above and restart the container to re-enable the events stream.",
 				"events_output":   configData.EventsOutput,
 				"events_rotation": string(configData.EventsRotation),
 			})
+			eventsClient.Close()
+			eventsClient = nil
 		} else {
 			r.Start()
 			eventsRunner = r
-			defer eventsRunner.Stop()
+			defer func() {
+				eventsRunner.Stop()
+				eventsClient.Close()
+			}()
 		}
 	}
 

@@ -221,11 +221,11 @@ func (p *ConnectionPool) closeConnectionWithReason(conn *PooledConnection, reaso
 		if err := conn.conn.Close(); err != nil {
 			logger.SafeError("pool", "Error closing LDAP connection", err)
 			if p.monitoring != nil && p.serverName != "" {
-				p.monitoring.RecordPoolConnectionClosed(p.serverName, "ldap", "error")
+				p.monitoring.RecordPoolConnectionClosed(p.serverName, p.poolType, "error")
 			}
 		} else {
 			if p.monitoring != nil && p.serverName != "" {
-				p.monitoring.RecordPoolConnectionClosed(p.serverName, "ldap", reason)
+				p.monitoring.RecordPoolConnectionClosed(p.serverName, p.poolType, reason)
 			}
 		}
 		atomic.AddInt64(&p.activeConns, -1)
