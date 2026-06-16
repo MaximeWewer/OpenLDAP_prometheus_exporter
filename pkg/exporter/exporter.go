@@ -146,6 +146,13 @@ func (e *OpenLDAPExporter) GetInternalMonitoring() *monitoring.InternalMonitorin
 	return e.monitoring
 }
 
+// Metrics returns the shared OpenLDAP metrics registry. It is exposed so
+// auxiliary components (e.g. the replication peer poller) can publish into the
+// same metric vectors that Collect() emits on each scrape.
+func (e *OpenLDAPExporter) Metrics() *metrics.OpenLDAPMetrics {
+	return e.metricsRegistry
+}
+
 // GetConfig returns the configuration instance
 func (e *OpenLDAPExporter) GetConfig() *config.Config {
 	return e.config

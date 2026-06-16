@@ -44,6 +44,9 @@ type OpenLDAPMetrics struct {
 	ReplicationLag             *prometheus.GaugeVec
 	ReplicationMultiProvider   *prometheus.GaugeVec
 	ReplicationConfiguredPeers *prometheus.GaugeVec
+	ReplicationPeerUp          *prometheus.GaugeVec
+	ReplicationPeerCSN         *prometheus.GaugeVec
+	ReplicationPeerLag         *prometheus.GaugeVec
 	ConnectionsByProtocol      *prometheus.GaugeVec
 	ConnectionOpsAggregate     *prometheus.GaugeVec
 	SupportedControlInfo       *prometheus.GaugeVec
@@ -402,6 +405,30 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 			},
 			[]string{"server", "base_dn"},
 		),
+		ReplicationPeerUp: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "replication_peer_up",
+				Help:      "Reachability of each replication peer as polled directly from this node: 1 = connected and bound, 0 = unreachable. Only populated when OPENLDAP_REPLICATION_POLL_ENABLED=true",
+			},
+			[]string{"peer"},
+		),
+		ReplicationPeerCSN: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "replication_peer_csn_timestamp",
+				Help:      "Unix timestamp of a peer's contextCSN per database and server ID, polled directly from this node",
+			},
+			[]string{"peer", "base_dn", "server_id"},
+		),
+		ReplicationPeerLag: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "replication_peer_lag_seconds",
+				Help:      "Propagation lag of a peer in seconds: reference CSN (max of local and all peers for that server_id) minus the peer's CSN. The most up-to-date source reads 0",
+			},
+			[]string{"peer", "base_dn", "server_id"},
+		),
 
 		ConnectionsByProtocol: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
@@ -561,6 +588,9 @@ func (m *OpenLDAPMetrics) Collectors() []prometheus.Collector {
 		m.ReplicationLag,
 		m.ReplicationMultiProvider,
 		m.ReplicationConfiguredPeers,
+		m.ReplicationPeerUp,
+		m.ReplicationPeerCSN,
+		m.ReplicationPeerLag,
 
 		// Individual connection metrics
 		m.ConnectionsByProtocol,

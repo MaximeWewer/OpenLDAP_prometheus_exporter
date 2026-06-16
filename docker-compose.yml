@@ -44,6 +44,16 @@ services:
       # CIRCUIT_BREAKER_SUCCESS_THRESHOLD: "2"        # Consecutive successes to close (default: 2)
 
       # ========================================
+      # Replication peer poll (single-point cross-node lag, opt-in)
+      # ========================================
+      # OPENLDAP_REPLICATION_POLL_ENABLED: "true"     # Poll peers' contextCSN from this node (default: false)
+      # OPENLDAP_REPLICATION_POLL_INTERVAL: "15s"     # Poll interval, clamped to [5s, 30m] (default: 15s)
+      # OPENLDAP_REPLICATION_PEERS: "ldaps://100.81.3.39:636,ldaps://node3:636"  # Manual peers (merged with auto-discovery from olcSyncrepl)
+      # OPENLDAP_PEER_USERNAME: "cn=replicator,ou=service-accounts,dc=example,dc=com"  # Bind DN for peers (default: LDAP_USERNAME)
+      # OPENLDAP_PEER_PASSWORD: "..."                 # Peer bind password (default: LDAP_PASSWORD); or OPENLDAP_PEER_PASSWORD_FILE
+      # OPENLDAP_PEER_SERVER_NAME: "node2.example.com"  # TLS verification hostname override (default: host in each peer URI)
+
+      # ========================================
       # HTTP server configuration
       # ========================================
       LISTEN_ADDRESS: ":9330" # HTTP server listen address (default: :9330)

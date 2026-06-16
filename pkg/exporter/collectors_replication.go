@@ -1,12 +1,12 @@
 package exporter
 
 import (
-	"errors"
 	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/csn"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
 
@@ -171,48 +171,9 @@ func (e *OpenLDAPExporter) collectReplicationTopology(server string) {
 	}
 }
 
-// parseContextCSN parses an OpenLDAP contextCSN value.
-// Format: YYYYMMDDHHmmss.ffffffZ#SSSSSS#SID#MMMMMM
-// Returns the parsed timestamp and the server ID (SID).
-func parseContextCSN(csn string) (time.Time, string, error) {
-	// Split on '#' to get components
-	parts := strings.SplitN(csn, "#", 4)
-	if len(parts) < 3 {
-		return time.Time{}, "", errors.New("invalid CSN format: expected at least 3 '#'-separated components")
-	}
-
-	// Parse timestamp (part 0): YYYYMMDDHHmmss.ffffffZ
-	timestamp := parts[0]
-
-	// Parse timestamp, handling variable microsecond precision
-	// OpenLDAP may produce 1-6 fractional digits (e.g., .0Z, .00Z, .000000Z)
-	var t time.Time
-	var err error
-
-	if dotIdx := strings.IndexByte(timestamp, '.'); dotIdx >= 0 {
-		// Normalize fractional part to exactly 6 digits for consistent parsing
-		zIdx := strings.IndexByte(timestamp, 'Z')
-		if zIdx < 0 {
-			return time.Time{}, "", errors.New("invalid CSN timestamp: missing Z suffix")
-		}
-		frac := timestamp[dotIdx+1 : zIdx]
-		for len(frac) < 6 {
-			frac += "0"
-		}
-		if len(frac) > 6 {
-			frac = frac[:6]
-		}
-		normalized := timestamp[:dotIdx+1] + frac + "Z"
-		t, err = time.Parse("20060102150405.000000Z", normalized)
-	} else {
-		t, err = time.Parse("20060102150405Z", timestamp)
-	}
-	if err != nil {
-		return time.Time{}, "", err
-	}
-
-	// Server ID is part 2 (3 hex digits, e.g., "000", "001")
-	serverID := parts[2]
-
-	return t, serverID, nil
+// parseContextCSN parses an OpenLDAP contextCSN value into a timestamp and
+// server ID. It delegates to the shared csn package so the scrape collector and
+// the replication peer poller use identical parsing rules.
+func parseContextCSN(value string) (time.Time, string, error) {
+	return csn.Parse(value)
 }

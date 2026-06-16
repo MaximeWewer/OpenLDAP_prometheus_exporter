@@ -37,6 +37,11 @@ const (
 	DefaultCBTimeout          = 60 * time.Second
 	DefaultCBResetTimeout     = 15 * time.Second
 	DefaultCBSuccessThreshold = 2
+
+	// Replication peer-poll limits
+	MinReplPollInterval     = 5 * time.Second
+	MaxReplPollInterval     = 30 * time.Minute
+	DefaultReplPollInterval = 15 * time.Second
 )
 
 // EventsRotationMode describes how the events output file is rotated.
@@ -95,6 +100,16 @@ type Config struct {
 	EventsOutput   string             // OPENLDAP_EVENTS_OUTPUT ("stdout" or a filesystem path; path may contain "{date}")
 	EventsRotation EventsRotationMode // OPENLDAP_EVENTS_ROTATION ("none" or "daily", file output only)
 	EventsTypes    []string           // OPENLDAP_EVENTS_TYPES (comma separated; empty = all types)
+
+	// Replication peer poll options (single-point cross-node lag). When enabled,
+	// the exporter polls each replication peer's contextCSN directly so it can
+	// compute true propagation lag from one node without an agent on each peer.
+	ReplicationPollEnabled  bool          // OPENLDAP_REPLICATION_POLL_ENABLED
+	ReplicationPollInterval time.Duration // OPENLDAP_REPLICATION_POLL_INTERVAL (e.g. 15s)
+	ReplicationPeers        []string      // OPENLDAP_REPLICATION_PEERS (comma-separated LDAP URIs; manual fallback / supplement to auto-discovery)
+	PeerUsername            string        // OPENLDAP_PEER_USERNAME (bind DN used against peers; falls back to LDAP_USERNAME)
+	PeerPassword            *SecureString // OPENLDAP_PEER_PASSWORD / _FILE (falls back to the main LDAP password)
+	PeerServerName          string        // OPENLDAP_PEER_SERVER_NAME (TLS verification hostname override for peers; default = host in each peer URI)
 }
 
 // validateCircuitBreakerConfig floors any non-positive circuit breaker tuning
@@ -255,6 +270,20 @@ func LoadConfig() (*Config, error) {
 	config.EventsRotation = parseEventsRotation(getEnvOrDefault("OPENLDAP_EVENTS_ROTATION", string(EventsRotationNone)))
 	config.EventsTypes = parseMetricsList(getEnvOrDefault("OPENLDAP_EVENTS_TYPES", ""))
 
+	// Load replication peer-poll configuration
+	config.ReplicationPollEnabled = getEnvBoolOrDefault("OPENLDAP_REPLICATION_POLL_ENABLED", false)
+	config.ReplicationPollInterval = parsePollInterval(getEnvOrDefault("OPENLDAP_REPLICATION_POLL_INTERVAL", ""))
+	config.ReplicationPeers = parseMetricsList(getEnvOrDefault("OPENLDAP_REPLICATION_PEERS", ""))
+	config.PeerUsername = getEnvOrDefault("OPENLDAP_PEER_USERNAME", "")
+	config.PeerServerName = getEnvOrDefault("OPENLDAP_PEER_SERVER_NAME", "")
+	if peerPw := loadPeerPassword(); peerPw != "" {
+		sp, err := NewSecureString(peerPw)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create secure peer password storage: %w", err)
+		}
+		config.PeerPassword = sp
+	}
+
 	// Validate and warn about metric filtering configuration
 	config.validateMetricFiltering()
 	config.validateDCFiltering()
@@ -276,6 +305,60 @@ func (c *Config) Clear() {
 		c.Password.Clear()
 		c.Password = nil
 	}
+	if c.PeerPassword != nil {
+		c.PeerPassword.Clear()
+		c.PeerPassword = nil
+	}
+}
+
+// parsePollInterval parses OPENLDAP_REPLICATION_POLL_INTERVAL and clamps it into
+// the allowed range. Empty falls back to the default.
+func parsePollInterval(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return DefaultReplPollInterval
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		logger.SafeWarn("config", "Invalid OPENLDAP_REPLICATION_POLL_INTERVAL, using default", map[string]interface{}{
+			"provided": value,
+			"default":  DefaultReplPollInterval.String(),
+		})
+		return DefaultReplPollInterval
+	}
+	if d < MinReplPollInterval {
+		logger.SafeWarn("config", "OPENLDAP_REPLICATION_POLL_INTERVAL too low, clamped to minimum", map[string]interface{}{
+			"provided": d.String(),
+			"minimum":  MinReplPollInterval.String(),
+		})
+		return MinReplPollInterval
+	}
+	if d > MaxReplPollInterval {
+		logger.SafeWarn("config", "OPENLDAP_REPLICATION_POLL_INTERVAL too high, clamped to maximum", map[string]interface{}{
+			"provided": d.String(),
+			"maximum":  MaxReplPollInterval.String(),
+		})
+		return MaxReplPollInterval
+	}
+	return d
+}
+
+// loadPeerPassword reads the peer bind password from OPENLDAP_PEER_PASSWORD_FILE
+// (Docker/Kubernetes secrets) or falls back to OPENLDAP_PEER_PASSWORD. Empty
+// when neither is set — the poller then falls back to the main LDAP password.
+func loadPeerPassword() string {
+	if filePath := os.Getenv("OPENLDAP_PEER_PASSWORD_FILE"); filePath != "" {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			logger.Fatal("config", "Failed to read OPENLDAP_PEER_PASSWORD_FILE", err, map[string]interface{}{"path": filePath})
+		}
+		password := strings.TrimRight(string(data), "\n\r")
+		for i := range data {
+			data[i] = 0
+		}
+		return password
+	}
+	return getEnvOrDefault("OPENLDAP_PEER_PASSWORD", "")
 }
 
 // loadPassword reads the LDAP password from LDAP_PASSWORD_FILE (Docker/Kubernetes secrets)

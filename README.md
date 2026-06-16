@@ -627,6 +627,9 @@ These metrics are collected in different configurable groups. Use `OPENLDAP_METR
 | `openldap_replication_lag_seconds` | Gauge | `server`, `base_dn`, `server_id` | Age of the last write per master: `now − contextCSN` | Calculated |
 | `openldap_replication_multi_provider` | Gauge | `server`, `base_dn` | Topology: `1` = active-active (multi-provider), `0` = active-passive | `olcMultiProvider`/`olcMirrorMode` in `cn=config` |
 | `openldap_replication_configured_peers` | Gauge | `server`, `base_dn` | Number of configured syncrepl providers | `olcSyncrepl` count in `cn=config` |
+| `openldap_replication_peer_up` | Gauge | `peer` | Peer reachability polled from this node: `1` = connected+bound, `0` = unreachable | Peer poll (opt-in) |
+| `openldap_replication_peer_csn_timestamp` | Gauge | `peer`, `base_dn`, `server_id` | Unix timestamp of a peer's contextCSN | Peer poll (opt-in) |
+| `openldap_replication_peer_lag_seconds` | Gauge | `peer`, `base_dn`, `server_id` | Peer propagation lag: reference CSN (max of local + all peers for that server_id) − peer CSN | Peer poll (opt-in) |
 
 These metrics are only populated when `contextCSN` is present on database suffix entries (i.e., when replication is configured). In multi-master setups, `contextCSN` is multi-valued — one value per master RID — so one series per server ID (SID) is exposed.
 
@@ -645,6 +648,23 @@ openldap_replication_csn_timestamp
 ```
 
 The most up-to-date node reads `0`; a rising value on one node means it is falling behind its peers. An idle master does **not** register as lag here. A ready-to-use recording rule (`openldap:replication_propagation_lag_seconds`) and a sample alert ship in [`tests/docker/monitoring/rules/openldap-replication.rules.yml`](tests/docker/monitoring/rules/openldap-replication.rules.yml), and the bundled Grafana dashboard's **Replication Propagation Lag** panel uses this expression directly.
+
+#### Single-point peer poll (opt-in)
+
+If you cannot run an exporter on every node, enable the peer poller: from a single node the exporter connects to each replication peer, reads its `contextCSN`, and computes the propagation lag **centrally** — no agent needed on the peers. It runs on its own ticker with a dedicated connection pool and circuit breaker per peer (same isolation model as the events stream).
+
+Peers are discovered automatically from the local `olcSyncrepl` `provider=` URIs (requires config-tree read access), and can be supplemented/overridden with `OPENLDAP_REPLICATION_PEERS`. For each peer it exposes `openldap_replication_peer_up`, `openldap_replication_peer_csn_timestamp` and `openldap_replication_peer_lag_seconds` (= reference CSN − peer CSN, where the reference is the max of the local node and all peers for that `server_id`).
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `OPENLDAP_REPLICATION_POLL_ENABLED` | Enable the peer poller | `false` | `true` |
+| `OPENLDAP_REPLICATION_POLL_INTERVAL` | Poll interval (clamped to `[5s, 30m]`) | `15s` | `30s` |
+| `OPENLDAP_REPLICATION_PEERS` | Comma-separated peer LDAP URIs (manual list, merged with auto-discovery) | | `ldaps://100.81.3.39:636,ldaps://node3:636` |
+| `OPENLDAP_PEER_USERNAME` | Bind DN used against peers | falls back to `LDAP_USERNAME` | `cn=replicator,ou=service-accounts,dc=example,dc=com` |
+| `OPENLDAP_PEER_PASSWORD` / `OPENLDAP_PEER_PASSWORD_FILE` | Peer bind password | falls back to the main LDAP password | `/run/secrets/peer_password` |
+| `OPENLDAP_PEER_SERVER_NAME` | TLS verification hostname override for peers | host in each peer URI | `node2.example.com` |
+
+> **TLS note:** each peer's certificate must validate against the name used to verify it — by default the host in the peer URI (so an IP URI needs an IP SAN). Reuse `LDAP_TLS_CA` for the CA; set `OPENLDAP_PEER_SERVER_NAME` when you must dial by IP but verify a DNS SAN. **Trade-off vs per-node exporters:** you get cross-node lag from one place, but not the peers' local metrics (threads, connections, FDs).
 
 ### Password Policy (`ppolicy`)
 

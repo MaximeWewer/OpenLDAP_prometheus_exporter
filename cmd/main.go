@@ -22,6 +22,7 @@ import (
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/exporter"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/pool"
+	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/replication"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/security"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -181,6 +182,19 @@ func main() {
 				eventsRunner.Stop()
 				eventsClient.Close()
 			}()
+		}
+	}
+
+	// Optional single-point replication peer poller: connects to each peer from
+	// this node and computes cross-node propagation lag centrally. Dedicated
+	// pool + circuit breaker per peer, like the events stream. Disabled by
+	// default; needs peer credentials and reachable peers.
+	var replPoller *replication.Poller
+	if configData.ReplicationPollEnabled {
+		replPoller = replication.NewPoller(configData, exp.Client(), exp.Metrics())
+		if replPoller != nil {
+			replPoller.Start()
+			defer replPoller.Stop()
 		}
 	}
 
