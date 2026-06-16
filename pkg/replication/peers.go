@@ -1,6 +1,8 @@
 package replication
 
 import (
+	"net"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -11,23 +13,30 @@ import (
 
 // discoverPeers builds the set of peer LDAP URIs to poll: the manually
 // configured OPENLDAP_REPLICATION_PEERS plus any provider= URIs parsed from the
-// local olcSyncrepl entries in cn=config. The result is de-duplicated and
-// sorted for stable iteration/labels.
+// local olcSyncrepl entries in cn=config. URIs are normalized (see
+// normalizePeerURI) so trivially different spellings de-duplicate, and the
+// result is sorted for stable iteration/labels.
 //
-// Auto-discovery is best-effort: when the bind identity cannot read cn=config
-// the manual list is used on its own.
-func discoverPeers(cfg *config.Config, local *pool.PooledLDAPClient) []string {
+// The bool return reports whether auto-discovery was authoritative this round:
+// false when the local cn=config read failed (or there is no local client to
+// read it). Callers use it to avoid tearing down previously-known peers on a
+// transient config-read blip — only a successful discovery may remove a peer.
+// When there is no local client at all, the manual list is static and therefore
+// authoritative (true).
+func discoverPeers(cfg *config.Config, local *pool.PooledLDAPClient) ([]string, bool) {
 	set := make(map[string]struct{})
 
 	for _, p := range cfg.ReplicationPeers {
-		if u := strings.TrimSpace(p); u != "" {
+		if u := normalizePeerURI(p); u != "" {
 			set[u] = struct{}{}
 		}
 	}
 
+	reliable := true
 	if local != nil {
 		result, err := local.SearchConfig("(olcSyncrepl=*)", []string{"olcSyncrepl"})
 		if err != nil {
+			reliable = false
 			logger.SafeDebug("replication", "Peer auto-discovery skipped (cannot read cn=config)", map[string]interface{}{
 				"error": err.Error(),
 			})
@@ -38,7 +47,7 @@ func discoverPeers(cfg *config.Config, local *pool.PooledLDAPClient) []string {
 						continue
 					}
 					for _, v := range attr.Values {
-						if uri := parseProviderURI(v); uri != "" {
+						if uri := normalizePeerURI(parseProviderURI(v)); uri != "" {
 							set[uri] = struct{}{}
 						}
 					}
@@ -52,7 +61,37 @@ func discoverPeers(cfg *config.Config, local *pool.PooledLDAPClient) []string {
 		peers = append(peers, u)
 	}
 	sort.Strings(peers)
-	return peers
+	return peers, reliable
+}
+
+// normalizePeerURI canonicalizes a peer LDAP URI so trivially different
+// spellings of the same endpoint collapse to one: it trims whitespace,
+// lowercases the scheme and host, fills in the default port (636 for ldaps,
+// 389 for ldap), and drops any path/query. It deliberately does NOT resolve
+// DNS, so a short hostname, an FQDN and an IP for the same server remain
+// distinct — equating them would require name resolution that can silently
+// merge or split endpoints. Returns "" for empty/blank input; on a parse
+// failure it falls back to the lower-cased trimmed string.
+func normalizePeerURI(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" {
+		return strings.ToLower(s)
+	}
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+	if port == "" {
+		if scheme == "ldaps" {
+			port = "636"
+		} else {
+			port = "389"
+		}
+	}
+	return scheme + "://" + net.JoinHostPort(host, port)
 }
 
 // parseProviderURI extracts the provider URI from a single olcSyncrepl value.

@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/config"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/csn"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
@@ -45,33 +47,23 @@ type Poller struct {
 	done     chan struct{}
 }
 
-// NewPoller discovers peers (auto from cn=config + manual config) and builds a
-// dedicated client per peer. It returns nil when no peers can be resolved, so
-// the caller can skip starting it.
+// NewPoller creates the peer poller. Peers are not resolved here: discovery
+// runs on every tick via reconcilePeers, so peers added or removed in cn=config
+// (or in OPENLDAP_REPLICATION_PEERS after a restart) are picked up without
+// restarting the poller. The poller is always returned when polling is enabled;
+// it simply emits nothing until at least one peer is resolved.
 func NewPoller(cfg *config.Config, local *pool.PooledLDAPClient, m *metrics.OpenLDAPMetrics) *Poller {
-	uris := discoverPeers(cfg, local)
-	if len(uris) == 0 {
-		logger.SafeWarn("replication", "Replication peer poll enabled but no peers discovered", map[string]interface{}{
-			"hint": "set OPENLDAP_REPLICATION_PEERS or ensure the bind identity can read olcSyncrepl in cn=config",
-		})
-		return nil
-	}
-
-	peers := make(map[string]*pool.PooledLDAPClient, len(uris))
-	for _, uri := range uris {
-		peers[uri] = buildPeerClient(cfg, uri)
-	}
-
 	logger.SafeInfo("replication", "Replication peer poller created", map[string]interface{}{
-		"peers":    uris,
-		"interval": pollInterval(cfg).String(),
+		"interval":      pollInterval(cfg).String(),
+		"manual_peers":  len(cfg.ReplicationPeers),
+		"auto_discover": local != nil,
 	})
 
 	return &Poller{
 		cfg:     cfg,
 		local:   local,
 		metrics: m,
-		peers:   peers,
+		peers:   make(map[string]*pool.PooledLDAPClient),
 		stop:    make(chan struct{}),
 		done:    make(chan struct{}),
 	}
@@ -100,6 +92,7 @@ func (p *Poller) loop() {
 		initial.Stop()
 		return
 	}
+	p.reconcilePeers()
 	p.poll()
 
 	ticker := time.NewTicker(pollInterval(p.cfg))
@@ -108,11 +101,58 @@ func (p *Poller) loop() {
 	for {
 		select {
 		case <-ticker.C:
+			// Re-discover before each poll so topology changes (new/removed
+			// peers) are reflected without a restart. reconcile and poll run
+			// sequentially in this single goroutine, and poll's per-peer
+			// goroutines are joined before the next reconcile, so the peers
+			// map is never mutated concurrently with a read.
+			p.reconcilePeers()
 			p.poll()
 		case <-p.stop:
 			return
 		}
 	}
+}
+
+// reconcilePeers re-runs discovery and brings the live set of per-peer clients
+// in line with it: new peers get a dedicated client, peers that have genuinely
+// disappeared are closed and their metric series pruned. A peer is only removed
+// when discovery was authoritative this round (reliable), so a transient
+// cn=config read failure never tears down known peers.
+func (p *Poller) reconcilePeers() {
+	discovered, reliable := discoverPeers(p.cfg, p.local)
+
+	want := make(map[string]struct{}, len(discovered))
+	for _, uri := range discovered {
+		want[uri] = struct{}{}
+		if _, ok := p.peers[uri]; !ok {
+			p.peers[uri] = buildPeerClient(p.cfg, uri)
+			logger.SafeInfo("replication", "Replication peer added", map[string]interface{}{"peer": uri})
+		}
+	}
+
+	if !reliable {
+		return
+	}
+
+	for uri, client := range p.peers {
+		if _, ok := want[uri]; ok {
+			continue
+		}
+		client.Close()
+		delete(p.peers, uri)
+		p.prunePeerMetrics(uri)
+		logger.SafeInfo("replication", "Replication peer removed", map[string]interface{}{"peer": uri})
+	}
+}
+
+// prunePeerMetrics drops every series carrying a removed peer's label so a
+// vanished peer does not linger as stale gauges.
+func (p *Poller) prunePeerMetrics(peer string) {
+	labels := prometheus.Labels{"peer": peer}
+	p.metrics.ReplicationPeerUp.DeletePartialMatch(labels)
+	p.metrics.ReplicationPeerCSN.DeletePartialMatch(labels)
+	p.metrics.ReplicationPeerLag.DeletePartialMatch(labels)
 }
 
 // poll runs one round: read the local and every peer's contextCSN concurrently,

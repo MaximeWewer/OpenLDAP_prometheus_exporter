@@ -51,21 +51,42 @@ func TestIsLDAPS(t *testing.T) {
 	}
 }
 
+func TestNormalizePeerURI(t *testing.T) {
+	cases := map[string]string{
+		"ldaps://Host:636":          "ldaps://host:636",
+		" ldaps://host ":            "ldaps://host:636", // default ldaps port
+		"ldap://host":               "ldap://host:389",  // default ldap port
+		"LDAPS://NODE2.example.com": "ldaps://node2.example.com:636",
+		"ldaps://[2001:db8::1]":     "ldaps://[2001:db8::1]:636",
+		"":                          "",
+		"   ":                       "",
+	}
+	for in, want := range cases {
+		if got := normalizePeerURI(in); got != want {
+			t.Errorf("normalizePeerURI(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // discoverPeers with a nil local client falls back to the manual list, which it
-// de-duplicates (after trimming) and sorts.
+// normalizes, de-duplicates and sorts. With no local client the result is
+// authoritative (reliable == true).
 func TestDiscoverPeersManualOnly(t *testing.T) {
 	cfg := &config.Config{
 		ReplicationPeers: []string{
 			"ldaps://b.example.com:636",
-			" ldaps://a.example.com:636 ",
-			"ldaps://b.example.com:636", // duplicate
+			" ldaps://a.example.com ",   // no port -> :636
+			"ldaps://B.example.com:636", // case-different duplicate of b
 			"",                          // ignored
 		},
 	}
 
-	got := discoverPeers(cfg, nil)
+	got, reliable := discoverPeers(cfg, nil)
 	want := []string{"ldaps://a.example.com:636", "ldaps://b.example.com:636"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("discoverPeers() = %v, want %v", got, want)
+	}
+	if !reliable {
+		t.Errorf("discoverPeers() reliable = false, want true for manual-only")
 	}
 }
