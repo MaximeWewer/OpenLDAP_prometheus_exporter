@@ -32,6 +32,16 @@ services:
       # LDAP_TLS_CA: "/path/to/ca.crt"                # Path to CA certificate for TLS
       # LDAP_TLS_CERT: "/path/to/client.crt"          # Path to client certificate
       # LDAP_TLS_KEY: "/path/to/client.key"           # Path to client private key
+      # LDAP_TLS_SERVER_NAME: "ldap.example.com"      # TLS SNI / cert-verification hostname (default: host in LDAP_URL). Use to dial by IP but verify a DNS SAN.
+
+      # ========================================
+      # Circuit breaker configuration
+      # ========================================
+      # Applies to both the scrape breaker (component=ldap) and the events breaker (component=events).
+      # CIRCUIT_BREAKER_MAX_FAILURES: "3"             # Failures before the breaker opens (default: 3)
+      # CIRCUIT_BREAKER_TIMEOUT: "60"                 # Seconds open before a half-open probe (default: 60)
+      # CIRCUIT_BREAKER_RESET_TIMEOUT: "15"           # Half-open window in seconds (default: 15)
+      # CIRCUIT_BREAKER_SUCCESS_THRESHOLD: "2"        # Consecutive successes to close (default: 2)
 
       # ========================================
       # HTTP server configuration

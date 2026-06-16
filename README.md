@@ -350,8 +350,22 @@ The file content is trimmed of trailing newlines. The raw bytes are cleared from
 | `LDAP_TLS_CA` | Path to CA certificate for TLS | | `/path/to/ca.crt` |
 | `LDAP_TLS_CERT` | Path to client certificate | | `/path/to/client.crt` |
 | `LDAP_TLS_KEY` | Path to client private key | | `/path/to/client.key` |
+| `LDAP_TLS_SERVER_NAME` | TLS SNI / certificate-verification hostname (defaults to the host in `LDAP_URL`) | | `ldap.example.com` |
+
+> **`LDAP_TLS_SERVER_NAME`**: by default TLS verification uses the host parsed from `LDAP_URL`, so dialing by IP requires an IP SAN in the certificate. Set this to verify against a DNS SAN instead while still connecting by IP. Note `LDAP_SERVER_NAME` is only the logs/metrics label and has no effect on TLS.
 
 > **SASL EXTERNAL**: Set `LDAP_AUTH_METHOD=external` to authenticate using the TLS client certificate (`LDAP_TLS_CERT`/`LDAP_TLS_KEY`) instead of username/password. In this mode, `LDAP_USERNAME` and `LDAP_PASSWORD` are not required.
+
+### Circuit breaker configuration (optional)
+
+The LDAP client wraps every search in a circuit breaker that opens after repeated failures to avoid hammering an unhealthy server. The metric-scrape path and the events stream each have their own independent breaker (distinguished by the `component` label). These thresholds apply to both.
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `CIRCUIT_BREAKER_MAX_FAILURES` | Failures before the breaker opens | `3` | `5` |
+| `CIRCUIT_BREAKER_TIMEOUT` | Time the breaker stays open before a half-open probe (seconds) | `60` | `30` |
+| `CIRCUIT_BREAKER_RESET_TIMEOUT` | Half-open window (seconds) | `15` | `10` |
+| `CIRCUIT_BREAKER_SUCCESS_THRESHOLD` | Consecutive successes needed to close | `2` | `3` |
 
 ### HTTP server configuration
 
@@ -444,7 +458,7 @@ See the full [web configuration documentation](https://github.com/prometheus/exp
 
 In addition to Prometheus metrics, the exporter can emit a stream of structured **JSON events** derived from the `slapo-accesslog` overlay (binds, writes, account locks, password changes, …). It is meant for log shippers (Loki, Vector, Fluent Bit, …) that want event-by-event records rather than aggregated counters.
 
-The events stream runs in its **own goroutine, on its own ticker, with its own `reqStart` cursor**, completely independent of Prometheus scrapes. Enabling it does not perturb metric collection, and metric scrapes do not drain the event stream before it is observed. A failure on one stream (bind / write / lock) does not freeze the others.
+The events stream runs in its **own goroutine, on its own ticker, with its own `reqStart` cursor**, and uses its **own dedicated LDAP connection pool and circuit breaker** (labeled `component`/`pool_type=events`), completely independent of Prometheus scrapes. Enabling it does not perturb metric collection: a slow or failing accesslog scan on the events ticker cannot drain the scrape pool or trip the scrape's breaker, and metric scrapes do not drain the event stream before it is observed. A failure on one stream (bind / write / lock) does not freeze the others.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -664,6 +678,8 @@ These metrics are exposed on the `/internal/metrics` endpoint and allow monitori
 
 #### Connection pool (`openldap_exporter_pool`)
 
+The `pool_type` label is `ldap` for the metric-scrape pool and `events` for the events stream's own dedicated pool (when the events stream is enabled).
+
 **Basic metrics**
 
 | Metric | Type | Labels | Description |
@@ -706,11 +722,13 @@ These metrics are exposed on the `/internal/metrics` endpoint and allow monitori
 
 #### Circuit breaker (`openldap_exporter_circuit_breaker`)
 
+The `component` label separates the metric-scrape breaker (`ldap`) from the events stream's independent breaker (`events`).
+
 | Metric | Type | Labels | Description |
 |----------|------|---------|-------------|
-| `openldap_exporter_circuit_breaker_state` | Gauge | `server` | Circuit breaker state (0=closed, 1=half-open, 2=open) |
-| `openldap_exporter_circuit_breaker_requests_total` | Counter | `server`, `result` | Total number of circuit breaker requests (allowed, blocked) |
-| `openldap_exporter_circuit_breaker_failures_total` | Counter | `server` | Total number of circuit breaker failures |
+| `openldap_exporter_circuit_breaker_state` | Gauge | `server`, `component` | Circuit breaker state (0=closed, 1=half-open, 2=open) |
+| `openldap_exporter_circuit_breaker_requests_total` | Counter | `server`, `component`, `result` | Total number of circuit breaker requests (allowed, blocked) |
+| `openldap_exporter_circuit_breaker_failures_total` | Counter | `server`, `component` | Total number of circuit breaker failures |
 
 #### Metrics collection (`openldap_exporter_collection`)
 
@@ -745,8 +763,10 @@ All endpoints include security headers and are subject to configured rate limiti
 | Endpoint | Type | Description | Content |
 |----------|------|-------------|---------|
 | `/` | HTML | Information page with version and configuration status | Web page showing version, active metric filters (include/exclude) |
-| `/health` | JSON | Health check with status information | `{"status":"ok","version":"x.x.x","timestamp":"2025-09-02T14:44:30Z","uptime":"12.64s"}` |
+| `/health` | JSON | Health check; reflects LDAP reachability | `{"status":"ok","ldap_reachable":true,"version":"x.x.x","timestamp":"2025-09-02T14:44:30Z","uptime":"12.64s"}` |
 | `/metrics` | Text | OpenLDAP Prometheus metrics | All OpenLDAP metrics (namespace `openldap`) according to configured filtering |
+
+> **`/health` status code**: returns `200` when the LDAP circuit breaker is closed/half-open and `503` (`"status":"unhealthy"`, `"ldap_reachable":false`) once it has opened, i.e. the exporter can no longer reach the LDAP server. The bundled image has no `curl`/`wget`, so use the binary's own probe as the container healthcheck: `openldap-exporter -healthcheck` exits `0` when `/health` returns `200` and `1` otherwise (it reads the port from `LISTEN_ADDRESS`).
 
 ### Internal endpoints
 
