@@ -97,6 +97,30 @@ type Config struct {
 	EventsTypes    []string           // OPENLDAP_EVENTS_TYPES (comma separated; empty = all types)
 }
 
+// validateCircuitBreakerConfig floors any non-positive circuit breaker tuning
+// value back to its shipped default so a typo (e.g.
+// CIRCUIT_BREAKER_MAX_FAILURES=0) cannot produce a breaker that opens instantly
+// or never closes. Extracted from LoadConfig to keep its cyclomatic complexity
+// in check.
+func validateCircuitBreakerConfig(config *Config) {
+	if config.CBMaxFailures <= 0 {
+		logger.Warn("config", "Invalid CIRCUIT_BREAKER_MAX_FAILURES, using default", map[string]interface{}{"default": DefaultCBMaxFailures})
+		config.CBMaxFailures = DefaultCBMaxFailures
+	}
+	if config.CBTimeout <= 0 {
+		logger.Warn("config", "Invalid CIRCUIT_BREAKER_TIMEOUT, using default", map[string]interface{}{"default": DefaultCBTimeout.String()})
+		config.CBTimeout = DefaultCBTimeout
+	}
+	if config.CBResetTimeout <= 0 {
+		logger.Warn("config", "Invalid CIRCUIT_BREAKER_RESET_TIMEOUT, using default", map[string]interface{}{"default": DefaultCBResetTimeout.String()})
+		config.CBResetTimeout = DefaultCBResetTimeout
+	}
+	if config.CBSuccessThreshold <= 0 {
+		logger.Warn("config", "Invalid CIRCUIT_BREAKER_SUCCESS_THRESHOLD, using default", map[string]interface{}{"default": DefaultCBSuccessThreshold})
+		config.CBSuccessThreshold = DefaultCBSuccessThreshold
+	}
+}
+
 // LoadConfig loads configuration from environment variables. The signature
 // returns an error deliberately — every misconfiguration surfaces as a
 // returned error instead of calling logger.Fatal internally, so the
@@ -200,25 +224,7 @@ func LoadConfig() (*Config, error) {
 		config.ServerName = config.ServerName[:MaxServerNameLen]
 	}
 
-	// Validate circuit breaker tuning: any non-positive value falls back to the
-	// shipped default so a typo (e.g. CIRCUIT_BREAKER_MAX_FAILURES=0) cannot
-	// produce a breaker that opens instantly or never closes.
-	if config.CBMaxFailures <= 0 {
-		logger.Warn("config", "Invalid CIRCUIT_BREAKER_MAX_FAILURES, using default", map[string]interface{}{"default": DefaultCBMaxFailures})
-		config.CBMaxFailures = DefaultCBMaxFailures
-	}
-	if config.CBTimeout <= 0 {
-		logger.Warn("config", "Invalid CIRCUIT_BREAKER_TIMEOUT, using default", map[string]interface{}{"default": DefaultCBTimeout.String()})
-		config.CBTimeout = DefaultCBTimeout
-	}
-	if config.CBResetTimeout <= 0 {
-		logger.Warn("config", "Invalid CIRCUIT_BREAKER_RESET_TIMEOUT, using default", map[string]interface{}{"default": DefaultCBResetTimeout.String()})
-		config.CBResetTimeout = DefaultCBResetTimeout
-	}
-	if config.CBSuccessThreshold <= 0 {
-		logger.Warn("config", "Invalid CIRCUIT_BREAKER_SUCCESS_THRESHOLD, using default", map[string]interface{}{"default": DefaultCBSuccessThreshold})
-		config.CBSuccessThreshold = DefaultCBSuccessThreshold
-	}
+	validateCircuitBreakerConfig(config)
 
 	// Load metric filtering configuration
 	config.MetricsInclude = parseMetricsList(getEnvOrDefault("OPENLDAP_METRICS_INCLUDE", ""))
