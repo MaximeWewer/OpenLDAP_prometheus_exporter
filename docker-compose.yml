@@ -100,7 +100,9 @@ services:
     #   - ./openldap-events:/var/log/openldap-events
 
     healthcheck:
-      test: ["CMD", "/openldap-exporter", "-version"]
+      # Probes /health, which reports unhealthy (503) once the LDAP circuit
+      # breaker is OPEN — unlike "-version", which only proves the binary runs.
+      test: ["CMD", "/openldap-exporter", "-healthcheck"]
       interval: 30s
       timeout: 10s
       retries: 3

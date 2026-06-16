@@ -7,6 +7,7 @@ import (
 	"fmt"
 	stdlog "log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -102,6 +103,7 @@ var (
 	listenAddr    = flag.String("web.listen-address", getEnvString("LISTEN_ADDRESS", defaultListenAddress), "Address to listen on for web interface and telemetry. Can also be set via LISTEN_ADDRESS environment variable")
 	webConfigFile = flag.String("web.config.file", getEnvString("WEB_CONFIG_FILE", ""), "Path to web configuration file (TLS/basic auth). See https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md")
 	version       = flag.Bool("version", false, "Print version information and exit")
+	healthCheck   = flag.Bool("healthcheck", false, "Probe the local /health endpoint and exit 0 (healthy) or 1 (unhealthy). Intended as a container HEALTHCHECK command for distroless images that ship no curl/wget.")
 	logLevel      = flag.String("log.level", getEnvString("LOG_LEVEL", "INFO"), "Log level (DEBUG, INFO, WARN, ERROR, FATAL). Can also be set via LOG_LEVEL environment variable")
 )
 
@@ -117,6 +119,13 @@ func main() {
 	if *version {
 		logger.Info("main", "Version requested", map[string]interface{}{"version": Version})
 		os.Exit(0)
+	}
+
+	// -healthcheck runs as a short-lived sibling process (the container's
+	// HEALTHCHECK command), not the server itself: probe the already-running
+	// exporter's /health endpoint over localhost and exit with its verdict.
+	if *healthCheck {
+		runHealthCheck(*listenAddr)
 	}
 
 	configData, err := config.LoadConfig()
@@ -477,15 +486,58 @@ func handleRoot(w http.ResponseWriter, r *http.Request, cfg *config.Config) {
 }
 
 // handleHealth provides a simple health check endpoint
+// runHealthCheck probes the local /health endpoint and exits the process with
+// 0 when it returns 200 (healthy) or 1 otherwise. It is the implementation of
+// the `-healthcheck` flag, designed to be the container HEALTHCHECK command on
+// the distroless image (which ships no curl/wget). The port is taken from the
+// listen address; the host is forced to a loopback so the probe never leaves
+// the container. TLS on the listener is not handled here — a plain HTTP probe
+// is sufficient for the common (non-TLS listener) deployment.
+func runHealthCheck(listenAddr string) {
+	_, port, err := net.SplitHostPort(strings.TrimSpace(listenAddr))
+	if err != nil || port == "" {
+		port = "9330"
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:" + port + "/health")
+	if err != nil {
+		stdlog.Printf("healthcheck failed: %v", err)
+		os.Exit(1)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusOK {
+		os.Exit(0)
+	}
+	stdlog.Printf("healthcheck unhealthy: status %d", resp.StatusCode)
+	os.Exit(1)
+}
+
 func handleHealth(w http.ResponseWriter, exp *exporter.OpenLDAPExporter) {
 	monitoring := exp.GetInternalMonitoring()
 
+	// Reflect actual LDAP reachability instead of always reporting "ok".
+	// IsHealthy() is false once the circuit breaker is OPEN — i.e. the
+	// exporter has failed to reach the LDAP server enough times to trip it.
+	// A healthcheck that ignored this (the old hardcoded "ok"/200) reported
+	// the container healthy while openldap_up was stuck at 0.
+	ldapReachable := exp.Client().IsHealthy()
+
+	status := "ok"
+	statusCode := http.StatusOK
+	if !ldapReachable {
+		status = "unhealthy"
+		statusCode = http.StatusServiceUnavailable
+	}
+
 	// Prepare enriched health response
 	response := map[string]interface{}{
-		"status":    "ok",
-		"version":   Version,
-		"timestamp": time.Now().Format(time.RFC3339),
-		"uptime":    formatDuration(time.Since(monitoring.GetStartTime())),
+		"status":         status,
+		"ldap_reachable": ldapReachable,
+		"version":        Version,
+		"timestamp":      time.Now().Format(time.RFC3339),
+		"uptime":         formatDuration(time.Since(monitoring.GetStartTime())),
 	}
 
 	jsonData, err := json.MarshalIndent(response, "", "  ")
@@ -496,7 +548,7 @@ func handleHealth(w http.ResponseWriter, exp *exporter.OpenLDAPExporter) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(statusCode)
 	if _, err := w.Write(jsonData); err != nil {
 		logger.Error("main", "Failed to write health response", err)
 	}
