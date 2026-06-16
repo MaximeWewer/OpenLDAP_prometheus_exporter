@@ -21,12 +21,6 @@ const (
 	DefaultPoolSize      = 5
 	DefaultSearchTimeout = 30 * time.Second
 
-	// Circuit breaker defaults
-	DefaultMaxFailures      = 3
-	DefaultTimeout          = 60 * time.Second
-	DefaultResetTimeout     = 15 * time.Second
-	DefaultSuccessThreshold = 2
-
 	// EventsPoolType is the metrics component/pool_type label for the events
 	// stream's dedicated client. EventsPoolSize keeps that pool small: the
 	// events runner drives a single sequential ticker, so one connection plus
@@ -107,13 +101,16 @@ func (c *PooledLDAPClient) currentBaseContext() context.Context {
 	return ctx
 }
 
-// createCircuitBreakerConfig creates a standard circuit breaker configuration
-func createCircuitBreakerConfig() circuitbreaker.CircuitBreakerConfig {
+// createCircuitBreakerConfig builds the circuit breaker configuration from the
+// operator-tunable CIRCUIT_BREAKER_* settings. config.LoadConfig already floors
+// any non-positive value to the package default, so the values here are safe to
+// pass through directly.
+func createCircuitBreakerConfig(cfg *config.Config) circuitbreaker.CircuitBreakerConfig {
 	return circuitbreaker.CircuitBreakerConfig{
-		MaxFailures:      DefaultMaxFailures,
-		Timeout:          DefaultTimeout,
-		ResetTimeout:     DefaultResetTimeout,
-		SuccessThreshold: DefaultSuccessThreshold,
+		MaxFailures:      cfg.CBMaxFailures,
+		Timeout:          cfg.CBTimeout,
+		ResetTimeout:     cfg.CBResetTimeout,
+		SuccessThreshold: cfg.CBSuccessThreshold,
 	}
 }
 
@@ -159,7 +156,7 @@ func newMonitoredClient(cfg *config.Config, monitoring PoolMonitoring, serverNam
 	pool := NewConnectionPoolWithType(cfg, poolSize, monitoring, serverName, component)
 
 	// Create circuit breaker with standard configuration
-	cb := circuitbreaker.NewCircuitBreaker(createCircuitBreakerConfig())
+	cb := circuitbreaker.NewCircuitBreaker(createCircuitBreakerConfig(cfg))
 
 	// Check if monitoring supports circuit breaker monitoring
 	var cbMonitoring CircuitBreakerMonitoring
@@ -202,7 +199,7 @@ func NewPooledLDAPClientWithOptions(cfg *config.Config, _ bool) *PooledLDAPClien
 	useAdaptivePool := false
 
 	// Create circuit breaker with standard configuration
-	circuitBreakerInstance := circuitbreaker.NewCircuitBreaker(createCircuitBreakerConfig())
+	circuitBreakerInstance := circuitbreaker.NewCircuitBreaker(createCircuitBreakerConfig(cfg))
 
 	// Set up circuit breaker state change logging
 	circuitBreakerInstance.SetStateChangeCallback(func(from, to circuitbreaker.State) {

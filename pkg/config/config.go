@@ -30,6 +30,13 @@ const (
 	MinEventsInterval     = 5 * time.Second
 	MaxEventsInterval     = 30 * time.Minute
 	DefaultEventsInterval = 30 * time.Second
+
+	// Circuit breaker tuning defaults (seconds for the durations). These match
+	// the values the breaker shipped with before they became configurable.
+	DefaultCBMaxFailures      = 3
+	DefaultCBTimeout          = 60 * time.Second
+	DefaultCBResetTimeout     = 15 * time.Second
+	DefaultCBSuccessThreshold = 2
 )
 
 // EventsRotationMode describes how the events output file is rotated.
@@ -68,6 +75,12 @@ type Config struct {
 
 	// Authentication method
 	AuthMethod string // "simple" (default) or "external" (SASL EXTERNAL for mTLS)
+
+	// Circuit breaker tuning (CIRCUIT_BREAKER_*). Durations are in seconds.
+	CBMaxFailures      int           // CIRCUIT_BREAKER_MAX_FAILURES: failures before the breaker opens
+	CBTimeout          time.Duration // CIRCUIT_BREAKER_TIMEOUT: how long it stays open before a half-open probe
+	CBResetTimeout     time.Duration // CIRCUIT_BREAKER_RESET_TIMEOUT: half-open window
+	CBSuccessThreshold int           // CIRCUIT_BREAKER_SUCCESS_THRESHOLD: consecutive successes to close
 
 	// Rate limiting options
 	RateLimitEnabled bool     // Enable/disable rate limiting (RATE_LIMIT_ENABLED)
@@ -118,6 +131,11 @@ func LoadConfig() (*Config, error) {
 		UpdateEvery:   time.Duration(getEnvIntOrDefault("LDAP_UPDATE_EVERY", 15)) * time.Second,
 		Username:      getEnvOrDefault("LDAP_USERNAME", ""),
 		Password:      securePassword,
+
+		CBMaxFailures:      getEnvIntOrDefault("CIRCUIT_BREAKER_MAX_FAILURES", DefaultCBMaxFailures),
+		CBTimeout:          time.Duration(getEnvIntOrDefault("CIRCUIT_BREAKER_TIMEOUT", int(DefaultCBTimeout/time.Second))) * time.Second,
+		CBResetTimeout:     time.Duration(getEnvIntOrDefault("CIRCUIT_BREAKER_RESET_TIMEOUT", int(DefaultCBResetTimeout/time.Second))) * time.Second,
+		CBSuccessThreshold: getEnvIntOrDefault("CIRCUIT_BREAKER_SUCCESS_THRESHOLD", DefaultCBSuccessThreshold),
 	}
 
 	if config.URL == "" {
@@ -180,6 +198,26 @@ func LoadConfig() (*Config, error) {
 			"max_length":      MaxServerNameLen,
 		})
 		config.ServerName = config.ServerName[:MaxServerNameLen]
+	}
+
+	// Validate circuit breaker tuning: any non-positive value falls back to the
+	// shipped default so a typo (e.g. CIRCUIT_BREAKER_MAX_FAILURES=0) cannot
+	// produce a breaker that opens instantly or never closes.
+	if config.CBMaxFailures <= 0 {
+		logger.Warn("config", "Invalid CIRCUIT_BREAKER_MAX_FAILURES, using default", map[string]interface{}{"default": DefaultCBMaxFailures})
+		config.CBMaxFailures = DefaultCBMaxFailures
+	}
+	if config.CBTimeout <= 0 {
+		logger.Warn("config", "Invalid CIRCUIT_BREAKER_TIMEOUT, using default", map[string]interface{}{"default": DefaultCBTimeout.String()})
+		config.CBTimeout = DefaultCBTimeout
+	}
+	if config.CBResetTimeout <= 0 {
+		logger.Warn("config", "Invalid CIRCUIT_BREAKER_RESET_TIMEOUT, using default", map[string]interface{}{"default": DefaultCBResetTimeout.String()})
+		config.CBResetTimeout = DefaultCBResetTimeout
+	}
+	if config.CBSuccessThreshold <= 0 {
+		logger.Warn("config", "Invalid CIRCUIT_BREAKER_SUCCESS_THRESHOLD, using default", map[string]interface{}{"default": DefaultCBSuccessThreshold})
+		config.CBSuccessThreshold = DefaultCBSuccessThreshold
 	}
 
 	// Load metric filtering configuration
