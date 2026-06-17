@@ -55,6 +55,30 @@ type CursorState struct {
 	LockReady  bool
 }
 
+// NowGeneralizedTime returns the current UTC time formatted as an LDAP
+// GeneralizedTime with microsecond precision, suitable for a reqStart bound.
+func NowGeneralizedTime() string {
+	return time.Now().UTC().Format("20060102150405.000000Z")
+}
+
+// NewCursorState returns a cursor whose three streams are seeded to the current
+// time. This is critical: an empty (zero-value) cursor makes
+// BuildIncrementalFilter fall back to the bare base filter, which matches the
+// ENTIRE accesslog history — on a busy server that is hundreds of thousands of
+// entries pulled into memory in a single SearchResult on the very first scan
+// (and again on every restart), which both OOMs the exporter and hammers slapd.
+// Seeding to "now" bounds every scan to reqStart >= start-up time. Ready is left
+// false so the first scan still only establishes the high-water mark and emits
+// no historical events.
+func NewCursorState() *CursorState {
+	now := NowGeneralizedTime()
+	return &CursorState{
+		Bind:  now,
+		Write: now,
+		Lock:  now,
+	}
+}
+
 // Get returns the current cursor value and readiness flag for a stream.
 func (c *CursorState) Get(s Stream) (value string, ready bool) {
 	switch s {

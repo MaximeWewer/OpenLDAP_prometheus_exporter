@@ -176,3 +176,23 @@ func TestMaxString(t *testing.T) {
 		t.Error("max should return b")
 	}
 }
+
+// TestNewCursorStateSeedsBounded verifies the cursor is seeded to a non-empty
+// reqStart so the first scan is bounded (reqStart>=now) instead of matching the
+// entire accesslog history via the bare base filter.
+func TestNewCursorStateSeedsBounded(t *testing.T) {
+	c := NewCursorState()
+	for _, s := range []Stream{StreamBind, StreamWrite, StreamLock} {
+		cur, ready := c.Get(s)
+		if cur == "" {
+			t.Errorf("stream %d cursor is empty; baseline scan would match all history", s)
+		}
+		if ready {
+			t.Errorf("stream %d should not be ready on a fresh cursor", s)
+		}
+		// The filter must carry a reqStart lower bound, not the bare base filter.
+		if got := BuildIncrementalFilter(BindBaseFilter, cur); got == BindBaseFilter {
+			t.Errorf("stream %d: filter not bounded: %q", s, got)
+		}
+	}
+}

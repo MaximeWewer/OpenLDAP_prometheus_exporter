@@ -27,7 +27,11 @@ func (e *OpenLDAPExporter) getAccesslogCursor(server string) *accesslogCursorSta
 	defer e.accesslogMutex.Unlock()
 	cur, ok := e.accesslogCursor[server]
 	if !ok {
-		cur = &accesslogCursorState{}
+		// Seed the cursor to "now" so the first scan is bounded to new entries
+		// instead of matching the entire accesslog history (see
+		// accesslog.NewCursorState — an empty cursor pulls every entry into one
+		// SearchResult, which OOMs the exporter and hammers slapd).
+		cur = &accesslogCursorState{CursorState: *accesslog.NewCursorState()}
 		e.accesslogCursor[server] = cur
 	}
 	return cur

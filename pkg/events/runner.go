@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/accesslog"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/config"
 	"github.com/MaximeWewer/OpenLDAP_prometheus_exporter/pkg/logger"
 )
@@ -35,7 +36,7 @@ func NewRunner(cfg *config.Config, client accesslogSearcher) (*Runner, error) {
 		cfg:       cfg,
 		collector: newCollector(client, cfg.ServerName),
 		emitter:   emitter,
-		cursor:    &cursorState{},
+		cursor:    accesslog.NewCursorState(),
 		stop:      make(chan struct{}),
 		done:      make(chan struct{}),
 	}, nil
