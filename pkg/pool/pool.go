@@ -86,6 +86,11 @@ type PooledConnection struct {
 	lastUsed  time.Time
 	inUse     bool
 	mutex     sync.Mutex
+	// broken is set (atomically) by Discard when a connection has been torn
+	// down out-of-band after an I/O error. A broken connection must never be
+	// returned to the pool: Put treats it as a no-op so a deferred Put running
+	// after Discard cannot re-pool a closed socket or double-count it.
+	broken int32
 }
 
 // NewConnectionPool creates a new LDAP connection pool

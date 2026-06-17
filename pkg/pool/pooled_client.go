@@ -67,6 +67,7 @@ type PooledLDAPClient struct {
 type PoolInterface interface {
 	Get(ctx context.Context) (*PooledConnection, error)
 	Put(conn *PooledConnection)
+	Discard(conn *PooledConnection)
 	Close()
 	Stats() map[string]interface{}
 }
@@ -224,6 +225,45 @@ func NewPooledLDAPClientWithOptions(cfg *config.Config, _ bool) *PooledLDAPClien
 	}
 }
 
+// runSearch executes a search on a pooled connection with one retry on a
+// dropped connection. A pooled connection can be silently closed by the server
+// or a stateful firewall after a long idle period; its first reuse then fails
+// with a network error ("connection closed"). Rather than failing the whole
+// scrape, the broken connection is discarded (closed + de-counted) and the
+// search replayed once on a fresh connection. Searches here are read-only and
+// idempotent, so the replay is safe. The connection is always either returned
+// to the pool (success / non-network error — still healthy) or discarded
+// (network error), never both, which is what keeps the active-connection count
+// accurate over long uptimes.
+func (c *PooledLDAPClient) runSearch(ctx context.Context, req *ldap.SearchRequest) (*ldap.SearchResult, error) {
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		conn, err := c.pool.Get(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		res, err := conn.conn.Search(req)
+		if err == nil {
+			c.pool.Put(conn)
+			return res, nil
+		}
+
+		if isNetworkError(err) {
+			// Drop the broken connection and retry once with a fresh one.
+			c.pool.Discard(conn)
+			lastErr = err
+			continue
+		}
+
+		// Non-network error (e.g. an LDAP result code): the connection is
+		// still healthy, so return it for reuse and surface the error.
+		c.pool.Put(conn)
+		return nil, err
+	}
+	return nil, lastErr
+}
+
 // Search performs an LDAP search using a connection from the pool
 func (c *PooledLDAPClient) Search(baseDN, filter string, attributes []string) (*ldap.SearchResult, error) {
 	if baseDN == "" || filter == "" {
@@ -264,20 +304,8 @@ func (c *PooledLDAPClient) Search(baseDN, filter string, attributes []string) (*
 	var result *ldap.SearchResult
 
 	err := c.circuitBreaker.Call(func() error {
-		// Get connection from pool with timeout
 		ctx, cancel := context.WithTimeout(c.currentBaseContext(), DefaultSearchTimeout)
 		defer cancel()
-
-		conn, err := c.pool.Get(ctx)
-		if err != nil {
-			logger.SafeError("pooled_client", "Failed to get connection from pool", err, map[string]interface{}{
-				"server": c.config.ServerName,
-			})
-			return err
-		}
-
-		// Ensure connection is returned to pool
-		defer c.pool.Put(conn)
 
 		searchRequest := ldap.NewSearchRequest(
 			baseDN,
@@ -291,23 +319,15 @@ func (c *PooledLDAPClient) Search(baseDN, filter string, attributes []string) (*
 			nil,
 		)
 
-		searchResult, err := conn.conn.Search(searchRequest)
+		searchResult, err := c.runSearch(ctx, searchRequest)
 		if err != nil {
 			logger.SafeError("pooled_client", "LDAP search failed", err, map[string]interface{}{
 				"baseDN": baseDN,
 				"filter": filter,
 			})
-
-			// If connection error, invalidate the connection
-			if isNetworkError(err) {
-				// Don't return this connection to the pool
-				c.invalidateConnection(conn)
-			}
-
 			return err
 		}
 
-		// Store result for return
 		result = searchResult
 		return nil
 	})
@@ -365,12 +385,6 @@ func (c *PooledLDAPClient) SearchContextCSN(suffixDN string) (*ldap.SearchResult
 		ctx, cancel := context.WithTimeout(c.currentBaseContext(), DefaultSearchTimeout)
 		defer cancel()
 
-		conn, err := c.pool.Get(ctx)
-		if err != nil {
-			return err
-		}
-		defer c.pool.Put(conn)
-
 		// Base-scoped search for contextCSN only
 		searchRequest := ldap.NewSearchRequest(
 			suffixDN,
@@ -384,11 +398,8 @@ func (c *PooledLDAPClient) SearchContextCSN(suffixDN string) (*ldap.SearchResult
 			nil,
 		)
 
-		searchResult, err := conn.conn.Search(searchRequest)
+		searchResult, err := c.runSearch(ctx, searchRequest)
 		if err != nil {
-			if isNetworkError(err) {
-				c.invalidateConnection(conn)
-			}
 			return err
 		}
 
@@ -456,12 +467,6 @@ func (c *PooledLDAPClient) SearchSuffix(suffixDN, filter string, attributes []st
 		ctx, cancel := context.WithTimeout(c.currentBaseContext(), DefaultSearchTimeout)
 		defer cancel()
 
-		conn, err := c.pool.Get(ctx)
-		if err != nil {
-			return err
-		}
-		defer c.pool.Put(conn)
-
 		searchRequest := ldap.NewSearchRequest(
 			suffixDN,
 			ldap.ScopeWholeSubtree,
@@ -474,11 +479,8 @@ func (c *PooledLDAPClient) SearchSuffix(suffixDN, filter string, attributes []st
 			nil,
 		)
 
-		searchResult, err := conn.conn.Search(searchRequest)
+		searchResult, err := c.runSearch(ctx, searchRequest)
 		if err != nil {
-			if isNetworkError(err) {
-				c.invalidateConnection(conn)
-			}
 			return err
 		}
 
@@ -543,12 +545,6 @@ func (c *PooledLDAPClient) SearchAccessLog(filter string, attributes []string) (
 		ctx, cancel := context.WithTimeout(c.currentBaseContext(), DefaultSearchTimeout)
 		defer cancel()
 
-		conn, err := c.pool.Get(ctx)
-		if err != nil {
-			return err
-		}
-		defer c.pool.Put(conn)
-
 		searchRequest := ldap.NewSearchRequest(
 			"cn=accesslog",
 			ldap.ScopeWholeSubtree,
@@ -570,11 +566,8 @@ func (c *PooledLDAPClient) SearchAccessLog(filter string, attributes []string) (
 			nil,
 		)
 
-		searchResult, err := conn.conn.Search(searchRequest)
+		searchResult, err := c.runSearch(ctx, searchRequest)
 		if err != nil {
-			if isNetworkError(err) {
-				c.invalidateConnection(conn)
-			}
 			return err
 		}
 
@@ -641,12 +634,6 @@ func (c *PooledLDAPClient) SearchConfig(filter string, attributes []string) (*ld
 		ctx, cancel := context.WithTimeout(c.currentBaseContext(), DefaultSearchTimeout)
 		defer cancel()
 
-		conn, err := c.pool.Get(ctx)
-		if err != nil {
-			return err
-		}
-		defer c.pool.Put(conn)
-
 		searchRequest := ldap.NewSearchRequest(
 			"cn=config",
 			ldap.ScopeWholeSubtree,
@@ -659,11 +646,8 @@ func (c *PooledLDAPClient) SearchConfig(filter string, attributes []string) (*ld
 			nil,
 		)
 
-		searchResult, err := conn.conn.Search(searchRequest)
+		searchResult, err := c.runSearch(ctx, searchRequest)
 		if err != nil {
-			if isNetworkError(err) {
-				c.invalidateConnection(conn)
-			}
 			return err
 		}
 
@@ -713,12 +697,6 @@ func (c *PooledLDAPClient) SearchRootDSE(attributes []string) (*ldap.SearchResul
 		ctx, cancel := context.WithTimeout(c.currentBaseContext(), DefaultSearchTimeout)
 		defer cancel()
 
-		conn, err := c.pool.Get(ctx)
-		if err != nil {
-			return err
-		}
-		defer c.pool.Put(conn)
-
 		searchRequest := ldap.NewSearchRequest(
 			"",
 			ldap.ScopeBaseObject,
@@ -731,11 +709,8 @@ func (c *PooledLDAPClient) SearchRootDSE(attributes []string) (*ldap.SearchResul
 			nil,
 		)
 
-		searchResult, err := conn.conn.Search(searchRequest)
+		searchResult, err := c.runSearch(ctx, searchRequest)
 		if err != nil {
-			if isNetworkError(err) {
-				c.invalidateConnection(conn)
-			}
 			return err
 		}
 
@@ -783,15 +758,17 @@ func (c *PooledLDAPClient) PeerCertificates() ([]*x509.Certificate, error) {
 		if err != nil {
 			return err
 		}
-		defer c.pool.Put(conn)
 
 		state, ok := conn.conn.TLSConnectionState()
 		if !ok {
-			// Connection is not TLS despite TLS being configured; nothing
-			// to report rather than an error.
+			// Connection is not TLS despite TLS being configured; nothing to
+			// report rather than an error. The connection is healthy, so return
+			// it to the pool.
+			c.pool.Put(conn)
 			return nil
 		}
 		certs = state.PeerCertificates
+		c.pool.Put(conn)
 		return nil
 	})
 
@@ -806,30 +783,6 @@ func (c *PooledLDAPClient) PeerCertificates() ([]*x509.Certificate, error) {
 func (c *PooledLDAPClient) Close() {
 	if c.pool != nil {
 		c.pool.Close()
-	}
-}
-
-// invalidateConnection marks a connection as invalid so it won't be returned to the pool
-func (c *PooledLDAPClient) invalidateConnection(conn *PooledConnection) {
-	if conn != nil {
-		// Close the underlying connection directly instead of returning to pool
-		if conn.conn != nil {
-			if err := conn.conn.Close(); err != nil {
-				logger.SafeError("pooled_client", "Error closing LDAP connection", err, map[string]interface{}{
-					"server": c.config.ServerName,
-				})
-			} else {
-				logger.SafeDebug("pooled_client", "LDAP connection closed successfully", map[string]interface{}{
-					"server": c.config.ServerName,
-				})
-			}
-		}
-
-		// For interface abstraction, we can't directly access pool internals
-		// The connection won't be returned to the pool anyway since we're not calling Put()
-		logger.SafeDebug("pooled_client", "LDAP connection invalidated", map[string]interface{}{
-			"server": c.config.ServerName,
-		})
 	}
 }
 

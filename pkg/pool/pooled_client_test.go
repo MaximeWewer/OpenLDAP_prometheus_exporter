@@ -2,6 +2,7 @@ package pool
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -438,8 +439,10 @@ func TestIsNetworkError(t *testing.T) {
 	}
 }
 
-// TestInvalidateConnection tests the invalidateConnection method
-func TestInvalidateConnection(t *testing.T) {
+// TestDiscardConnection tests the pool's Discard path used to drop a broken
+// connection: it must be safe on a closed/invalid connection and on nil, and
+// idempotent (a follow-up Put must not re-pool it).
+func TestDiscardConnection(t *testing.T) {
 	cfg, cleanup := setupTestConfig(t)
 	defer cleanup()
 
@@ -454,11 +457,20 @@ func TestInvalidateConnection(t *testing.T) {
 		inUse:     false,
 	}
 
-	// Test invalidating a connection - should not panic
-	client.invalidateConnection(mockConn)
+	// Discarding a connection - should not panic and should mark it broken.
+	client.pool.Discard(mockConn)
+	if atomic.LoadInt32(&mockConn.broken) != 1 {
+		t.Error("expected connection to be marked broken after Discard")
+	}
 
-	// Test invalidating nil connection - should not panic
-	client.invalidateConnection(nil)
+	// A Put after Discard must be a no-op (not re-pool the dead connection).
+	client.pool.Put(mockConn)
+	if got := client.pool.Stats()["pool_size"]; got != int64(0) {
+		t.Errorf("pool_size = %v after Put of discarded conn, want 0", got)
+	}
+
+	// Discarding nil - should not panic.
+	client.pool.Discard(nil)
 }
 
 // TestPooledClientEdgeCases tests various edge cases for better coverage

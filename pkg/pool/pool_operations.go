@@ -50,9 +50,31 @@ func (p *ConnectionPool) Get(ctx context.Context) (*PooledConnection, error) {
 	return nil, errors.New("no available connections after max retries")
 }
 
+// Discard tears down a connection that failed mid-use (typically an I/O error
+// such as "connection closed") and accounts for it exactly once. Unlike Put it
+// never returns the connection to the pool. It is idempotent: the broken flag
+// is set with a CAS so a later Put (e.g. a deferred Put running after Discard)
+// becomes a no-op instead of re-pooling a dead socket or double-counting it.
+func (p *ConnectionPool) Discard(conn *PooledConnection) {
+	if conn == nil {
+		return
+	}
+	if !atomic.CompareAndSwapInt32(&conn.broken, 0, 1) {
+		return // already discarded
+	}
+	p.closeConnectionWithReason(conn, "error")
+}
+
 // Put returns a connection to the pool
 func (p *ConnectionPool) Put(conn *PooledConnection) {
 	if conn == nil {
+		return
+	}
+
+	// A connection torn down by Discard must never be re-pooled. Discard has
+	// already closed it and adjusted the active-connection count, so any Put
+	// landing here (e.g. a deferred Put after a network error) is a no-op.
+	if atomic.LoadInt32(&conn.broken) == 1 {
 		return
 	}
 
