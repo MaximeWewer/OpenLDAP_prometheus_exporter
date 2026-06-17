@@ -197,6 +197,15 @@ func (e *OpenLDAPExporter) Collect(ch chan<- prometheus.Metric) {
 	}
 }
 
+// CollectNow runs one collection cycle synchronously and returns once the
+// metric cache has been refreshed. Collection normally runs in the background
+// (see Collect); this forces an immediate, blocking cycle — used by tests and
+// available as an optional warm-up so the very first scrape already has data.
+// It serializes with the background cycle via collectMu.
+func (e *OpenLDAPExporter) CollectNow() {
+	e.runCollection()
+}
+
 // collectLoop runs background collection on the LDAP_UPDATE_EVERY interval. It
 // collects once immediately so the first scrape has data, then on each tick —
 // skipping a tick when the previous cycle is still running so a slow LDAP

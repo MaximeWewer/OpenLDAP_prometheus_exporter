@@ -172,6 +172,11 @@ func TestExporterIntegration(t *testing.T) {
 		t.Fatalf("Failed to register exporter: %v", err)
 	}
 
+	// Collection now runs in the background; force one synchronous cycle so the
+	// metric cache is populated before Gather (the scrape path only serves the
+	// cache and never collects live).
+	exp.CollectNow()
+
 	metricFamilies, err := registry.Gather()
 	if err != nil {
 		t.Fatalf("Failed to gather metrics: %v", err)
@@ -217,6 +222,11 @@ func TestConcurrentMetrics(t *testing.T) {
 		t.Fatalf("Failed to register exporter: %v", err)
 	}
 
+	// Collection now runs in the background; force one synchronous cycle so the
+	// metric cache is populated before Gather (the scrape path only serves the
+	// cache and never collects live).
+	exp.CollectNow()
+
 	const numGoroutines = 5
 	results := make(chan error, numGoroutines)
 	for i := 0; i < numGoroutines; i++ {
@@ -245,6 +255,11 @@ func TestMetricConsistency(t *testing.T) {
 	if err := registry.Register(exp); err != nil {
 		t.Fatalf("Failed to register exporter: %v", err)
 	}
+
+	// Collection now runs in the background; force one synchronous cycle so the
+	// metric cache is populated before Gather (the scrape path only serves the
+	// cache and never collects live).
+	exp.CollectNow()
 
 	metrics1, err := registry.Gather()
 	if err != nil {
