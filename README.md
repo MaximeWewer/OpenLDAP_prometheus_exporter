@@ -344,7 +344,7 @@ The file content is trimmed of trailing newlines. The raw bytes are cleared from
 | `LDAP_SERVER_NAME` | LDAP server name for logs and metrics | `openldap` | `ldap-prod-01` |
 | `LDAP_TLS` | Use TLS for connection | `false` | `true` |
 | `LDAP_TIMEOUT` | LDAP connection timeout (seconds) | `10` | `30` |
-| `LDAP_UPDATE_EVERY` | Metrics update interval (seconds) | `15` | `30` |
+| `LDAP_UPDATE_EVERY` | Background collection interval (seconds) | `15` | `30` |
 | `LDAP_AUTH_METHOD` | Authentication method (`simple` or `external`) | `simple` | `external` |
 | `LDAP_TLS_SKIP_VERIFY` | Skip TLS certificate verification | `false` | `true` |
 | `LDAP_TLS_CA` | Path to CA certificate for TLS | | `/path/to/ca.crt` |
@@ -355,6 +355,8 @@ The file content is trimmed of trailing newlines. The raw bytes are cleared from
 > **`LDAP_TLS_SERVER_NAME`**: by default TLS verification uses the host parsed from `LDAP_URL`, so dialing by IP requires an IP SAN in the certificate. Set this to verify against a DNS SAN instead while still connecting by IP. Note `LDAP_SERVER_NAME` is only the logs/metrics label and has no effect on TLS.
 
 > **SASL EXTERNAL**: Set `LDAP_AUTH_METHOD=external` to authenticate using the TLS client certificate (`LDAP_TLS_CERT`/`LDAP_TLS_KEY`) instead of username/password. In this mode, `LDAP_USERNAME` and `LDAP_PASSWORD` are not required.
+
+> **Scraping model**: the exporter collects from LDAP **in the background** every `LDAP_UPDATE_EVERY` seconds and caches the result; a `/metrics` scrape just serves that cached snapshot and never performs live LDAP I/O. This means a slow or unreachable LDAP server degrades metric *freshness* but never blocks `/metrics` (the scrape returns instantly with the last known values and `openldap_up`). Set `LDAP_UPDATE_EVERY` ≤ your Prometheus `scrape_interval` so each scrape sees fresh data.
 
 ### Circuit breaker configuration (optional)
 

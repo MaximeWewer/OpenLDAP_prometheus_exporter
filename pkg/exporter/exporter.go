@@ -74,6 +74,7 @@ type OpenLDAPExporter struct {
 	// the same oldValue would each Add the same delta and lose one of
 	// the increments.
 	collectMu      sync.Mutex
+	collecting     int32         // Atomic guard so background collection cycles never overlap
 	stopChan       chan struct{} // Signal to stop background goroutines
 	stopped        int32         // Atomic flag to indicate if exporter is stopped
 	closeOnce      sync.Once     // Ensures Close() is called only once
@@ -116,6 +117,9 @@ func NewOpenLDAPExporter(cfg *config.Config) *OpenLDAPExporter {
 	// Initialize Up metric to indicate exporter is running
 	exporter.metricsRegistry.Up.WithLabelValues(cfg.ServerName).Set(1)
 
+	// Start background collection so /metrics serves a cached snapshot instead
+	// of running live LDAP I/O on the scrape path (see Collect / collectLoop).
+	go exporter.collectLoop()
 	// Start cleanup routine for old counter entries
 	go exporter.cleanupOldCounters()
 	// Start sweeper that evicts stale accesslog series so a bad-actor
@@ -172,19 +176,68 @@ func (e *OpenLDAPExporter) Describe(ch chan<- *prometheus.Desc) {
 	}
 }
 
-// Collect gathers metrics from OpenLDAP and sends them to Prometheus.
+// Collect serves the most recent cached metric snapshot to Prometheus. It does
+// NO live LDAP I/O and never blocks on the connection pool or the circuit
+// breaker: collection runs in the background (collectLoop) on the
+// LDAP_UPDATE_EVERY ticker and writes into these metric vectors, so a /metrics
+// scrape just emits their current values and returns immediately.
 //
-// The entire body is serialized by collectMu: prometheus/client_golang
-// invokes Collect on its own goroutine and nothing stops two independent
-// HTTP handlers (for example /metrics for Prometheus and the same
-// endpoint hit by Grafana alerting) from calling it concurrently. The
-// delta-based counter update path in counter_management.go reads an old
-// value, computes a delta, and stores the new value — if two callers
-// read the same old value in parallel they both compute the same delta
-// and one of the increments is lost. Serializing Collect closes that
-// race at the cost of scrape concurrency (an acceptable tradeoff because
-// the exporter's bottleneck is the LDAP round-trips, not CPU).
+// This is the fix for "no metrics for hours": the previous design ran the full
+// live collection inside Collect under collectMu, so whenever the LDAP server
+// (or a dead pooled connection) was slow, the scrape handler hung for the whole
+// collection — up to LDAP_TIMEOUT — and every subsequent scrape piled up behind
+// it on collectMu. Decoupling the scrape from collection means a slow backend
+// degrades metric freshness, never scrape availability.
 func (e *OpenLDAPExporter) Collect(ch chan<- prometheus.Metric) {
+	e.totalScrapes.Add(1)
+	e.lastScrapeTime.Store(float64(time.Now().Unix()))
+
+	for _, metric := range e.getAllMetrics() {
+		metric.Collect(ch)
+	}
+}
+
+// collectLoop runs background collection on the LDAP_UPDATE_EVERY interval. It
+// collects once immediately so the first scrape has data, then on each tick —
+// skipping a tick when the previous cycle is still running so a slow LDAP
+// server cannot pile up overlapping collections.
+func (e *OpenLDAPExporter) collectLoop() {
+	interval := e.config.UpdateEvery
+	if interval <= 0 {
+		interval = config.DefaultUpdateEvery
+	}
+
+	e.collectOnce()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			e.collectOnce()
+		case <-e.stopChan:
+			return
+		}
+	}
+}
+
+// collectOnce runs a single background collection cycle unless one is already
+// in flight, in which case the tick is skipped (the in-flight cycle will
+// refresh the cache when it finishes).
+func (e *OpenLDAPExporter) collectOnce() {
+	if !atomic.CompareAndSwapInt32(&e.collecting, 0, 1) {
+		logger.SafeWarn("exporter", "Skipping collection tick; previous cycle still running", nil)
+		return
+	}
+	defer atomic.StoreInt32(&e.collecting, 0)
+	e.runCollection()
+}
+
+// runCollection performs one live collection cycle against LDAP and updates the
+// metric vectors that Collect serves. It is invoked only by collectLoop, never
+// by the scrape handler, so its latency (or a hang up to LDAP_TIMEOUT) never
+// affects /metrics availability.
+func (e *OpenLDAPExporter) runCollection() {
 	e.collectMu.Lock()
 	defer e.collectMu.Unlock()
 
@@ -192,24 +245,13 @@ func (e *OpenLDAPExporter) Collect(ch chan<- prometheus.Metric) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.Timeout)
 	defer cancel()
 
-	// Install the scrape-scoped context on the pool client so every
-	// LDAP round-trip issued by this Collect() honors the outer
-	// deadline / cancellation instead of running under a detached
-	// context.Background() internally. Cleared on exit so background
-	// probes (e.g. the maintenance loop) fall back to a plain
-	// background context.
+	// Install the collection-scoped context on the pool client so every LDAP
+	// round-trip honors the outer deadline / cancellation. Cleared on exit so
+	// background probes fall back to a plain background context.
 	e.client.SetBaseContext(ctx)
 	defer e.client.SetBaseContext(context.Background())
 
-	// Update scrape counter atomically so concurrent scrapes (Prometheus
-	// scraping /metrics while Grafana alerting hits it in parallel) do
-	// not lose increments on a plain Load+Store race.
-	e.totalScrapes.Add(1)
-	e.lastScrapeTime.Store(float64(time.Now().Unix()))
-
-	// Collect all metrics with error handling
 	err := e.collectAllMetricsWithContext(ctx)
-
 	if err != nil {
 		logger.SafeError("exporter", "Failed to collect metrics", err)
 		e.metricsRegistry.Up.WithLabelValues(e.config.ServerName).Set(0)
@@ -219,12 +261,6 @@ func (e *OpenLDAPExporter) Collect(ch chan<- prometheus.Metric) {
 		e.metricsRegistry.Up.WithLabelValues(e.config.ServerName).Set(1)
 	}
 
-	// Collect all metrics to channel
-	for _, metric := range e.getAllMetrics() {
-		metric.Collect(ch)
-	}
-
-	// Update internal monitoring
 	e.monitoring.RecordScrape(e.config.ServerName, time.Since(start), err == nil)
 
 	logger.SafeDebug("exporter", "Metrics collection completed", map[string]interface{}{
