@@ -485,8 +485,8 @@ The events stream runs in its **own goroutine, on its own ticker, with its own `
 **Output format** — one JSON object per line (JSON Lines):
 
 ```json
-{"ts":"2026-04-13T14:22:01.123Z","event":"bind.failure","server":"ldap-prod-1","source":"accesslog","req_start":"20260413142201.123456Z","req_session":"1234","actor":"","user_dn":"uid=arthur.meyer,ou=users,dc=iph,dc=lan","result":"invalid_credentials","result_code":"49"}
-{"ts":"2026-04-13T14:22:02.050Z","event":"account.lock","server":"ldap-prod-1","source":"accesslog","req_start":"20260413142202.050000Z","actor":"cn=admin,dc=iph,dc=lan","user_dn":"uid=arthur.meyer,ou=users,dc=iph,dc=lan"}
+{"ts":"2026-04-13T14:22:01.123Z","event":"bind.failure","server":"ldap-prod-1","source":"accesslog","req_start":"20260413142201.123456Z","req_session":"1234","actor":"","user_dn":"uid=toto.tata,ou=users,dc=iph,dc=lan","result":"invalid_credentials","result_code":"49"}
+{"ts":"2026-04-13T14:22:02.050Z","event":"account.lock","server":"ldap-prod-1","source":"accesslog","req_start":"20260413142202.050000Z","actor":"cn=admin,dc=iph,dc=lan","user_dn":"uid=toto.tata,ou=users,dc=iph,dc=lan"}
 ```
 
 Common fields: `ts`, `event`, `server`, `source`, `req_start`, `req_session`, `actor`. Per-type extras: `user_dn`, `target_dn`, `result`, `result_code`, `operation`, `attributes`.
