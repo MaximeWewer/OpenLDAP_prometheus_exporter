@@ -1,0 +1,127 @@
+groups:
+  # ---------------------------------------------------------------------------
+  # Recording rules: derived capacity ratios reused by alerts and dashboards.
+  # ---------------------------------------------------------------------------
+  - name: openldap-capacity
+    rules:
+      # MDB map fill ratio per (server, base_dn). The high-water mark
+      # (pages_used) over the configured mapsize (pages_max). Reaching 1.0 with
+      # an empty freelist is MDB_MAP_FULL, which blocks every write — including
+      # the ppolicy counters written during bind, surfacing as spurious
+      # "Invalid credentials". cn=accesslog is the usual first casualty.
+      - record: openldap:mdb_fill_ratio
+        expr: |
+          openldap_database_mdb_pages_used
+            / openldap_database_mdb_pages_max
+
+      # Operations currently in flight per server: initiated minus completed.
+      # A sustained non-zero floor means the thread pool can't drain as fast as
+      # requests arrive (pairs with openldap_threads_backload).
+      - record: openldap:operations_in_flight
+        expr: |
+          sum by (server) (
+            openldap_operations_initiated_total
+              - openldap_operations_completed_total
+          )
+
+  # ---------------------------------------------------------------------------
+  # Capacity 0 — MDB map saturation (exporter-native, no extra scrape target).
+  # ---------------------------------------------------------------------------
+  - name: openldap-capacity-mdb-alerts
+    rules:
+      - alert: OpenLDAPMDBMapNearFull
+        # Conservative: ignores the freelist, so it fires before reuse runs out.
+        expr: openldap:mdb_fill_ratio > 0.80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MDB {{ $labels.base_dn }} on {{ $labels.server }} at {{ $value | humanizePercentage }}"
+          description: "Map {{ $value | humanizePercentage }} full. Raise olcDbMaxSize (mdb_env_set_mapsize applies live, no restart) before it hits 100% and blocks binds."
+
+      - alert: OpenLDAPMDBMapCritical
+        expr: openldap:mdb_fill_ratio > 0.92
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MDB {{ $labels.base_dn }} on {{ $labels.server }} critically full ({{ $value | humanizePercentage }})"
+          description: "MDB_MAP_FULL imminent. Raise olcDbMaxSize now."
+
+      - alert: OpenLDAPMDBWillFillWithin24h
+        # Purge-health signal: project pages_used 24h forward from a 6h trend.
+        # If accesslog purge can't keep up with the write rate, the high-water
+        # mark climbs monotonically and this trips long before saturation.
+        expr: |
+          predict_linear(openldap_database_mdb_pages_used[6h], 24 * 3600)
+            > openldap_database_mdb_pages_max
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MDB {{ $labels.base_dn }} on {{ $labels.server }} trending to full within 24h"
+          description: "pages_used growth projects past pages_max inside a day. For cn=accesslog check olcAccessLogPurge cadence and olcAccessLogSuccess."
+
+      - alert: OpenLDAPMDBReadersNearMax
+        expr: openldap_database_mdb_readers_used / openldap_database_mdb_readers_max > 0.80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MDB {{ $labels.base_dn }} reader slots {{ $value | humanizePercentage }} used"
+          description: "Reader slot exhaustion blocks new read txns. Raise olcDbMaxReaders (needs slapd restart)."
+
+  # ---------------------------------------------------------------------------
+  # Capacity 1 — slapd file descriptors (the connection ceiling).
+  # NOT in cn=Monitor. Source = node_exporter textfile collector running
+  # scripts/slapd-fd.sh, which exports slapd_open_fds / slapd_max_fds.
+  # (Alternatives: process-exporter -> namedprocess_namegroup_open_filedesc,
+  #  cAdvisor -> container_file_descriptors. Adjust the metric names if used.)
+  # ---------------------------------------------------------------------------
+  - name: openldap-capacity-fd-alerts
+    rules:
+      - alert: SlapdFileDescriptorsNearLimit
+        expr: slapd_open_fds / slapd_max_fds > 0.80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "slapd FD usage {{ $value | humanizePercentage }} of limit"
+          description: "Each connection holds an FD; at the limit new connections are refused silently. Raise LimitNOFILE / ulimit -n for slapd."
+
+  # ---------------------------------------------------------------------------
+  # Capacity 2 — disk free on the MDB data volume.
+  # MDB preallocates data.mdb to mapsize and never shrinks it on disk, so the
+  # volume must hold the SUM of every backend's mapsize. Source = node_exporter.
+  # Adjust the mountpoint matcher to the filesystem holding olcDbDirectory.
+  # ---------------------------------------------------------------------------
+  - name: openldap-capacity-disk-alerts
+    rules:
+      - alert: SlapdDataVolumeLowSpace
+        # Free space must cover full preallocation of all maps, with headroom.
+        expr: |
+          node_filesystem_avail_bytes{mountpoint=~"/var/lib/ldap.*"}
+            < 1.5 * sum by (instance) (openldap_database_mdb_pages_max * 4096)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LDAP data volume on {{ $labels.instance }} low on space"
+          description: "Free space below 1.5x the sum of MDB map sizes. A grown mapsize can fail to allocate and crash writes."
+
+  # ---------------------------------------------------------------------------
+  # Capacity 3 — thread-pool / operation backlog (exporter-native).
+  # ---------------------------------------------------------------------------
+  - name: openldap-capacity-backlog-alerts
+    rules:
+      - alert: OpenLDAPThreadPoolSaturated
+        # All worker threads busy AND work queued: requests are now waiting.
+        expr: |
+          openldap_threads_active >= openldap_threads_max
+            and openldap_threads_pending > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "slapd thread pool saturated on {{ $labels.server }}"
+          description: "All worker threads busy with work queued ({{ $value }} pending). Raise olcThreads or investigate slow operations."

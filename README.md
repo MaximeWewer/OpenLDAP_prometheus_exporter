@@ -599,6 +599,13 @@ These metrics are collected in different configurable groups. Use `OPENLDAP_METR
 |----------|------|---------|-------------|-------------|
 | `openldap_database_entries` | Gauge | `server`, `base_dn`, `domain_component` | Number of entries per base DN with domain component filtering | `cn=Database,cn=Monitor` |
 | `openldap_database_info` | Gauge | `server`, `base_dn`, `is_shadow`, `context`, `readonly` | Database metadata | `cn=Database,cn=Monitor` |
+| `openldap_database_mdb_pages_used` | Gauge | `server`, `base_dn` | MDB pages in use (high-water mark). `× page size` = bytes | `olmMDBPagesUsed` |
+| `openldap_database_mdb_pages_max` | Gauge | `server`, `base_dn` | MDB mapsize in pages (`olcDbMaxSize / page size`) | `olmMDBPagesMax` |
+| `openldap_database_mdb_pages_free` | Gauge | `server`, `base_dn` | Free pages in the freelist (reusable space) | `olmMDBPagesFree` |
+| `openldap_database_mdb_readers_used` | Gauge | `server`, `base_dn` | Reader slots in use | `olmMDBReadersUsed` |
+| `openldap_database_mdb_readers_max` | Gauge | `server`, `base_dn` | Maximum reader slots | `olmMDBReadersMax` |
+
+> **MDB capacity.** Fill ratio `pages_used / pages_max` is the early warning for `MDB_MAP_FULL` (which blocks all writes — including the ppolicy counters written during bind, surfacing as spurious *Invalid credentials*). System suffixes with no `dc=` component (`cn=accesslog`, `cn=config`) bypass the [DC filter](#domain-component-dc-filtering) so the backends most likely to saturate stay visible. Ready-to-use recording/alert rules — MDB fill, 24h fill projection (accesslog purge health), readers, plus file-descriptor (capacity 1), data-volume free space (capacity 2) and thread-pool backlog (capacity 3) — ship in [`tests/docker/monitoring/rules/openldap-capacity.rules.yml`](tests/docker/monitoring/rules/openldap-capacity.rules.yml). Capacities 1 and 2 are not in `cn=Monitor`: feed them from node_exporter (`slapd_open_fds` via [`scripts/slapd-fd.sh`](tests/docker/monitoring/scripts/slapd-fd.sh), `node_filesystem_avail_bytes`). The Grafana **MDB Storage** and **Capacity** dashboard rows cover all of these.
 
 ### Server (`server`)
 

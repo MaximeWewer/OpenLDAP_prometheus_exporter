@@ -9,3 +9,11 @@ scrape_configs:
   - job_name: openldap-exporter
     static_configs:
       - targets: ["exporter:9330"]
+
+  # Capacity 1 (slapd file descriptors) and 2 (data-volume free space) are not
+  # in cn=Monitor — they come from node_exporter on each slapd host. Enable the
+  # textfile collector and run scripts/slapd-fd.sh to feed slapd_open_fds.
+  # Uncomment and point at your node_exporter targets:
+  # - job_name: node
+  #   static_configs:
+  #     - targets: ["slapd-node-1:9100", "slapd-node-2:9100"]
