@@ -39,7 +39,8 @@ func (e *OpenLDAPExporter) searchDatabaseEntries() (*ldap.SearchResult, error) {
 	return e.client.Search(
 		"cn=Databases,cn=Monitor",
 		"(objectClass=*)",
-		[]string{"namingContexts", "monitorCounter", "monitoredInfo", "monitorIsShadow", "monitorContext", "readOnly", "olmMDBEntries"},
+		[]string{"namingContexts", "monitorCounter", "monitoredInfo", "monitorIsShadow", "monitorContext", "readOnly", "olmMDBEntries",
+			"olmMDBPagesMax", "olmMDBPagesUsed", "olmMDBPagesFree", "olmMDBReadersMax", "olmMDBReadersUsed"},
 	)
 }
 
@@ -52,7 +53,12 @@ func (e *OpenLDAPExporter) processDatabaseEntry(server string, entry *ldap.Entry
 	}
 
 	domainComponents := e.extractDomainComponents(dbInfo.baseDN)
-	if !e.shouldIncludeDomain(domainComponents) {
+
+	// System backends (cn=accesslog, cn=config, ...) carry no dc= component, so the
+	// DC include/exclude filter would drop them. These are exactly the databases that
+	// can hit MDB_MAP_FULL (e.g. accesslog) and must stay visible. Only apply the DC
+	// filter to data suffixes that actually have domain components.
+	if len(domainComponents) > 0 && !e.shouldIncludeDomain(domainComponents) {
 		logger.SafeDebug("exporter", "Skipped database metric (filtered)", map[string]interface{}{
 			"base_dn": dbInfo.baseDN,
 			"reason":  "DC filter",
@@ -71,6 +77,14 @@ type databaseInfo struct {
 	context    string
 	readOnly   string
 	entryDN    string
+
+	// MDB storage stats (back-mdb only; left at NaN when the backend is not MDB)
+	mdbPagesUsed   float64
+	mdbPagesMax    float64
+	mdbPagesFree   float64
+	mdbReadersUsed float64
+	mdbReadersMax  float64
+	hasMDBStats    bool
 }
 
 // extractDatabaseInfo extracts database information from LDAP entry
@@ -113,6 +127,31 @@ func (e *OpenLDAPExporter) processDatabaseAttribute(attr *ldap.EntryAttribute, i
 		info.context = attr.Values[0]
 	case "readOnly":
 		info.readOnly = attr.Values[0]
+	case "olmMDBPagesMax":
+		if val, err := strconv.ParseFloat(attr.Values[0], 64); err == nil {
+			info.mdbPagesMax = val
+			info.hasMDBStats = true
+		}
+	case "olmMDBPagesUsed":
+		if val, err := strconv.ParseFloat(attr.Values[0], 64); err == nil {
+			info.mdbPagesUsed = val
+			info.hasMDBStats = true
+		}
+	case "olmMDBPagesFree":
+		if val, err := strconv.ParseFloat(attr.Values[0], 64); err == nil {
+			info.mdbPagesFree = val
+			info.hasMDBStats = true
+		}
+	case "olmMDBReadersMax":
+		if val, err := strconv.ParseFloat(attr.Values[0], 64); err == nil {
+			info.mdbReadersMax = val
+			info.hasMDBStats = true
+		}
+	case "olmMDBReadersUsed":
+		if val, err := strconv.ParseFloat(attr.Values[0], 64); err == nil {
+			info.mdbReadersUsed = val
+			info.hasMDBStats = true
+		}
 	}
 }
 
@@ -133,6 +172,17 @@ func (e *OpenLDAPExporter) recordDatabaseMetrics(server string, info *databaseIn
 		"context":   info.context,
 		"readonly":  info.readOnly,
 	}).Set(1)
+
+	// Record MDB storage stats when present (back-mdb backends only).
+	// fill ratio = pages_used / pages_max is the early warning for MDB_MAP_FULL.
+	if info.hasMDBStats {
+		labels := prometheus.Labels{"server": server, "base_dn": info.baseDN}
+		e.metricsRegistry.DatabaseMDBPagesUsed.With(labels).Set(info.mdbPagesUsed)
+		e.metricsRegistry.DatabaseMDBPagesMax.With(labels).Set(info.mdbPagesMax)
+		e.metricsRegistry.DatabaseMDBPagesFree.With(labels).Set(info.mdbPagesFree)
+		e.metricsRegistry.DatabaseMDBReadersUsed.With(labels).Set(info.mdbReadersUsed)
+		e.metricsRegistry.DatabaseMDBReadersMax.With(labels).Set(info.mdbReadersMax)
+	}
 
 	logger.SafeDebug("exporter", "Collected database metric", map[string]interface{}{
 		"server":    server,

@@ -33,6 +33,11 @@ type OpenLDAPMetrics struct {
 	ListenersInfo              *prometheus.GaugeVec
 	DatabaseEntries            *prometheus.GaugeVec
 	DatabaseInfo               *prometheus.GaugeVec
+	DatabaseMDBPagesUsed       *prometheus.GaugeVec
+	DatabaseMDBPagesMax        *prometheus.GaugeVec
+	DatabaseMDBPagesFree       *prometheus.GaugeVec
+	DatabaseMDBReadersUsed     *prometheus.GaugeVec
+	DatabaseMDBReadersMax      *prometheus.GaugeVec
 	HealthStatus               *prometheus.GaugeVec
 	ResponseTime               *prometheus.HistogramVec
 	ScrapeErrors               *prometheus.CounterVec
@@ -297,6 +302,49 @@ func NewOpenLDAPMetrics() *OpenLDAPMetrics {
 				Help:      "Number of entries per database/base DN with domain component filtering",
 			},
 			[]string{"server", "base_dn", "domain_component"},
+		),
+
+		// MDB storage metrics (back-mdb, cn=Databases,cn=Monitor)
+		// Fill ratio = pages_used / pages_max is the early-warning signal for MDB_MAP_FULL.
+		DatabaseMDBPagesUsed: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "database_mdb_pages_used",
+				Help:      "MDB pages currently in use per database (olmMDBPagesUsed). Multiply by page size for bytes",
+			},
+			[]string{"server", "base_dn"},
+		),
+		DatabaseMDBPagesMax: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "database_mdb_pages_max",
+				Help:      "MDB mapsize in pages per database (olmMDBPagesMax = olcDbMaxSize / page size). Alert on pages_used/pages_max",
+			},
+			[]string{"server", "base_dn"},
+		),
+		DatabaseMDBPagesFree: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "database_mdb_pages_free",
+				Help:      "MDB free pages within the mapped size per database (olmMDBPagesFree)",
+			},
+			[]string{"server", "base_dn"},
+		),
+		DatabaseMDBReadersUsed: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "database_mdb_readers_used",
+				Help:      "MDB reader slots in use per database (olmMDBReadersUsed). Exhaustion blocks new read txns",
+			},
+			[]string{"server", "base_dn"},
+		),
+		DatabaseMDBReadersMax: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "openldap",
+				Name:      "database_mdb_readers_max",
+				Help:      "MDB maximum reader slots per database (olmMDBReadersMax)",
+			},
+			[]string{"server", "base_dn"},
 		),
 
 		// System health metrics
@@ -571,6 +619,11 @@ func (m *OpenLDAPMetrics) Collectors() []prometheus.Collector {
 		// Database metrics
 		m.DatabaseEntries,
 		m.DatabaseInfo,
+		m.DatabaseMDBPagesUsed,
+		m.DatabaseMDBPagesMax,
+		m.DatabaseMDBPagesFree,
+		m.DatabaseMDBReadersUsed,
+		m.DatabaseMDBReadersMax,
 
 		// System health metrics
 		m.HealthStatus,
